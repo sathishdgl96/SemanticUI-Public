@@ -6,9 +6,10 @@ interface Props {
   kind: "bar" | "line";
   categories: string[];
   series: ChartSeries[];
+  title: string;
 }
 
-export default function AutoChart({ kind, categories, series }: Props) {
+export default function AutoChart({ kind, categories, series, title }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,5 +24,5 @@ export default function AutoChart({ kind, categories, series }: Props) {
     };
   }, [kind, categories, series]);
 
-  return <div ref={ref} className="auto-chart" role="img" aria-label="Query result chart" />;
+  return <div ref={ref} className="auto-chart" role="img" aria-label={title} />;
 }

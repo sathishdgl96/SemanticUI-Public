@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { QueryResponse, SemanticViewDetail } from "../api/types";
 import type { Selection } from "../explorer/FieldPanel";
 import AutoChart from "./AutoChart";
@@ -26,11 +27,18 @@ export default function QueryPanel({ result, detail, selection }: Props) {
     dimCol?.type,
   );
 
-  let chart = null;
-  if (kind !== "none" && dimCol) {
+  // Referentially stable across re-renders that don't change the underlying
+  // data (e.g. a background refetch of `detail`), so AutoChart's effect
+  // doesn't dispose/reinit the chart when nothing actually changed.
+  const categories = useMemo(() => {
+    if (!dimCol) return [];
     const dimIndex = result.columns.indexOf(dimCol);
-    const categories = result.rows.map((row) => String(row[dimIndex] ?? ""));
-    const series = selection.metrics.flatMap((ref) => {
+    return result.rows.map((row) => String(row[dimIndex] ?? ""));
+  }, [result, dimCol]);
+
+  const series = useMemo(() => {
+    if (!dimCol) return [];
+    return selection.metrics.flatMap((ref) => {
       const name = fieldName(ref);
       const colIndex = result.columns.findIndex(
         (c) => c.name.toUpperCase() === name.toUpperCase(),
@@ -54,7 +62,21 @@ export default function QueryPanel({ result, detail, selection }: Props) {
         },
       ];
     });
-    chart = <AutoChart kind={kind} categories={categories} series={series} />;
+  }, [result, detail.metrics, selection.metrics, dimCol]);
+
+  let chart = null;
+  if (kind !== "none" && dimCol) {
+    // A single series is named by this title instead of a legend box; with
+    // 2+ series the title still names the whole chart while the legend
+    // distinguishes the series.
+    const metricNames = selection.metrics.map(fieldName);
+    const title = dimName ? `${metricNames.join(", ")} by ${dimName}` : metricNames.join(", ");
+    chart = (
+      <>
+        <h3 className="chart-title">{title}</h3>
+        <AutoChart kind={kind} categories={categories} series={series} title={title} />
+      </>
+    );
   }
 
   return (
