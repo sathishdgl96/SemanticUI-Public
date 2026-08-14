@@ -109,8 +109,9 @@ client: client id + secret configured on the backend; a Snowflake
    SSO/MFA) and consents.
 3. `GET /auth/callback` → validate `state`; exchange the code at
    `/oauth/token-request` for **access + refresh tokens**; open one
-   connection to read `CURRENT_USER()` / `CURRENT_ACCOUNT()`; create a
-   session row (see Data Model); set the session cookie.
+   connection to read `CURRENT_USER()` / `CURRENT_ACCOUNT()`; upsert the
+   `users` row for that identity and create a session row referencing it
+   (see Data Model); set the session cookie.
 4. Cookie: session id only — `HttpOnly; Secure; SameSite=Lax`
    (`Secure` relaxed only under `AUTH_MODE=dev` on localhost).
 5. **Silent refresh:** Snowflake access tokens live ~10 minutes. On every
@@ -134,8 +135,10 @@ Postgres and connections rebuild silently on next use.
     default browser once for SSO/login (satisfies the "external browser
     support" requirement). Works with zero security-integration setup.
   - `password`: used for the single connect call, never stored.
-- On success: create a session row flagged `mode=dev` (no stored tokens) and
-  place the live connection directly into the cache.
+- On success: upsert the `users` row (same identity rule as OAuth — from
+  `CURRENT_ACCOUNT()` / `CURRENT_USER()` on the live connection), create a
+  session row flagged `mode=dev` (no stored tokens), and place the live
+  connection directly into the cache.
 - If the dev connection dies (idle eviction, backend restart), the API
   returns `401 AUTH_EXPIRED` and the user logs in again — acceptable in dev.
 - `GET /api/config` tells the frontend which mode is active so it renders
@@ -151,14 +154,27 @@ Postgres and connections rebuild silently on next use.
 
 ## Data Model (Postgres)
 
+`users` table — the durable identity anchor. Sessions are ephemeral, but
+everything the app will store *for* a user in later sub-projects (saved
+reports, workspace roles, sharing grants, personalization) needs a stable
+owner. Identity is exactly what OAuth (or the dev-mode connect) verified:
+the Snowflake account + username pair. Rows are upserted at login.
+
+| column            | type        | notes                                   |
+|-------------------|-------------|-----------------------------------------|
+| id                | uuid PK     |                                         |
+| snowflake_account | text        | from `CURRENT_ACCOUNT()`                |
+| snowflake_user    | text        | from `CURRENT_USER()`                   |
+| created_at        | timestamptz |                                         |
+|                   |             | UNIQUE (snowflake_account, snowflake_user) |
+
 `sessions` table:
 
 | column            | type        | notes                                   |
 |-------------------|-------------|-----------------------------------------|
 | id                | text PK     | 256-bit random, url-safe                |
+| user_id           | uuid FK     | → users.id                              |
 | mode              | text        | `oauth` \| `dev`                        |
-| snowflake_user    | text        | from `CURRENT_USER()`                   |
-| snowflake_account | text        | from `CURRENT_ACCOUNT()`                |
 | access_token_enc  | bytea null  | Fernet-encrypted (oauth only)           |
 | refresh_token_enc | bytea null  | Fernet-encrypted (oauth only)           |
 | access_expires_at | timestamptz | oauth only                              |
@@ -166,6 +182,18 @@ Postgres and connections rebuild silently on next use.
 | last_seen_at      | timestamptz | drives inactivity expiry                |
 
 Alembic owns the schema from day one.
+
+### Two security layers (scope note)
+
+- **Data security** is Snowflake RBAC — every query runs on the user's own
+  connection; the app never re-implements it.
+- **App-level authorization** protects what lives in Postgres (workspaces,
+  report definitions, sharing grants, personalization). Report *metadata*
+  is itself sensitive — names, metrics, filters reveal business focus — so
+  the default is that non-authorized users cannot even list it. The full
+  ACL model (workspace roles admin/editor/viewer, sharing grants) is
+  sub-project 3; this foundation contributes only the identity anchor
+  (`users`) it will build on.
 
 ## Connection Cache & Query Gateway
 
