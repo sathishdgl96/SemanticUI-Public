@@ -1,14 +1,28 @@
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.config import get_settings
 from app.errors import register_error_handlers
+from app.snowflake.provider import get_cache
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    stop = threading.Event()
+
+    def _sweep_loop() -> None:
+        while not stop.wait(60):
+            try:
+                get_cache().sweep()
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=_sweep_loop, daemon=True)
+    thread.start()
     yield
+    stop.set()
 
 
 def create_app() -> FastAPI:
