@@ -23,7 +23,10 @@
 - Defaults: session inactivity TTL 8h; connection idle TTL 900s; connection cache max 100; statement timeout 60s; row cap 10000.
 - When patching in tests, modules import sibling modules (`from app.snowflake import connect as sf_connect`) and call `sf_connect.fn(...)` so `monkeypatch.setattr` works.
 - TDD: every task writes the failing test first. Commit at the end of every task.
-- Frontend is light-theme only in this sub-project, but all chart colors go through the constants in `src/query/palette.ts` (validated palette; do not invent colors).
+- Frontend is light-theme only in this sub-project (dark mode deferred), but all chart colors go through the constants in `src/query/palette.ts` (validated palette; do not invent colors). UI chrome is never painted in a series color.
+- `npm run typecheck` (`tsc -b --noEmit`) must stay green — vitest runs through esbuild and never type-checks, so this is the only type gate. No `any`, no `@ts-expect-error`.
+- The user's PEM private key and passphrase are memory-only: never persisted to Postgres, never logged, never present in any response body including error `detail`.
+- Drag-and-drop is never the only path to an action — every drag interaction has a click/keyboard equivalent, and focus outlines are never removed.
 
 ## File Map (who owns what)
 
@@ -4674,9 +4677,1025 @@ git commit -m "feat: integration suite and setup docs"
 
 ---
 
+### Task 18: PEM key-pair authentication (memory-only)
+
+**Files:**
+- Modify: `backend/app/config.py` (add `direct_login_methods`), `backend/app/snowflake/connect.py` (add `connect_keypair`, extend `connect_dev` dispatch), `backend/app/auth/dev.py` (accept `keypair`, gate on `direct_login_methods`), `backend/app/auth/routes.py` (`/api/config` reports methods), `frontend/src/api/types.ts` (Config type), `frontend/src/auth/LoginPage.tsx` (PEM fields)
+- Test: `backend/tests/test_config.py`, `backend/tests/test_connect.py`, `backend/tests/test_dev_login.py`, `frontend/src/auth/LoginPage.test.tsx`
+
+**Interfaces:**
+- Consumes: `ApiError` (Task 1), `create_session`/`set_session_cookie` (Task 4), `get_cache()` (Task 7), `apiFetch` (Task 13), LoginPage (Task 14).
+- Produces: `Settings.direct_login_methods: list[Literal["externalbrowser","password","keypair"]]`; `load_private_key(pem: str, passphrase: str | None) -> bytes` (PEM→DER, raises `ApiError("AUTH_FAILED", 401, ...)` with NO key material in the message); `connect_keypair(*, account, user, private_key_der)`; `/auth/dev-login` accepting `authenticator="keypair"` with `private_key_pem` + `private_key_passphrase`; `GET /api/config -> {"authMode", "directLoginMethods"}`.
+
+**Security rules (non-negotiable, verify in tests):** the PEM and passphrase
+are never persisted to Postgres, never logged, never returned in any response
+body (including error `detail`), and the local variables holding them are
+dropped once the connection is built. `direct_login_methods` in production may
+contain ONLY `keypair`.
+
+- [ ] **Step 1: Write the failing config tests**
+
+Add to `backend/tests/test_config.py`:
+
+```python
+def test_direct_login_methods_default_development():
+    s = Settings(_env_file=None)
+    assert set(s.direct_login_methods) == {"externalbrowser", "password", "keypair"}
+
+
+def test_production_allows_only_keypair_direct_login():
+    s = Settings(
+        _env_file=None,
+        auth_mode="oauth",
+        environment="production",
+        snowflake_account="a",
+        oauth_client_id="b",
+        oauth_client_secret="c",
+        direct_login_methods=["keypair"],
+    )
+    assert s.direct_login_methods == ["keypair"]
+
+    with pytest.raises(ValidationError, match="only 'keypair'"):
+        Settings(
+            _env_file=None,
+            auth_mode="oauth",
+            environment="production",
+            snowflake_account="a",
+            oauth_client_id="b",
+            oauth_client_secret="c",
+            direct_login_methods=["password"],
+        )
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_config.py -v`
+Expected: FAIL — `direct_login_methods` is not a field.
+
+- [ ] **Step 3: Implement the config field**
+
+In `backend/app/config.py`, add the field and extend `_guard`:
+
+```python
+    direct_login_methods: list[Literal["externalbrowser", "password", "keypair"]] = [
+        "externalbrowser",
+        "password",
+        "keypair",
+    ]
+```
+
+and inside `_guard`, before `return self`:
+
+```python
+        if self.environment == "production":
+            disallowed = [m for m in self.direct_login_methods if m != "keypair"]
+            if disallowed:
+                raise ValueError(
+                    f"in production, direct_login_methods may contain only 'keypair'; got {disallowed}"
+                )
+```
+
+- [ ] **Step 4: Run to verify pass**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_config.py -v`
+Expected: PASS.
+
+- [ ] **Step 5: Write the failing key-loading/connect tests**
+
+Add to `backend/tests/test_connect.py`:
+
+```python
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+from app.errors import ApiError
+
+
+def _make_pem(passphrase: bytes | None = None) -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    enc = (
+        serialization.BestAvailableEncryption(passphrase)
+        if passphrase
+        else serialization.NoEncryption()
+    )
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=enc,
+    ).decode()
+
+
+def test_load_private_key_plain_and_encrypted():
+    der = sf_connect.load_private_key(_make_pem(), None)
+    assert isinstance(der, bytes) and len(der) > 100
+    der2 = sf_connect.load_private_key(_make_pem(b"s3cret"), "s3cret")
+    assert isinstance(der2, bytes)
+
+
+def test_load_private_key_errors_do_not_leak_key_material():
+    pem = _make_pem(b"s3cret")
+    with pytest.raises(ApiError) as exc_info:
+        sf_connect.load_private_key(pem, "wrong-passphrase")
+    err = exc_info.value
+    assert err.code == "AUTH_FAILED"
+    assert "PRIVATE KEY" not in str(err.message)
+    assert "PRIVATE KEY" not in str(err.detail or "")
+
+    with pytest.raises(ApiError) as exc_info:
+        sf_connect.load_private_key("not-a-pem-at-all", None)
+    assert exc_info.value.code == "AUTH_FAILED"
+
+
+def test_connect_dev_keypair_passes_der(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        snowflake.connector, "connect", lambda **kw: seen.update(kw) or "CONN"
+    )
+    pem = _make_pem()
+    sf_connect.connect_dev(
+        account="acct", user="alice", authenticator="keypair", private_key_pem=pem
+    )
+    assert seen["private_key"] == sf_connect.load_private_key(pem, None)
+    assert "password" not in seen
+    assert "authenticator" not in seen
+    assert seen["session_parameters"]["STATEMENT_TIMEOUT_IN_SECONDS"] == 60
+```
+
+Add `import pytest` to the file's imports if absent.
+
+- [ ] **Step 6: Run to verify failure**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_connect.py -v`
+Expected: FAIL — `load_private_key` does not exist.
+
+- [ ] **Step 7: Implement key loading and the keypair connect path**
+
+In `backend/app/snowflake/connect.py`, add imports and functions:
+
+```python
+from cryptography.hazmat.primitives import serialization
+
+from app.errors import ApiError
+
+
+def load_private_key(pem: str, passphrase: str | None) -> bytes:
+    """Parse a PEM private key into DER bytes for the Snowflake connector.
+
+    Never include the caller's key material in the raised error.
+    """
+    try:
+        key = serialization.load_pem_private_key(
+            pem.encode(),
+            password=passphrase.encode() if passphrase else None,
+        )
+    except Exception:
+        raise ApiError(
+            "AUTH_FAILED",
+            401,
+            "Could not read the private key. Check the PEM and passphrase.",
+        ) from None
+    return key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
+def connect_keypair(*, account: str, user: str, private_key_der: bytes) -> Any:
+    return snowflake.connector.connect(
+        account=account,
+        user=user,
+        private_key=private_key_der,
+        session_parameters=_session_parameters(),
+    )
+```
+
+`raise ... from None` suppresses the original exception's context so no
+cryptography internals travel with the error.
+
+Extend `connect_dev` to dispatch on `keypair` (replace the function body's
+kwargs assembly):
+
+```python
+def connect_dev(
+    *,
+    account: str,
+    user: str,
+    authenticator: str,
+    password: str | None = None,
+    private_key_pem: str | None = None,
+    private_key_passphrase: str | None = None,
+) -> Any:
+    if authenticator == "keypair":
+        if not private_key_pem:
+            raise ApiError("AUTH_FAILED", 401, "A private key is required")
+        return connect_keypair(
+            account=account,
+            user=user,
+            private_key_der=load_private_key(private_key_pem, private_key_passphrase),
+        )
+    kwargs: dict[str, Any] = {
+        "account": account,
+        "user": user,
+        "session_parameters": _session_parameters(),
+    }
+    if authenticator == "password":
+        kwargs["password"] = password
+    else:
+        kwargs["authenticator"] = "externalbrowser"
+    return snowflake.connector.connect(**kwargs)
+```
+
+- [ ] **Step 8: Run to verify pass**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_connect.py -v`
+Expected: PASS.
+
+- [ ] **Step 9: Write the failing endpoint tests**
+
+Add to `backend/tests/test_dev_login.py`:
+
+```python
+def test_keypair_login_succeeds_and_stores_nothing(client, db, monkeypatch):
+    from tests.test_connect import _make_pem
+
+    pem = _make_pem()
+    conn = FakeConnection()
+    seen = {}
+    monkeypatch.setattr(
+        sf_connect, "connect_dev", lambda **kw: seen.update(kw) or conn
+    )
+    monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
+
+    r = client.post(
+        "/auth/dev-login",
+        json={
+            "account": "acct",
+            "user": "alice",
+            "authenticator": "keypair",
+            "private_key_pem": pem,
+            "private_key_passphrase": None,
+        },
+    )
+    assert r.status_code == 200
+    assert seen["private_key_pem"] == pem
+    # the PEM must never come back out
+    assert "PRIVATE KEY" not in r.text
+    # ...and must never be persisted
+    from app.db.models import DbSession
+    from sqlalchemy import select
+
+    for row in db.scalars(select(DbSession)).all():
+        assert row.access_token_enc is None
+        assert row.refresh_token_enc is None
+
+
+def test_method_not_enabled_is_rejected(make_client):
+    client = make_client(
+        SEMANTICUI_AUTH_MODE="dev",
+        SEMANTICUI_DIRECT_LOGIN_METHODS='["keypair"]',
+    )
+    r = client.post(
+        "/auth/dev-login",
+        json={"account": "a", "user": "u", "authenticator": "password", "password": "p"},
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "AUTH_FAILED"
+
+
+def test_config_reports_direct_login_methods(client):
+    body = client.get("/api/config").json()
+    assert body["authMode"] == "dev"
+    assert "keypair" in body["directLoginMethods"]
+```
+
+- [ ] **Step 10: Run to verify failure**
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_dev_login.py -v`
+Expected: FAIL — request model rejects the new fields / config lacks the key.
+
+- [ ] **Step 11: Implement the endpoint changes**
+
+In `backend/app/auth/dev.py`, extend the request model and the handler:
+
+```python
+class DevLoginRequest(BaseModel):
+    account: str
+    user: str
+    authenticator: Literal["externalbrowser", "password", "keypair"] = "externalbrowser"
+    password: str | None = None
+    private_key_pem: str | None = Field(default=None, max_length=16384)
+    private_key_passphrase: str | None = None
+```
+
+(import `Field` from pydantic.) Inside `dev_login`, replace the mode guard and
+the connect call:
+
+```python
+    settings = get_settings()
+    if req.authenticator not in settings.direct_login_methods:
+        raise ApiError(
+            "AUTH_FAILED", 400, f"Login method '{req.authenticator}' is not enabled"
+        )
+    if req.authenticator != "keypair" and settings.auth_mode != "dev":
+        raise ApiError("AUTH_FAILED", 400, "Dev login is disabled in oauth mode")
+    try:
+        conn = sf_connect.connect_dev(
+            account=req.account,
+            user=req.user,
+            authenticator=req.authenticator,
+            password=req.password,
+            private_key_pem=req.private_key_pem,
+            private_key_passphrase=req.private_key_passphrase,
+        )
+    except ApiError:
+        raise
+    except Exception as exc:
+        detail = None if req.authenticator == "keypair" else str(exc)
+        raise ApiError("AUTH_FAILED", 401, "Snowflake login failed", detail=detail)
+```
+
+The `detail` suppression on the keypair path keeps connector output — which
+can echo request context — out of a key-bearing request's response.
+
+In `backend/app/auth/routes.py`, extend the config endpoint:
+
+```python
+@router.get("/api/config")
+def config() -> dict:
+    settings = get_settings()
+    return {
+        "authMode": settings.auth_mode,
+        "directLoginMethods": settings.direct_login_methods,
+    }
+```
+
+- [ ] **Step 12: Run the full backend suite**
+
+Run: `.venv/Scripts/python.exe -m pytest -v`
+Expected: all PASS.
+
+- [ ] **Step 13: Add the PEM option to the login UI**
+
+In `frontend/src/api/types.ts`, extend Config:
+
+```ts
+export interface Config {
+  authMode: "oauth" | "dev";
+  directLoginMethods: ("externalbrowser" | "password" | "keypair")[];
+}
+```
+
+In `frontend/src/auth/LoginPage.tsx`: drive the authenticator `<select>` from
+`config.data.directLoginMethods` (label map: externalbrowser → "External
+browser (SSO)", password → "Password", keypair → "Key pair (PEM)"); render the
+OAuth link when `authMode === "oauth"` AND the direct form when
+`directLoginMethods` is non-empty (both can appear together); when
+`authenticator === "keypair"` show a `<textarea>` labelled "Private key (PEM)"
+and a password-type "Key passphrase (optional)" input; send
+`private_key_pem` and `private_key_passphrase` (null when blank) in the body.
+Never write the PEM to localStorage/sessionStorage, and clear it from state on
+successful login.
+
+Add to `frontend/src/auth/LoginPage.test.tsx`:
+
+```tsx
+  it("submits a PEM key when the keypair method is chosen", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser", "keypair"],
+    });
+    renderPage();
+    await screen.findByLabelText(/account/i);
+    await userEvent.selectOptions(screen.getByLabelText(/authenticator/i), "keypair");
+    await userEvent.type(screen.getByLabelText(/account/i), "acct");
+    await userEvent.type(screen.getByLabelText(/^user/i), "alice");
+    await userEvent.type(screen.getByLabelText(/private key/i), "PEMDATA");
+    apiFetchMock.mockResolvedValueOnce({
+      snowflakeUser: "ALICE", snowflakeAccount: "ACME", mode: "dev",
+    });
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      const body = JSON.parse(apiFetchMock.mock.lastCall![1]!.body as string);
+      expect(body.authenticator).toBe("keypair");
+      expect(body.private_key_pem).toBe("PEMDATA");
+    });
+  });
+```
+
+Update the existing LoginPage tests' `/api/config` mocks to include
+`directLoginMethods` so they keep passing.
+
+- [ ] **Step 14: Run frontend tests and typecheck**
+
+Run (from `frontend/`): `npm test` then `npm run typecheck`
+Expected: all PASS, typecheck clean.
+
+- [ ] **Step 15: Commit**
+
+```bash
+git add backend frontend
+git commit -m "feat: snowflake key-pair (PEM) authentication, memory-only"
+```
+
+---
+
+### Task 19: Drag-and-drop field wells + legend charting
+
+**Files:**
+- Create: `frontend/src/explorer/wells.ts`, `frontend/src/explorer/FieldChip.tsx`, `frontend/src/explorer/WellPanel.tsx`
+- Modify: `frontend/src/explorer/FieldPanel.tsx` (draggable source list + click-to-add), `frontend/src/explorer/ExplorerPage.tsx` (wells state, DndContext), `frontend/src/query/chooseChart.ts`, `frontend/src/query/QueryPanel.tsx`, `frontend/src/query/buildChartOption.ts` (legend series), `frontend/src/index.css`, `frontend/package.json` (dnd-kit)
+- Test: `frontend/src/explorer/wells.test.ts`, `frontend/src/explorer/WellPanel.test.tsx`, `frontend/src/query/chooseChart.test.ts` (extend), `frontend/src/query/pivotLegend.test.ts`
+
+**Interfaces:**
+- Consumes: `FieldInfo`/`SemanticViewDetail`/`QueryResponse` (Task 13), ExplorerPage + FieldPanel (Task 15), chart modules (Task 16).
+- Produces: `type WellId = "axis" | "legend" | "values"`; `interface Wells { axis: string[]; legend: string[]; values: string[] }` (refs `"TABLE.NAME"`, axis/legend capped at 1); `emptyWells(): Wells`; `canDrop(wellId, kind: "dimension" | "metric"): boolean`; `addToWell(wells, wellId, ref, kind): Wells` (rejects invalid kind, replaces when the well is capped, de-dupes); `removeFromWell(wells, wellId, ref): Wells`; `reorderWell(wells, wellId, from, to): Wells`; `defaultWellFor(kind, wells): WellId`; `wellsToQuery(wells): {dimensions: string[]; metrics: string[]}` (axis first, then legend); `pivotLegend(result, axisName, legendName, metricName)` → `{categories, series}`.
+
+**Install:** `npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities`
+
+- [ ] **Step 1: Write the failing wells-model tests**
+
+`frontend/src/explorer/wells.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import {
+  addToWell, canDrop, defaultWellFor, emptyWells, removeFromWell,
+  reorderWell, wellsToQuery,
+} from "./wells";
+
+describe("wells model", () => {
+  it("only accepts the right field kind", () => {
+    expect(canDrop("axis", "dimension")).toBe(true);
+    expect(canDrop("axis", "metric")).toBe(false);
+    expect(canDrop("legend", "dimension")).toBe(true);
+    expect(canDrop("values", "metric")).toBe(true);
+    expect(canDrop("values", "dimension")).toBe(false);
+  });
+
+  it("rejects a wrong-kind add", () => {
+    const w = addToWell(emptyWells(), "axis", "ORDERS.REVENUE", "metric");
+    expect(w).toEqual(emptyWells());
+  });
+
+  it("caps axis and legend at one field, replacing", () => {
+    let w = addToWell(emptyWells(), "axis", "ORDERS.DATE", "dimension");
+    w = addToWell(w, "axis", "CUSTOMERS.REGION", "dimension");
+    expect(w.axis).toEqual(["CUSTOMERS.REGION"]);
+  });
+
+  it("accumulates and de-dupes values", () => {
+    let w = addToWell(emptyWells(), "values", "ORDERS.REVENUE", "metric");
+    w = addToWell(w, "values", "ORDERS.COUNT", "metric");
+    w = addToWell(w, "values", "ORDERS.REVENUE", "metric");
+    expect(w.values).toEqual(["ORDERS.REVENUE", "ORDERS.COUNT"]);
+  });
+
+  it("removes and reorders", () => {
+    let w = addToWell(emptyWells(), "values", "A.X", "metric");
+    w = addToWell(w, "values", "A.Y", "metric");
+    expect(reorderWell(w, "values", 0, 1).values).toEqual(["A.Y", "A.X"]);
+    expect(removeFromWell(w, "values", "A.X").values).toEqual(["A.Y"]);
+  });
+
+  it("picks a default well: axis first, then legend", () => {
+    const w = emptyWells();
+    expect(defaultWellFor("metric", w)).toBe("values");
+    expect(defaultWellFor("dimension", w)).toBe("axis");
+    const withAxis = addToWell(w, "axis", "A.X", "dimension");
+    expect(defaultWellFor("dimension", withAxis)).toBe("legend");
+  });
+
+  it("maps wells to a query body with axis before legend", () => {
+    let w = addToWell(emptyWells(), "axis", "A.DATE", "dimension");
+    w = addToWell(w, "legend", "C.REGION", "dimension");
+    w = addToWell(w, "values", "A.REVENUE", "metric");
+    expect(wellsToQuery(w)).toEqual({
+      dimensions: ["A.DATE", "C.REGION"],
+      metrics: ["A.REVENUE"],
+    });
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `npm test` — FAIL, cannot resolve `./wells`.
+
+- [ ] **Step 3: Implement the wells model**
+
+`frontend/src/explorer/wells.ts`:
+
+```ts
+export type WellId = "axis" | "legend" | "values";
+export type FieldKind = "dimension" | "metric";
+
+export interface Wells {
+  axis: string[];
+  legend: string[];
+  values: string[];
+}
+
+const CAPS: Record<WellId, number> = { axis: 1, legend: 1, values: Infinity };
+const ACCEPTS: Record<WellId, FieldKind> = {
+  axis: "dimension",
+  legend: "dimension",
+  values: "metric",
+};
+
+export function emptyWells(): Wells {
+  return { axis: [], legend: [], values: [] };
+}
+
+export function canDrop(wellId: WellId, kind: FieldKind): boolean {
+  return ACCEPTS[wellId] === kind;
+}
+
+export function addToWell(
+  wells: Wells, wellId: WellId, ref: string, kind: FieldKind,
+): Wells {
+  if (!canDrop(wellId, kind)) return wells;
+  const current = wells[wellId];
+  if (current.includes(ref)) return wells;
+  const next = CAPS[wellId] === 1 ? [ref] : [...current, ref];
+  return { ...wells, [wellId]: next };
+}
+
+export function removeFromWell(wells: Wells, wellId: WellId, ref: string): Wells {
+  return { ...wells, [wellId]: wells[wellId].filter((r) => r !== ref) };
+}
+
+export function reorderWell(
+  wells: Wells, wellId: WellId, from: number, to: number,
+): Wells {
+  const next = [...wells[wellId]];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return { ...wells, [wellId]: next };
+}
+
+export function defaultWellFor(kind: FieldKind, wells: Wells): WellId {
+  if (kind === "metric") return "values";
+  return wells.axis.length === 0 ? "axis" : "legend";
+}
+
+export function wellsToQuery(wells: Wells): {
+  dimensions: string[];
+  metrics: string[];
+} {
+  return {
+    dimensions: [...wells.axis, ...wells.legend],
+    metrics: [...wells.values],
+  };
+}
+```
+
+- [ ] **Step 4: Run to verify pass**
+
+Run: `npm test` — the wells suite PASSES.
+
+- [ ] **Step 5: Write the failing legend-pivot and chart-choice tests**
+
+`frontend/src/query/pivotLegend.test.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { pivotLegend } from "./pivotLegend";
+
+const RESULT = {
+  columns: [
+    { name: "ORDER_DATE", type: "DATE" },
+    { name: "REGION", type: "TEXT" },
+    { name: "REVENUE", type: "FIXED" },
+  ],
+  rows: [
+    ["2026-01-01", "EAST", 10],
+    ["2026-01-01", "WEST", 20],
+    ["2026-01-02", "EAST", 30],
+  ],
+  truncated: false,
+  sfqid: null,
+  sql: "",
+};
+
+describe("pivotLegend", () => {
+  it("splits one metric into a series per legend value", () => {
+    const { categories, series } = pivotLegend(
+      RESULT, "ORDER_DATE", "REGION", "REVENUE",
+    );
+    expect(categories).toEqual(["2026-01-01", "2026-01-02"]);
+    expect(series.map((s) => s.name)).toEqual(["EAST", "WEST"]);
+    expect(series[0].data).toEqual([10, 30]);
+    expect(series[1].data).toEqual([20, null]);
+  });
+
+  it("assigns a stable colorIndex by legend order", () => {
+    const { series } = pivotLegend(RESULT, "ORDER_DATE", "REGION", "REVENUE");
+    expect(series.map((s) => s.colorIndex)).toEqual([0, 1]);
+  });
+});
+```
+
+Extend `frontend/src/query/chooseChart.test.ts`:
+
+```ts
+import { chooseChartForWells } from "./chooseChart";
+
+describe("chooseChartForWells", () => {
+  it("bar/line for axis + values", () => {
+    expect(chooseChartForWells(1, 0, 2, "TEXT")).toBe("bar");
+    expect(chooseChartForWells(1, 0, 1, "DATE")).toBe("line");
+  });
+  it("charts axis + legend + one metric", () => {
+    expect(chooseChartForWells(1, 1, 1, "TEXT")).toBe("bar");
+    expect(chooseChartForWells(1, 1, 1, "TIMESTAMP_NTZ")).toBe("line");
+  });
+  it("none without an axis or without metrics", () => {
+    expect(chooseChartForWells(0, 1, 1, "TEXT")).toBe("none");
+    expect(chooseChartForWells(1, 0, 0, "TEXT")).toBe("none");
+  });
+});
+```
+
+- [ ] **Step 6: Run to verify failure**
+
+Run: `npm test` — FAIL on both new suites.
+
+- [ ] **Step 7: Implement the pivot and chart choice**
+
+`frontend/src/query/pivotLegend.ts`:
+
+```ts
+import type { QueryResponse } from "../api/types";
+import type { ChartSeries } from "./buildChartOption";
+
+export function pivotLegend(
+  result: QueryResponse,
+  axisName: string,
+  legendName: string,
+  metricName: string,
+): { categories: string[]; series: ChartSeries[] } {
+  const idx = (name: string) =>
+    result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());
+  const a = idx(axisName), l = idx(legendName), m = idx(metricName);
+  if (a < 0 || l < 0 || m < 0) return { categories: [], series: [] };
+
+  const categories: string[] = [];
+  const legendValues: string[] = [];
+  const cell = new Map<string, number | null>();
+
+  for (const row of result.rows) {
+    const category = String(row[a] ?? "");
+    const legend = String(row[l] ?? "");
+    if (!categories.includes(category)) categories.push(category);
+    if (!legendValues.includes(legend)) legendValues.push(legend);
+    const value = row[m];
+    cell.set(
+      `${category} ${legend}`,
+      value === null || value === undefined ? null : Number(value),
+    );
+  }
+
+  const series = legendValues.map((legend, i) => ({
+    name: legend,
+    colorIndex: i,
+    data: categories.map((c) => cell.get(`${c} ${legend}`) ?? null),
+  }));
+  return { categories, series };
+}
+```
+
+Add to `frontend/src/query/chooseChart.ts` (keep the existing `chooseChart`
+export — Task 16's tests still cover it):
+
+```ts
+export function chooseChartForWells(
+  axisCount: number,
+  legendCount: number,
+  metricCount: number,
+  axisType?: string,
+): ChartKind {
+  if (axisCount !== 1 || metricCount < 1) return "none";
+  if (axisType && /DATE|TIMESTAMP/i.test(axisType)) return "line";
+  return "bar";
+}
+```
+
+- [ ] **Step 8: Run to verify pass**
+
+Run: `npm test` — both new suites PASS.
+
+- [ ] **Step 9: Write the failing WellPanel interaction test**
+
+`frontend/src/explorer/WellPanel.test.tsx`:
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import WellPanel from "./WellPanel";
+import { addToWell, emptyWells } from "./wells";
+
+describe("WellPanel", () => {
+  it("lists chips per well and removes on click", async () => {
+    const wells = addToWell(emptyWells(), "values", "ORDERS.REVENUE", "metric");
+    const onRemove = vi.fn();
+    render(
+      <WellPanel wells={wells} onRemove={onRemove} onRun={vi.fn()} running={false} />,
+    );
+    expect(screen.getByText("Values")).toBeInTheDocument();
+    expect(screen.getByText("Axis")).toBeInTheDocument();
+    expect(screen.getByText("Legend")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /remove ORDERS\.REVENUE/i }),
+    );
+    expect(onRemove).toHaveBeenCalledWith("values", "ORDERS.REVENUE");
+  });
+
+  it("shows an empty hint and disables Run with no fields", () => {
+    render(
+      <WellPanel wells={emptyWells()} onRemove={vi.fn()} onRun={vi.fn()} running={false} />,
+    );
+    expect(screen.getAllByText(/drop a field here/i).length).toBe(3);
+    expect(screen.getByRole("button", { name: /run/i })).toBeDisabled();
+  });
+});
+```
+
+- [ ] **Step 10: Run to verify failure**
+
+Run: `npm test` — FAIL, cannot resolve `./WellPanel`.
+
+- [ ] **Step 11: Implement the chip and well components**
+
+`frontend/src/explorer/FieldChip.tsx`:
+
+```tsx
+import type { FieldKind, WellId } from "./wells";
+
+interface Props {
+  refName: string;
+  kind: FieldKind;
+  wellId: WellId;
+  onRemove: (wellId: WellId, ref: string) => void;
+}
+
+export default function FieldChip({ refName, kind, wellId, onRemove }: Props) {
+  return (
+    <span className="chip" data-kind={kind}>
+      <span className="chip-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
+      <span className="chip-label">{refName}</span>
+      <button
+        type="button"
+        className="chip-remove"
+        aria-label={`Remove ${refName}`}
+        onClick={() => onRemove(wellId, refName)}
+      >
+        &times;
+      </button>
+    </span>
+  );
+}
+```
+
+`frontend/src/explorer/WellPanel.tsx` (drop targets use dnd-kit's
+`useDroppable`; chips render through `FieldChip`):
+
+```tsx
+import { useDroppable } from "@dnd-kit/core";
+import FieldChip from "./FieldChip";
+import type { WellId, Wells } from "./wells";
+
+const WELLS: { id: WellId; label: string; hint: string }[] = [
+  { id: "axis", label: "Axis", hint: "Drop a field here" },
+  { id: "legend", label: "Legend", hint: "Drop a field here" },
+  { id: "values", label: "Values", hint: "Drop a field here" },
+];
+
+interface Props {
+  wells: Wells;
+  onRemove: (wellId: WellId, ref: string) => void;
+  onRun: () => void;
+  running: boolean;
+}
+
+function Well({ id, label, hint, refs, onRemove }: {
+  id: WellId; label: string; hint: string; refs: string[];
+  onRemove: Props["onRemove"];
+}) {
+  const { setNodeRef, isOver, active } = useDroppable({ id });
+  const kind = active?.data.current?.kind;
+  const accepts = kind === undefined || (id === "values" ? kind === "metric" : kind === "dimension");
+  const state = !active ? "" : accepts ? (isOver ? "over" : "eligible") : "blocked";
+  return (
+    <section ref={setNodeRef} className="well" data-state={state} aria-label={label}>
+      <h4>{label}</h4>
+      {refs.length === 0 ? (
+        <p className="well-hint">{hint}</p>
+      ) : (
+        refs.map((r) => (
+          <FieldChip
+            key={r}
+            refName={r}
+            kind={id === "values" ? "metric" : "dimension"}
+            wellId={id}
+            onRemove={onRemove}
+          />
+        ))
+      )}
+    </section>
+  );
+}
+
+export default function WellPanel({ wells, onRemove, onRun, running }: Props) {
+  const total = wells.axis.length + wells.legend.length + wells.values.length;
+  return (
+    <div className="well-panel">
+      {WELLS.map((w) => (
+        <Well key={w.id} {...w} refs={wells[w.id]} onRemove={onRemove} />
+      ))}
+      <button onClick={onRun} disabled={total === 0 || running}>
+        {running ? "Running..." : "Run"}
+      </button>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 12: Run to verify pass**
+
+Run: `npm test` — the WellPanel suite PASSES.
+
+- [ ] **Step 13: Wire drag-and-drop into ExplorerPage and FieldPanel**
+
+In `frontend/src/explorer/FieldPanel.tsx`: replace the checkbox rows with
+draggable rows. Each field row uses dnd-kit's `useDraggable` with
+`id: ref` and `data: { ref, kind }`, renders the ⬦/Σ glyph, the ref, and its
+data type, and calls `onAdd(defaultWellFor(kind, wells), ref, kind)` on click
+(so drag is never the only path). Keep the component's props shaped
+`{ detail, wells, onAdd }`; the Run button moves to `WellPanel`.
+
+In `frontend/src/explorer/ExplorerPage.tsx`: replace `selection` state with
+`wells` state (`emptyWells()`), wrap the three panes in dnd-kit's
+`<DndContext>` configured with `PointerSensor` and `KeyboardSensor`, and on
+`onDragEnd` call `addToWell(wells, over.id as WellId, active.data.current.ref,
+active.data.current.kind)` when `over` is set. Reset wells with
+`setWells(emptyWells())` when the selected view changes. Build the query body
+with `wellsToQuery(wells)`, and pass `wells` down to `QueryPanel` in place of
+`selection`.
+
+In `frontend/src/query/QueryPanel.tsx`: accept `wells` instead of `selection`.
+Choose the chart with `chooseChartForWells(wells.axis.length,
+wells.legend.length, wells.values.length, axisColumnType)`. When
+`wells.legend.length === 1`, build the series with `pivotLegend(result,
+axisName, legendName, firstMetricName)` and render a note above the chart:
+"Charting <metric> only — a legend splits a single measure. The table shows
+all selected fields." When there is no legend, keep Task 16's
+metric-per-series path unchanged.
+
+- [ ] **Step 14: Run all frontend tests and typecheck**
+
+Run: `npm test` then `npm run typecheck`
+Expected: all PASS, typecheck clean. Update any Task 15/16 test that passed
+`selection` to pass `wells` instead.
+
+- [ ] **Step 15: Commit**
+
+```bash
+git add frontend
+git commit -m "feat: drag-and-drop field wells with legend-aware charting"
+```
+
+---
+
+### Task 20: Dense-analytical visual design pass
+
+**Files:**
+- Modify: `frontend/src/index.css` (the whole stylesheet), plus class-name touch-ups in `LoginPage.tsx`, `ViewTree.tsx`, `FieldPanel.tsx`, `WellPanel.tsx`, `FieldChip.tsx`, `ResultsTable.tsx`, `SqlPreview.tsx`, `ExplorerPage.tsx`
+- Test: `frontend/src/explorer/a11y.test.tsx`
+
+**Interfaces:**
+- Consumes: every component from Tasks 14-16, 18-19.
+- Produces: no new modules — a consistent visual system in CSS plus the
+  accessibility guarantees asserted by the new test.
+
+**Design direction (dense analytical).** Compact rows, small type, tabular
+numerals, restrained neutral palette, color reserved for data marks. Tokens
+come from the validated chart palette already in `src/query/palette.ts`:
+surface `#fcfcfb`, page `#f9f9f7`, primary ink `#0b0b0b`, secondary `#52514e`,
+muted `#898781`, gridline `#e1e0d9`, axis `#c3c2b7`, border
+`rgba(11,11,11,0.10)`, accent `#2a78d6`. **Never** paint UI chrome in a series
+color, and never use a series color to carry meaning in text.
+
+Rules to apply:
+- Type: 13px body, 12px labels/rows, 11px section headers in uppercase with
+  0.04em tracking and muted ink. System sans only. `font-variant-numeric:
+  tabular-nums` on every numeric table cell and axis tick.
+- Density: 26px field/tree rows, 8px pane padding, 4px chip radius, 1px
+  hairline borders. No shadows except a 1px hairline on the drag overlay.
+- Panes: fields 240px, wells 240px, canvas flexible; each pane scrolls
+  independently; the page body never scrolls horizontally.
+- States: every interactive row/chip has visible `:hover` (2% ink wash),
+  `:focus-visible` (2px accent outline, 1px offset — never remove outlines),
+  and `:disabled` (60% opacity). Well drop states use the `data-state`
+  attribute WellPanel already sets: `eligible` = dashed accent border,
+  `over` = accent border + 4% accent wash, `blocked` = muted dashed border
+  with `cursor: not-allowed`. Blocked must not rely on hue alone — it also
+  shows the "not allowed" cursor and dims the label.
+- The chart keeps its own palette; the surrounding chrome stays neutral so
+  marks are the only saturated thing on screen.
+
+- [ ] **Step 1: Write the failing accessibility test**
+
+`frontend/src/explorer/a11y.test.tsx`:
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import WellPanel from "./WellPanel";
+import { addToWell, emptyWells } from "./wells";
+
+describe("wells accessibility", () => {
+  it("names every well region and every remove control", () => {
+    let wells = addToWell(emptyWells(), "axis", "ORDERS.DATE", "dimension");
+    wells = addToWell(wells, "values", "ORDERS.REVENUE", "metric");
+    render(
+      <WellPanel wells={wells} onRemove={vi.fn()} onRun={vi.fn()} running={false} />,
+    );
+    expect(screen.getByRole("region", { name: "Axis" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Legend" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Values" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /remove ORDERS\.DATE/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /remove ORDERS\.REVENUE/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("marks field kind with a glyph and not with color alone", () => {
+    const wells = addToWell(emptyWells(), "values", "ORDERS.REVENUE", "metric");
+    render(
+      <WellPanel wells={wells} onRemove={vi.fn()} onRun={vi.fn()} running={false} />,
+    );
+    expect(screen.getByText("Σ")).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `npm test`
+Expected: FAIL — `<section aria-label>` needs an explicit `role="region"` to
+be queryable as one (add `role="region"` to the well `<section>` in
+`WellPanel.tsx`).
+
+- [ ] **Step 3: Fix the region roles, then rewrite the stylesheet**
+
+Add `role="region"` to the well `<section>` in `WellPanel.tsx`. Then rewrite
+`frontend/src/index.css` to implement the design direction above: a `:root`
+token block carrying the palette values listed, then rules for `body`,
+`.login`, `.explorer`, `.topbar`, `.columns`, `.left/.middle/.main`,
+`.view-tree`, `.view-item`, `.field-row`, `.well-panel`, `.well`,
+`.well-hint`, `.chip`, `.chip-glyph`, `.chip-remove`, `.auto-chart`,
+`.banner`, `.results`, `.table-scroll`, `table/th/td`, `.sql-preview`, and
+form controls. Include the `[data-state]` well rules and the shared
+`:focus-visible` rule.
+
+- [ ] **Step 4: Run tests and typecheck**
+
+Run: `npm test` then `npm run typecheck`
+Expected: all PASS (the a11y suite included), typecheck clean.
+
+- [ ] **Step 5: Look at it — this step is not optional**
+
+Run (from `frontend/`): `npm run dev`, and with the backend running, sign in
+and exercise the explorer. Check specifically: no horizontal page scroll at
+1280px and at 1440px; the three panes scroll independently; field rows and
+chips show hover and keyboard-focus states; dragging a metric over Axis shows
+the blocked state and dropping there does nothing; axis labels do not collide
+on a date axis with 20+ categories; the results table header stays sticky
+while scrolling; nothing in the chrome is painted in a series color.
+Fix anything that fails before committing.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend
+git commit -m "feat: dense-analytical visual design pass"
+```
+
+---
+
 ## Done
 
-All 17 tasks complete = sub-project 1 (Foundation) of the 5-part roadmap is
-shippable: per-user auth (OAuth + dev mode), per-user connection cache, query
-gateway, and the semantic view explorer. Sub-project 2 (report authoring &
-saved reports) builds on `users`, `ConnectionProvider`, and the query gateway.
+All 20 tasks complete = sub-project 1 (Foundation) of the 5-part roadmap is
+shippable: per-user auth (OAuth + key-pair + dev mode), per-user connection
+cache, query gateway, the semantic view explorer with drag-and-drop field
+wells, and a coherent dense-analytical UI. Sub-project 2 (report authoring &
+saved reports) builds on `users`, `ConnectionProvider`, the query gateway, and
+the wells model.
+
+**Execution order note:** Task 17 (integration suite + README + manual smoke)
+runs LAST, after Tasks 18-20, so its README and smoke checklist cover
+key-pair login and the wells UI.
