@@ -31,9 +31,11 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     from app.auth.routes import router as auth_router
     from app.auth.dev import router as dev_router
+    from app.semantic.routes import router as semantic_router
 
     app.include_router(auth_router)
     app.include_router(dev_router)
+    app.include_router(semantic_router)
 
     @app.get("/healthz")
     def healthz() -> dict:
