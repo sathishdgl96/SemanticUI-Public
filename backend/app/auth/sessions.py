@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.auth.crypto import encrypt_token
 from app.config import get_settings
@@ -68,7 +69,11 @@ def get_active_session(db: Session, session_id: str) -> DbSession | None:
         db.commit()
         return None
     sess.last_seen_at = _utcnow()
-    db.commit()
+    try:
+        db.commit()
+    except StaleDataError:
+        # Session was deleted by another session; treat as inactive
+        return None
     db.refresh(sess)
     return sess
 
