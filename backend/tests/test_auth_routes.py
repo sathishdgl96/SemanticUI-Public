@@ -18,7 +18,9 @@ OAUTH_ENV = {
 def test_config_reports_auth_mode(client):
     r = client.get("/api/config")
     assert r.status_code == 200
-    assert r.json() == {"authMode": "dev"}
+    body = r.json()
+    assert body["authMode"] == "dev"
+    assert set(body["directLoginMethods"]) == {"externalbrowser", "password", "keypair"}
 
 
 def test_me_without_cookie_is_401(client):

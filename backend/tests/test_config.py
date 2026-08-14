@@ -31,3 +31,32 @@ def test_oauth_mode_valid_when_configured():
         oauth_client_secret="csecret",
     )
     assert s.oauth_redirect_uri == "http://localhost:8000/auth/callback"
+
+
+def test_direct_login_methods_default_development():
+    s = Settings(_env_file=None)
+    assert set(s.direct_login_methods) == {"externalbrowser", "password", "keypair"}
+
+
+def test_production_allows_only_keypair_direct_login():
+    s = Settings(
+        _env_file=None,
+        auth_mode="oauth",
+        environment="production",
+        snowflake_account="a",
+        oauth_client_id="b",
+        oauth_client_secret="c",
+        direct_login_methods=["keypair"],
+    )
+    assert s.direct_login_methods == ["keypair"]
+
+    with pytest.raises(ValidationError, match="only 'keypair'"):
+        Settings(
+            _env_file=None,
+            auth_mode="oauth",
+            environment="production",
+            snowflake_account="a",
+            oauth_client_id="b",
+            oauth_client_secret="c",
+            direct_login_methods=["password"],
+        )

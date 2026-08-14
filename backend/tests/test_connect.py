@@ -1,5 +1,9 @@
+import pytest
 import snowflake.connector
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
+from app.errors import ApiError
 from app.snowflake import connect as sf_connect
 
 
@@ -61,3 +65,53 @@ class FakeIdentityConn:
 
 def test_probe_identity():
     assert sf_connect.probe_identity(FakeIdentityConn()) == ("ACME", "ALICE")
+
+
+def _make_pem(passphrase: bytes | None = None) -> str:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    enc = (
+        serialization.BestAvailableEncryption(passphrase)
+        if passphrase
+        else serialization.NoEncryption()
+    )
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=enc,
+    ).decode()
+
+
+def test_load_private_key_plain_and_encrypted():
+    der = sf_connect.load_private_key(_make_pem(), None)
+    assert isinstance(der, bytes) and len(der) > 100
+    der2 = sf_connect.load_private_key(_make_pem(b"s3cret"), "s3cret")
+    assert isinstance(der2, bytes)
+
+
+def test_load_private_key_errors_do_not_leak_key_material():
+    pem = _make_pem(b"s3cret")
+    with pytest.raises(ApiError) as exc_info:
+        sf_connect.load_private_key(pem, "wrong-passphrase")
+    err = exc_info.value
+    assert err.code == "AUTH_FAILED"
+    assert "PRIVATE KEY" not in str(err.message)
+    assert "PRIVATE KEY" not in str(err.detail or "")
+
+    with pytest.raises(ApiError) as exc_info:
+        sf_connect.load_private_key("not-a-pem-at-all", None)
+    assert exc_info.value.code == "AUTH_FAILED"
+
+
+def test_connect_dev_keypair_passes_der(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        snowflake.connector, "connect", lambda **kw: seen.update(kw) or "CONN"
+    )
+    pem = _make_pem()
+    sf_connect.connect_dev(
+        account="acct", user="alice", authenticator="keypair", private_key_pem=pem
+    )
+    assert seen["private_key"] == sf_connect.load_private_key(pem, None)
+    assert "password" not in seen
+    assert "authenticator" not in seen
+    assert seen["session_parameters"]["STATEMENT_TIMEOUT_IN_SECONDS"] == 60

@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     oauth_client_secret: str | None = None
     oauth_redirect_uri: str = "http://localhost:8000/auth/callback"
 
+    direct_login_methods: list[Literal["externalbrowser", "password", "keypair"]] = [
+        "externalbrowser",
+        "password",
+        "keypair",
+    ]
+
     @model_validator(mode="after")
     def _guard(self) -> "Settings":
         if self.auth_mode == "dev" and self.environment == "production":
@@ -37,6 +43,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "oauth mode requires snowflake_account, oauth_client_id, oauth_client_secret"
             )
+        if self.environment == "production":
+            disallowed = [m for m in self.direct_login_methods if m != "keypair"]
+            if disallowed:
+                raise ValueError(
+                    f"in production, direct_login_methods may contain only 'keypair'; got {disallowed}"
+                )
         return self
 
 

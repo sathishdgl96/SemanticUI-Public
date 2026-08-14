@@ -54,3 +54,56 @@ def test_dev_login_disabled_in_oauth_mode(make_client):
     )
     assert r.status_code == 400
     assert r.json()["code"] == "AUTH_FAILED"
+
+
+def test_keypair_login_succeeds_and_stores_nothing(client, db, monkeypatch):
+    from tests.test_connect import _make_pem
+
+    pem = _make_pem()
+    conn = FakeConnection()
+    seen = {}
+    monkeypatch.setattr(
+        sf_connect, "connect_dev", lambda **kw: seen.update(kw) or conn
+    )
+    monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
+
+    r = client.post(
+        "/auth/dev-login",
+        json={
+            "account": "acct",
+            "user": "alice",
+            "authenticator": "keypair",
+            "private_key_pem": pem,
+            "private_key_passphrase": None,
+        },
+    )
+    assert r.status_code == 200
+    assert seen["private_key_pem"] == pem
+    # the PEM must never come back out
+    assert "PRIVATE KEY" not in r.text
+    # ...and must never be persisted
+    from app.db.models import DbSession
+    from sqlalchemy import select
+
+    for row in db.scalars(select(DbSession)).all():
+        assert row.access_token_enc is None
+        assert row.refresh_token_enc is None
+
+
+def test_method_not_enabled_is_rejected(make_client):
+    client = make_client(
+        SEMANTICUI_AUTH_MODE="dev",
+        SEMANTICUI_DIRECT_LOGIN_METHODS='["keypair"]',
+    )
+    r = client.post(
+        "/auth/dev-login",
+        json={"account": "a", "user": "u", "authenticator": "password", "password": "p"},
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "AUTH_FAILED"
+
+
+def test_config_reports_direct_login_methods(client):
+    body = client.get("/api/config").json()
+    assert body["authMode"] == "dev"
+    assert "keypair" in body["directLoginMethods"]

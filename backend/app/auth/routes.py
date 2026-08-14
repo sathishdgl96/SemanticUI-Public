@@ -81,7 +81,11 @@ def logout(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
 
 @router.get("/api/config")
 def config() -> dict:
-    return {"authMode": get_settings().auth_mode}
+    settings = get_settings()
+    return {
+        "authMode": settings.auth_mode,
+        "directLoginMethods": settings.direct_login_methods,
+    }
 
 
 @router.get("/api/me")

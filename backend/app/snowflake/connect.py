@@ -1,8 +1,10 @@
 from typing import Any
 
 import snowflake.connector
+from cryptography.hazmat.primitives import serialization
 
 from app.config import get_settings
+from app.errors import ApiError
 
 
 def _session_parameters() -> dict:
@@ -19,9 +21,55 @@ def connect_oauth(token: str) -> Any:
     )
 
 
+def load_private_key(pem: str, passphrase: str | None) -> bytes:
+    """Parse a PEM private key into DER bytes for the Snowflake connector.
+
+    Never include the caller's key material in the raised error.
+    """
+    try:
+        key = serialization.load_pem_private_key(
+            pem.encode(),
+            password=passphrase.encode() if passphrase else None,
+        )
+    except Exception:
+        raise ApiError(
+            "AUTH_FAILED",
+            401,
+            "Could not read the private key. Check the PEM and passphrase.",
+        ) from None
+    return key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
+def connect_keypair(*, account: str, user: str, private_key_der: bytes) -> Any:
+    return snowflake.connector.connect(
+        account=account,
+        user=user,
+        private_key=private_key_der,
+        session_parameters=_session_parameters(),
+    )
+
+
 def connect_dev(
-    *, account: str, user: str, authenticator: str, password: str | None = None
+    *,
+    account: str,
+    user: str,
+    authenticator: str,
+    password: str | None = None,
+    private_key_pem: str | None = None,
+    private_key_passphrase: str | None = None,
 ) -> Any:
+    if authenticator == "keypair":
+        if not private_key_pem:
+            raise ApiError("AUTH_FAILED", 401, "A private key is required")
+        return connect_keypair(
+            account=account,
+            user=user,
+            private_key_der=load_private_key(private_key_pem, private_key_passphrase),
+        )
     kwargs: dict[str, Any] = {
         "account": account,
         "user": user,

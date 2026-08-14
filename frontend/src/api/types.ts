@@ -1,5 +1,6 @@
 export interface Config {
   authMode: "oauth" | "dev";
+  directLoginMethods: ("externalbrowser" | "password" | "keypair")[];
 }
 
 export interface Me {
