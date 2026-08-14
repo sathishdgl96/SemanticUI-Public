@@ -36,7 +36,7 @@ describe("apiFetch", () => {
 
   it("throws ApiError built from the error envelope", async () => {
     mockFetch(400, { code: "QUERY_ERROR", message: "bad field", detail: null });
-    const err = await apiFetch("/api/query/semantic").catch((e) => e);
+    const err = await apiFetch<never>("/api/query/semantic").catch((e: unknown) => e as ApiError);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.code).toBe("QUERY_ERROR");
     expect(err.message).toBe("bad field");
@@ -47,7 +47,7 @@ describe("apiFetch", () => {
     mockFetch(401, { code: "AUTH_EXPIRED", message: "Sign in required", detail: null });
     const handler = vi.fn();
     setOnAuthExpired(handler);
-    const err = await apiFetch("/api/me").catch((e) => e);
+    const err = await apiFetch<never>("/api/me").catch((e: unknown) => e as ApiError);
     expect(handler).toHaveBeenCalledOnce();
     expect(err.code).toBe("AUTH_EXPIRED");
   });
