@@ -34,7 +34,9 @@ export default function ExplorerPage() {
     enabled: selectedView !== null,
     queryFn: () =>
       apiFetch<SemanticViewDetail>(
-        `/api/semantic-views/${selectedView!.database}/${selectedView!.schema}/${selectedView!.name}`,
+        `/api/semantic-views/${encodeURIComponent(selectedView!.database)}/${encodeURIComponent(
+          selectedView!.schema,
+        )}/${encodeURIComponent(selectedView!.name)}`,
       ),
   });
 
@@ -111,6 +113,16 @@ export default function ExplorerPage() {
             />
           )}
           {selectedView && detail.isLoading && <p>Describing view...</p>}
+          {selectedView && detail.isError && (
+            <div role="alert">
+              <p>
+                {detail.error instanceof ApiError
+                  ? detail.error.message
+                  : "Failed to describe view."}
+              </p>
+              <button onClick={() => detail.refetch()}>Retry</button>
+            </div>
+          )}
           {!selectedView && <p>Select a semantic view to begin.</p>}
         </div>
         <div className="main">
