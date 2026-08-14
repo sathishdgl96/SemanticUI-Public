@@ -199,7 +199,9 @@ Alembic owns the schema from day one.
 
 ### ConnectionProvider / cache
 
-- In-process map `session_id → {connection, last_used, asyncio.Lock}`.
+- In-process map `session_id → {connection, last_used, per-session lock}`
+  (threading locks — endpoints are sync `def` because the connector is
+  synchronous; FastAPI runs them in its threadpool).
 - Idle TTL eviction (default 15 min) via background task; hard cap with LRU
   eviction; liveness check before reuse (`is_closed()` + cheap ping when
   stale).
