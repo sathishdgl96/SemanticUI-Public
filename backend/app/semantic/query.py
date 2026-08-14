@@ -25,7 +25,7 @@ class SemanticQueryRequest(BaseModel):
 
 def _resolve_fields(detail: dict, refs: list[str], kind: str) -> list[tuple[str, str]]:
     catalog = {
-        (f["table"].upper(), f["name"].upper()): (f["table"], f["name"])
+        ((f["table"] or "").upper(), f["name"].upper()): (f["table"], f["name"])
         for f in detail[kind]
     }
     resolved = []
@@ -58,14 +58,40 @@ def build_semantic_sql(
             "METRICS " + ", ".join(f"{quote_ident(t)}.{quote_ident(n)}" for t, n in mets)
         )
 
-    selected = {name.upper(): name for _table, name in dims + mets}
+    selected = dims + mets
+    by_bare_name: dict[str, list[tuple[str, str]]] = {}
+    for table, name in selected:
+        by_bare_name.setdefault(name.upper(), []).append((table, name))
+    by_qualified = {
+        (table.upper(), name.upper()): (table, name) for table, name in selected
+    }
+
     order_sql = ""
     if req.order_by:
         clauses = []
         for ob in req.order_by:
-            canonical = selected.get(ob.field.upper())
-            if canonical is None:
-                raise ApiError("QUERY_ERROR", 400, f"orderBy field not selected: {ob.field}")
+            if "." in ob.field:
+                ref_table, ref_name = ob.field.split(".", 1)
+                hit = by_qualified.get((ref_table.upper(), ref_name.upper()))
+                if hit is None:
+                    raise ApiError(
+                        "QUERY_ERROR", 400, f"orderBy field not selected: {ob.field}"
+                    )
+                canonical = hit[1]
+            else:
+                matches = by_bare_name.get(ob.field.upper(), [])
+                if not matches:
+                    raise ApiError(
+                        "QUERY_ERROR", 400, f"orderBy field not selected: {ob.field}"
+                    )
+                if len(matches) > 1:
+                    raise ApiError(
+                        "QUERY_ERROR",
+                        400,
+                        f"orderBy field is ambiguous: {ob.field} "
+                        "(qualify as TABLE.NAME)",
+                    )
+                canonical = matches[0][1]
             direction = "DESC" if ob.direction == "desc" else "ASC"
             clauses.append(f"{quote_ident(canonical)} {direction}")
         order_sql = " ORDER BY " + ", ".join(clauses)

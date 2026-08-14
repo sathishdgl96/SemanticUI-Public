@@ -72,3 +72,75 @@ def test_order_by_must_be_selected_and_limit_clamped():
     huge = make_request(limit=999999)
     _, limit = build_semantic_sql(DETAIL, huge, max_rows=10000)
     assert limit == 10000
+
+
+DETAIL_DUPLICATE_NAME = {
+    "tables": [{"name": "ORDERS"}, {"name": "CUSTOMERS"}],
+    "relationships": ["ORDERS_TO_CUSTOMERS"],
+    "dimensions": [
+        {"table": "ORDERS", "name": "NAME", "dataType": "VARCHAR(16777216)"},
+        {"table": "CUSTOMERS", "name": "NAME", "dataType": "VARCHAR(16777216)"},
+        {"table": "ORDERS", "name": "ORDER_DATE", "dataType": "DATE"},
+    ],
+    "metrics": [],
+    "facts": [],
+}
+
+
+def make_dup_request(**overrides):
+    body = {
+        "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+        "dimensions": ["ORDERS.NAME", "CUSTOMERS.NAME"], "metrics": [],
+    }
+    body.update(overrides)
+    return SemanticQueryRequest.model_validate(body)
+
+
+def test_order_by_ambiguous_bare_name_rejected():
+    req = make_dup_request(orderBy=[{"field": "NAME"}])
+    with pytest.raises(ApiError, match="(?i)ambiguous"):
+        build_semantic_sql(DETAIL_DUPLICATE_NAME, req, max_rows=10000)
+
+
+def test_order_by_qualified_ref_disambiguates():
+    req = make_dup_request(orderBy=[{"field": "CUSTOMERS.NAME", "direction": "desc"}])
+    sql, _ = build_semantic_sql(DETAIL_DUPLICATE_NAME, req, max_rows=10000)
+    assert 'ORDER BY "NAME" DESC' in sql
+
+
+def test_order_by_qualified_ref_must_be_selected():
+    req = make_dup_request(orderBy=[{"field": "ORDERS.ORDER_DATE"}])
+    with pytest.raises(ApiError, match="not selected"):
+        build_semantic_sql(DETAIL_DUPLICATE_NAME, req, max_rows=10000)
+
+
+DETAIL_NULL_PARENT = {
+    "tables": [{"name": "ORDERS"}],
+    "relationships": [],
+    "dimensions": [
+        {"table": "ORDERS", "name": "ORDER_DATE", "dataType": "DATE"},
+        {"table": None, "name": "ORPHAN", "dataType": "TEXT"},
+    ],
+    "metrics": [],
+    "facts": [],
+}
+
+
+def test_field_with_null_parent_table_does_not_crash():
+    req = SemanticQueryRequest.model_validate(
+        {
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "dimensions": ["ORDERS.ORDER_DATE"], "metrics": [],
+        }
+    )
+    sql, _ = build_semantic_sql(DETAIL_NULL_PARENT, req, max_rows=100)
+    assert '"ORDERS"."ORDER_DATE"' in sql
+
+    bad = SemanticQueryRequest.model_validate(
+        {
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "dimensions": ["None.ORPHAN"], "metrics": [],
+        }
+    )
+    with pytest.raises(ApiError):
+        build_semantic_sql(DETAIL_NULL_PARENT, bad, max_rows=100)
