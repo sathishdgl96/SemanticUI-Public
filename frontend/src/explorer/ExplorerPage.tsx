@@ -9,13 +9,9 @@ import type {
   SemanticViewSummary,
 } from "../api/types";
 import { useMe } from "../auth/useMe";
+import QueryPanel from "../query/QueryPanel";
 import FieldPanel, { type Selection } from "./FieldPanel";
 import ViewTree from "./ViewTree";
-
-// Replaced by QueryPanel in Task 16.
-function QueryResults({ result }: { result: QueryResponse }) {
-  return <pre data-testid="raw-result">{JSON.stringify(result, null, 2)}</pre>;
-}
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
@@ -131,7 +127,9 @@ export default function ExplorerPage() {
               {run.error instanceof ApiError ? run.error.message : "Query failed"}
             </p>
           )}
-          {run.data && <QueryResults result={run.data} />}
+          {run.data && detail.data && (
+            <QueryPanel result={run.data} detail={detail.data} selection={selection} />
+          )}
         </div>
       </div>
     </div>

@@ -160,3 +160,63 @@ button:disabled {
   color: var(--accent);
   padding: 0 0 0 12px;
 }
+
+.auto-chart {
+  height: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.banner {
+  background: #fff7e0;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--grid);
+}
+
+td {
+  font-variant-numeric: tabular-nums;
+}
+
+th {
+  color: var(--ink-secondary);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
+.sql-preview {
+  margin-top: 12px;
+  color: var(--ink-secondary);
+}
+
+.sql-preview pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  overflow-x: auto;
+}
