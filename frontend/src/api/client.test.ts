@@ -51,4 +51,17 @@ describe("apiFetch", () => {
     expect(handler).toHaveBeenCalledOnce();
     expect(err.code).toBe("AUTH_EXPIRED");
   });
+
+  it("preserves the backend envelope message on 401", async () => {
+    mockFetch(401, {
+      code: "AUTH_EXPIRED",
+      message: "Dev session connection lost; sign in again",
+      detail: null,
+    });
+    const handler = vi.fn();
+    setOnAuthExpired(handler);
+    const err = await apiFetch<never>("/api/me").catch((e: unknown) => e as ApiError);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(err.message).toBe("Dev session connection lost; sign in again");
+  });
 });

@@ -27,8 +27,19 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers,
   });
   if (response.status === 401) {
+    let body: { code?: string; message?: string; detail?: string | null } = {};
+    try {
+      body = await response.json();
+    } catch {
+      // non-JSON error body; fall through to defaults
+    }
     authExpiredHandler?.();
-    throw new ApiError("AUTH_EXPIRED", 401, "Sign in required");
+    throw new ApiError(
+      body.code ?? "AUTH_EXPIRED",
+      401,
+      body.message ?? "Sign in required",
+      body.detail,
+    );
   }
   if (!response.ok) {
     let body: { code?: string; message?: string; detail?: string | null } = {};
