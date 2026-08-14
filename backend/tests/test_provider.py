@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,6 +7,7 @@ from app.auth import oauth as oauth_mod
 from app.auth.crypto import decrypt_token
 from app.auth.oauth import OAuthRefreshError, TokenResponse
 from app.auth.sessions import create_session
+from app.db.models import DbSession
 from app.errors import AuthExpiredError
 from app.snowflake import connect as sf_connect
 from app.snowflake.provider import ConnectionCache
@@ -114,3 +116,76 @@ def test_lru_eviction_at_max_size(db):
     cache.put("sid-1", first)
     cache.put("sid-2", second)
     assert first.closed is True
+
+
+def test_concurrent_acquire_same_session_leaks_nothing(db_factory, monkeypatch):
+    setup_db = db_factory()
+    sess = create_session(
+        setup_db, account="ACME", user="ALICE", mode="oauth",
+        access_token="at-1", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    session_id = sess.id
+    setup_db.close()
+
+    barrier = threading.Barrier(2)
+    created: list[FakeConnection] = []
+    created_lock = threading.Lock()
+
+    def fake_connect_oauth(token):
+        conn = FakeConnection()
+        with created_lock:
+            created.append(conn)
+        barrier.wait()
+        return conn
+
+    monkeypatch.setattr(sf_connect, "connect_oauth", fake_connect_oauth)
+
+    # Load each thread's own DbSession up front (sequentially, on the main
+    # thread) so the racing threads below never touch the shared sqlite
+    # connection concurrently -- the race under test is purely in the
+    # in-memory cache/barrier logic, not database access.
+    db1 = db_factory()
+    db2 = db_factory()
+    sess1 = db1.get(DbSession, session_id)
+    sess2 = db2.get(DbSession, session_id)
+
+    cache = make_cache()
+    results = []
+    results_lock = threading.Lock()
+
+    def worker(thread_db, thread_sess):
+        entry = cache.acquire(thread_db, thread_sess)
+        with results_lock:
+            results.append(entry)
+
+    t1 = threading.Thread(target=worker, args=(db1, sess1))
+    t2 = threading.Thread(target=worker, args=(db2, sess2))
+    t1.start()
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+    db1.close()
+    db2.close()
+
+    assert not t1.is_alive() and not t2.is_alive()
+    assert len(created) == 2
+    assert len(results) == 2
+    assert results[0].conn is results[1].conn
+    closed_flags = sorted(c.closed for c in created)
+    assert closed_flags == [False, True]
+
+
+def test_sweep_skips_busy_entries(db):
+    now = [1000.0]
+    cache = make_cache(clock=lambda: now[0])
+    conn = FakeConnection()
+    cache.put("sid-1", conn)
+    entry = cache._entries["sid-1"]
+    entry.lock.acquire()
+    now[0] += 901
+    assert cache.sweep() == 0
+    assert conn.closed is False
+    entry.lock.release()
+    assert cache.sweep() == 1
+    assert conn.closed is True

@@ -77,6 +77,13 @@ class ConnectionCache:
             raise AuthExpiredError("Dev session connection lost; sign in again")
         conn = self._build_oauth(db, sess)
         with self._lock:
+            existing = self._entries.get(sess.id)
+            if existing is not None and _is_alive(existing.conn):
+                _close_quietly(conn)
+                existing.last_used = self._clock()
+                return existing
+            if existing is not None:
+                _close_quietly(self._entries.pop(sess.id).conn)
             self._entries[sess.id] = CacheEntry(conn=conn, last_used=self._clock())
             self._enforce_cap()
             return self._entries[sess.id]
@@ -114,9 +121,20 @@ class ConnectionCache:
         cutoff = self._clock() - self._idle_ttl
         closed = 0
         with self._lock:
-            for sid in [s for s, e in self._entries.items() if e.last_used < cutoff]:
-                _close_quietly(self._entries.pop(sid).conn)
-                closed += 1
+            candidates = [s for s, e in self._entries.items() if e.last_used < cutoff]
+            for sid in candidates:
+                entry = self._entries.get(sid)
+                if entry is None:
+                    continue
+                if not entry.lock.acquire(blocking=False):
+                    continue
+                try:
+                    popped = self._entries.pop(sid, None)
+                    if popped is not None:
+                        _close_quietly(popped.conn)
+                        closed += 1
+                finally:
+                    entry.lock.release()
         return closed
 
 
