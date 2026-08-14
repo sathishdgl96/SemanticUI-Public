@@ -202,7 +202,7 @@ no interpolation of raw user text.
 | `POST /auth/logout` | Destroy session + connection |
 | `GET /api/config` | `{authMode}` for the frontend |
 | `GET /api/me` | `{snowflakeUser, account, mode}` |
-| `GET /api/semantic-views?database=&schema=` | `SHOW SEMANTIC VIEWS` (scoped) |
+| `GET /api/semantic-views?database=&schema=` | `SHOW SEMANTIC VIEWS` — `IN SCHEMA` when both params given, `IN DATABASE` with only `database`, `IN ACCOUNT` with neither |
 | `GET /api/semantic-views/{db}/{schema}/{name}` | `DESCRIBE SEMANTIC VIEW`, parsed into logical tables, relationships, dimensions, metrics |
 | `POST /api/query/semantic` | `{view, dimensions[], metrics[], orderBy?, limit?}` → `SELECT * FROM SEMANTIC_VIEW(<view> DIMENSIONS … METRICS …)` |
 
@@ -215,9 +215,10 @@ visibility. The app never filters entitlements on Snowflake's behalf.
   authenticator picker, optional password) per `/api/config`.
 - **Left rail:** database → schema → semantic view tree; selecting a view
   lists its dimensions and metrics as checkable fields.
-- **Main panel:** Run button → results table + basic auto-chart (bar for
-  1 dimension + metrics; line when the dimension is date-like) + read-only
-  "SQL sent" preview. Full chart catalog is sub-project 2.
+- **Main panel:** Run button → results table + basic auto-chart + read-only
+  "SQL sent" preview. Auto-chart rule: exactly 1 dimension + ≥1 metric →
+  bar chart (line if the dimension type is date/time); any other shape
+  (0 or 2+ dimensions) → table only. Full chart catalog is sub-project 2.
 - 401 responses anywhere route to the login page.
 
 ## Error Handling
