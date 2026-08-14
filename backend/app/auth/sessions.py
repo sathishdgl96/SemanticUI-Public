@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +11,7 @@ from app.auth.crypto import encrypt_token
 from app.config import get_settings
 from app.db.models import DbSession, User
 
+logger = logging.getLogger(__name__)
 SESSION_COOKIE = "semanticui_session"
 
 
@@ -24,6 +26,21 @@ def _utcnow() -> datetime:
 def _as_utc(dt: datetime) -> datetime:
     # SQLite loses tzinfo; treat naive values as UTC.
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _commit_or_stale(db: Session, session_id: str) -> bool:
+    """Commit changes or handle stale data error.
+
+    Returns True on successful commit, False if the row was deleted
+    concurrently (StaleDataError). Rolls back and logs on stale data.
+    """
+    try:
+        db.commit()
+        return True
+    except StaleDataError:
+        logger.warning("session %s vanished during touch; treating as inactive", session_id)
+        db.rollback()
+        return False
 
 
 def create_session(
@@ -66,13 +83,11 @@ def get_active_session(db: Session, session_id: str) -> DbSession | None:
     ttl = timedelta(hours=get_settings().session_ttl_hours)
     if _utcnow() - _as_utc(sess.last_seen_at) > ttl:
         db.delete(sess)
-        db.commit()
+        if not _commit_or_stale(db, session_id):
+            return None
         return None
     sess.last_seen_at = _utcnow()
-    try:
-        db.commit()
-    except StaleDataError:
-        # Session was deleted by another session; treat as inactive
+    if not _commit_or_stale(db, session_id):
         return None
     db.refresh(sess)
     return sess

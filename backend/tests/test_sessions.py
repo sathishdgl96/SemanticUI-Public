@@ -48,3 +48,70 @@ def test_delete_session(db):
     sess = create_session(db, account="ACME", user="ALICE", mode="dev")
     delete_session(db, sess.id)
     assert get_active_session(db, sess.id) is None
+
+
+def test_get_active_session_survives_concurrent_delete(db_factory):
+    """Test that get_active_session handles concurrent deletion by another session.
+
+    This reproduces the cross-session staleness scenario where one session creates
+    a session, another deletes it, and the original session queries it.
+    The test verifies that the original session is still usable after the failed query.
+    """
+    # Session A: create the session
+    db_a = db_factory()
+    sess = create_session(db_a, account="ACME", user="ALICE", mode="dev")
+    sess_id = sess.id
+
+    # Session B: delete the row
+    db_b = db_factory()
+    sess_b = db_b.get(__import__('app.db.models', fromlist=['DbSession']).DbSession, sess_id)
+    assert sess_b is not None
+    db_b.delete(sess_b)
+    db_b.commit()
+    db_b.close()
+
+    # Session A: query the deleted session and verify it returns None
+    result = get_active_session(db_a, sess_id)
+    assert result is None
+
+    # CRITICAL: verify Session A is still usable (no PendingRollbackError)
+    from app.db.models import User
+    users = db_a.scalars(select(User)).all()
+    assert isinstance(users, list)
+
+    db_a.close()
+
+
+def test_expired_session_survives_concurrent_delete(db_factory):
+    """Test that expired session handling survives concurrent deletion by another session.
+
+    This reproduces the TTL-expiry branch race condition where one session
+    sets a session to expired while another deletes it concurrently.
+    """
+    # Session A: create the session with old timestamp
+    db_a = db_factory()
+    sess = create_session(db_a, account="ACME", user="ALICE", mode="dev")
+    sess_id = sess.id
+
+    # Make session old enough to expire (9 hours ago)
+    sess.last_seen_at = datetime.now(timezone.utc) - timedelta(hours=9)
+    db_a.commit()
+
+    # Session B: delete the row before Session A tries to expire it
+    db_b = db_factory()
+    sess_b = db_b.get(__import__('app.db.models', fromlist=['DbSession']).DbSession, sess_id)
+    assert sess_b is not None
+    db_b.delete(sess_b)
+    db_b.commit()
+    db_b.close()
+
+    # Session A: try to get active session (triggers expiry logic, but row already gone)
+    result = get_active_session(db_a, sess_id)
+    assert result is None
+
+    # CRITICAL: verify Session A is still usable (no PendingRollbackError)
+    from app.db.models import User
+    users = db_a.scalars(select(User)).all()
+    assert isinstance(users, list)
+
+    db_a.close()
