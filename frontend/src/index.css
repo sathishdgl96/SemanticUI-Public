@@ -1065,3 +1065,48 @@ button.secondary,
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+
+.canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--page);
+}
+
+.canvas.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The tile header doubles as the drag handle; say so on hover. */
+.react-grid-item .tile-head {
+  cursor: move;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.12;
+  border-radius: var(--radius-pane);
+}
+
+@media (max-width: 959px) {
+  /* Stacked reading mode: tiles flow full width in layout order. */
+  .canvas .react-grid-layout {
+    height: auto !important;
+  }
+  .canvas .react-grid-item {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    transform: none !important;
+    margin-bottom: 12px;
+  }
+  .canvas .react-grid-item .tile {
+    min-height: 260px;
+  }
+  .react-grid-item .tile-head {
+    cursor: default;
+  }
+}
