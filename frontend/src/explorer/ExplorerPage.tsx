@@ -143,8 +143,10 @@ export default function ExplorerPage() {
     <div className="explorer">
       <header className="topbar">
         <strong>SemanticUI</strong>
-        <span>
-          {me.data ? `${me.data.snowflakeUser} @ ${me.data.snowflakeAccount}` : ""}
+        <span className="identity-row">
+          <span className="identity">
+            {me.data ? `${me.data.snowflakeUser} @ ${me.data.snowflakeAccount}` : ""}
+          </span>
           <button className="link" onClick={logout}>
             Log out
           </button>
@@ -153,6 +155,7 @@ export default function ExplorerPage() {
       <DndContext sensors={sensors} onDragEnd={onDragEnd} accessibility={{ announcements }}>
         <div className="columns">
           <div className="left">
+            <h2 className="pane-heading">Views</h2>
             {views.isLoading && <p>Loading views...</p>}
             {views.isError && <p role="alert">Failed to load semantic views.</p>}
             {views.data && (
@@ -164,6 +167,7 @@ export default function ExplorerPage() {
             )}
           </div>
           <div className="middle">
+            <h2 className="pane-heading">Fields &amp; wells</h2>
             {selectedView && detail.data && (
               <>
                 <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />
@@ -189,6 +193,7 @@ export default function ExplorerPage() {
             {!selectedView && <p>Select a semantic view to begin.</p>}
           </div>
           <div className="main">
+            <h2 className="pane-heading">Canvas</h2>
             {run.isError && (
               <p role="alert">
                 {run.error instanceof ApiError ? run.error.message : "Query failed"}

@@ -246,6 +246,11 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  /* Guarantees a gap between "SemanticUI" and the identity text even
+     though `.identity-row`'s flex-grow already consumes all the free
+     space `justify-content: space-between` would otherwise distribute --
+     without it the two run together edge to edge at narrow widths. */
+  gap: 12px;
   flex: 0 0 auto;
   padding: 8px 16px;
   background: var(--surface);
@@ -253,15 +258,41 @@ button:disabled {
 }
 
 .topbar strong {
+  flex: 0 0 auto;
   font-size: 14px;
   letter-spacing: -0.01em;
 }
 
-.topbar span {
+/* `.identity-row` is the flex container (label + Log out); `.identity` is
+   the truncating text alone. Two separate elements so the ellipsis never
+   eats into the Log out control — min-width: 0 is what lets a flex child
+   shrink below its text's intrinsic width instead of pushing its sibling
+   off-screen. */
+.topbar .identity-row {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 12px;
   color: var(--ink-secondary);
+}
+
+.topbar .identity {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Log out must never shrink or wrap onto a second line -- it's the one
+   control in the topbar that has to stay operable at any width, so the
+   identity text is what gives way (truncating) instead. */
+.topbar .identity-row .link {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .columns {
@@ -298,6 +329,20 @@ button:disabled {
 .main > p {
   color: var(--ink-secondary);
   font-size: 13px;
+}
+
+/* Section label shown only in the stacked (<960px) layout, where the three
+   panes lose their spatial (side-by-side) context and need a textual one
+   instead. Hidden above that breakpoint so the three-column layout is
+   untouched. Same small-caps role as .view-tree h3 / .field-group-title. */
+.pane-heading {
+  display: none;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
 }
 
 /* ==========================================================================
@@ -350,9 +395,21 @@ button:disabled {
   font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
-  white-space: nowrap;
+}
+
+/* Same problem .field-ref solves: a UPPER_SNAKE_CASE view name can outrun
+   the pane, more so once the responsive tiers narrow it further. The
+   ellipsis has to live on this inner span rather than on `.view-item`
+   itself -- text-overflow has no effect on a flex container's own box, only
+   on a block (or shrinkable flex-item) box whose content overflows it;
+   min-width: 0 is what lets that flex item shrink below its text's
+   intrinsic width in the first place. */
+.view-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .view-item:hover {
@@ -555,6 +612,11 @@ button:disabled {
      overflow; right padding trimmed since the remove button's own box
      now supplies that space, keeping the chip from reading as chunky. */
   height: 24px;
+  /* Caps the chip at its well's own width -- without this a long ref (once
+     dropped into a well that's only ~200px at the tablet tier, or the full
+     but still finite width of a stacked mobile pane) has nothing to shrink
+     against and pushes past the pane edge instead of truncating. */
+  max-width: 100%;
   margin: 2px 4px 2px 0;
   padding: 0 2px 0 6px;
   background: var(--surface);
@@ -563,6 +625,17 @@ button:disabled {
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* Same ellipsis pattern as .field-ref / .view-item-label: min-width: 0 lets
+   this flex item shrink below the ref's intrinsic text width so
+   `.chip`'s max-width above actually has something to truncate against. */
+.chip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chip-remove {
@@ -727,4 +800,91 @@ th {
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* ==========================================================================
+   Responsive
+
+   Three tiers, all CSS-only (no layout logic in JS/React state):
+     >=1280px          three columns, fixed 248px side panes (base rules above)
+     960px - 1279px    three columns, side panes narrowed to keep the canvas usable
+     <960px             single column, stacked in DOM order (view tree, then
+                        fields/wells, then canvas); the explorer stops being a
+                        fixed-height/overflow-hidden shell so the page scrolls
+                        normally instead of trapping scroll inside a short pane
+     <600px             on top of the <960px tier: shorter chart, and the
+                        results table contains its own horizontal scroll
+   ========================================================================== */
+
+@media (min-width: 960px) and (max-width: 1279px) {
+  :root {
+    --pane-fields: 200px;
+    --pane-wells: 200px;
+  }
+}
+
+@media (max-width: 959px) {
+  /* The explorer no longer pins itself to exactly one viewport height with
+     scroll trapped inside `.columns`' children -- it grows with its content
+     and the document itself scrolls, like any normal page. */
+  .explorer {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  /* Keeps "Log out" reachable without scrolling back to the top now that
+     the page (not `.columns`) owns the scroll. */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  /* Block layout, not flex-column: `.left`/`.middle`/`.main` become normal
+     stacked block boxes, each filling the available width and sized to its
+     own content -- exactly what "scrolls with the page" needs, without the
+     min-height/flex-basis bookkeeping a flex column would otherwise need to
+     avoid clipping. DOM order (view tree, fields+wells, canvas) already
+     matches the required stacking order, so no `order` overrides needed. */
+  .columns {
+    display: block;
+    overflow: visible;
+  }
+
+  .left,
+  .middle,
+  .main {
+    width: 100%;
+  }
+
+  .left,
+  .middle {
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .main {
+    overflow: visible;
+  }
+
+  .pane-heading {
+    display: block;
+  }
+
+  /* `.main` is no longer its own scrolling box at this tier (see above), so
+     a wide results table would otherwise force the page itself to scroll
+     horizontally. Giving `.table-scroll` its own overflow-x keeps a wide
+     table contained in its frame instead -- the sticky `th` rule still
+     applies, it simply now sticks within this box rather than `.main`. */
+  .table-scroll {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 599px) {
+  .auto-chart {
+    height: 200px;
+  }
 }

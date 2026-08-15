@@ -31,7 +31,7 @@ export default function ViewTree({ views, selected, onSelect }: Props) {
                       onClick={() => onSelect(view)}
                       title={view.comment ?? undefined}
                     >
-                      {view.name}
+                      <span className="view-item-label">{view.name}</span>
                     </button>
                   </li>
                 ))}
