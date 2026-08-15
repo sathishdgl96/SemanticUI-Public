@@ -12,6 +12,7 @@ from app.auth.oauth import OAuthRefreshError
 from app.config import get_settings
 from app.db.models import DbSession
 from app.errors import AuthExpiredError
+from app.semantic.discovery import describe_semantic_view
 from app.snowflake import connect as sf_connect
 
 _REFRESH_SKEW = timedelta(seconds=30)
@@ -28,6 +29,10 @@ class CacheEntry:
     #: forces a fresh SSO round trip or a re-pasted private key, so it is held
     #: for the life of the session instead. See ConnectionCache.sweep.
     rebuildable: bool = True
+    #: Per-view DESCRIBE results for THIS session only, keyed "DB.SCHEMA.VIEW"
+    #: -> (stored_at, detail). Lives inside the entry so one user's catalog can
+    #: never be served to another; dies when the entry is evicted.
+    describe_cache: dict[str, tuple[float, dict]] = field(default_factory=dict)
 
 
 def _is_alive(conn: Any) -> bool:
@@ -174,6 +179,42 @@ class ConnectionCache:
             entry = self._entries.pop(session_id, None)
         if entry is not None:
             _close_quietly(entry.conn)
+
+    @staticmethod
+    def _describe_key(database: str, schema: str, name: str) -> str:
+        return f"{database}.{schema}.{name}"
+
+    def describe(
+        self,
+        entry: CacheEntry,
+        database: str,
+        schema: str,
+        name: str,
+        *,
+        force: bool = False,
+    ) -> dict:
+        """Return the semantic view's description, cached per session.
+
+        A report issues one query per visual and each validates its field
+        references against a DESCRIBE; without this every refresh would run N
+        identical describes. The caller must hold `entry.lock`, as it already
+        does for the query it is about to build.
+        """
+        key = self._describe_key(database, schema, name)
+        ttl = get_settings().describe_cache_ttl_seconds
+        now = self._clock()
+        if not force:
+            cached = entry.describe_cache.get(key)
+            if cached is not None and (now - cached[0]) < ttl:
+                return cached[1]
+        detail = describe_semantic_view(entry.conn, database, schema, name)
+        entry.describe_cache[key] = (now, detail)
+        return detail
+
+    def invalidate_describe(
+        self, entry: CacheEntry, database: str, schema: str, name: str
+    ) -> None:
+        entry.describe_cache.pop(self._describe_key(database, schema, name), None)
 
     def sweep(self) -> int:
         """Reclaim idle connections.

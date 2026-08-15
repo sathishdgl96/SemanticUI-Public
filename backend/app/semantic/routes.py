@@ -30,12 +30,14 @@ def describe_view(
     database: str,
     schema: str,
     name: str,
+    refresh: bool = False,
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
+    cache = get_cache()
+    entry = cache.acquire(db, sess)
     with entry.lock:
-        return discovery.describe_semantic_view(entry.conn, database, schema, name)
+        return cache.describe(entry, database, schema, name, force=refresh)
 
 
 @router.post("/api/query/semantic")
@@ -44,11 +46,10 @@ def query_semantic(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
+    cache = get_cache()
+    entry = cache.acquire(db, sess)
     with entry.lock:
-        detail = discovery.describe_semantic_view(
-            entry.conn, req.database, req.schema_, req.view
-        )
+        detail = cache.describe(entry, req.database, req.schema_, req.view)
         sql, effective_limit = build_semantic_sql(
             detail, req, max_rows=get_settings().row_cap
         )
