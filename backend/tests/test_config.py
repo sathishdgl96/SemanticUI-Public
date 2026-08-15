@@ -106,3 +106,7 @@ def test_post_login_redirect_url_defaults_to_root():
 def test_post_login_redirect_url_is_configurable():
     s = Settings(_env_file=None, post_login_redirect_url="https://spa.example.com/app")
     assert s.post_login_redirect_url == "https://spa.example.com/app"
+
+
+def test_describe_cache_ttl_default():
+    assert Settings(_env_file=None).describe_cache_ttl_seconds == 300

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, UniqueConstraint, Uuid
+from sqlalchemy import DateTime, ForeignKey, JSON, LargeBinary, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -38,3 +38,22 @@ class DbSession(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
     user: Mapped[User] = relationship()
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    view_database: Mapped[str] = mapped_column(String(255))
+    view_schema: Mapped[str] = mapped_column(String(255))
+    view_name: Mapped[str] = mapped_column(String(255))
+    #: The portable definition document. JSONB on Postgres, JSON on SQLite.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )

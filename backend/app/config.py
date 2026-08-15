@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     connection_cache_max: int = 100
     statement_timeout_seconds: int = 60
     row_cap: int = 10000
+    describe_cache_ttl_seconds: int = 300
 
     # oauth mode only
     snowflake_account: str | None = None  # e.g. "myorg-myaccount"

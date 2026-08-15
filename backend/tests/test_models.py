@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import DbSession, User
+from app.db.models import DbSession, Report, User
 
 
 def test_user_identity_is_unique(db):
@@ -31,3 +31,24 @@ def test_session_links_to_user(db):
     assert loaded.user.snowflake_user == "ALICE"
     assert loaded.access_token_enc is None
     assert isinstance(loaded.user.id, uuid.UUID)
+
+
+def test_report_belongs_to_user_and_stores_a_json_definition(db):
+    user = User(snowflake_account="ACME", snowflake_user="ALICE")
+    db.add(user)
+    db.commit()
+    report = Report(
+        owner_user_id=user.id,
+        name="Sales overview",
+        view_database="ANALYTICS",
+        view_schema="PUBLIC",
+        view_name="SALES",
+        definition={"schemaVersion": 1, "visuals": []},
+    )
+    db.add(report)
+    db.commit()
+    loaded = db.get(Report, report.id)
+    assert loaded.owner_user_id == user.id
+    assert loaded.definition["schemaVersion"] == 1
+    assert loaded.definition["visuals"] == []
+    assert isinstance(loaded.id, uuid.UUID)
