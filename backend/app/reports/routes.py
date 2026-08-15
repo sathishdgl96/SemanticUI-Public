@@ -86,3 +86,25 @@ def export_report(
     report = service.get_owned_report(db, sess.user_id, report_id)
     document = to_export_document(parse_definition(report.definition))
     return Response(content=document, media_type="application/json")
+
+
+from app.snowflake.provider import get_cache
+
+
+class ImportBody(BaseModel):
+    definition: dict
+    viewOverride: dict | None = None
+
+
+@router.post("/api/reports/import", status_code=201)
+def import_report(
+    body: ImportBody,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    cache = get_cache()
+    entry = cache.acquire(db, sess)
+    report = service.import_report(
+        db, sess.user_id, entry, cache, body.definition, body.viewOverride
+    )
+    return _detail(report)
