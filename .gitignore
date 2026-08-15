@@ -7,3 +7,6 @@ node_modules/
 frontend/dist/
 .pytest_cache/
 *.egg-info/
+
+# Local SQLite database used when running without Docker/Postgres
+*.db
