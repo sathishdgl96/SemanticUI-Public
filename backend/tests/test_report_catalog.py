@@ -65,3 +65,50 @@ def test_unknown_well_and_unknown_type_are_rejected():
     assert problems and "bogus" in problems[0]
     with pytest.raises(KeyError):
         wells_to_query("nosuchtype", {})
+
+
+# --- hierarchy references --------------------------------------------------
+
+HIERARCHIES = {"h1": ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE", "CUSTOMERS.CITY"]}
+
+
+def test_wells_to_query_is_unchanged_without_hierarchies():
+    dims, mets = wells_to_query(
+        "bar", {"axis": ["CUSTOMERS.REGION"], "values": ["ORDERS.TOTAL"]}
+    )
+    assert dims == ["CUSTOMERS.REGION"]
+    assert mets == ["ORDERS.TOTAL"]
+
+
+def test_a_hierarchy_reference_expands_to_every_level():
+    """Import validates each returned ref against DESCRIBE, so every level a
+    user could drill to has to be checked -- not just the top one."""
+    dims, mets = wells_to_query(
+        "bar",
+        {"axis": ["hierarchy:h1"], "values": ["ORDERS.TOTAL"]},
+        hierarchies=HIERARCHIES,
+    )
+    assert dims == ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE", "CUSTOMERS.CITY"]
+    assert mets == ["ORDERS.TOTAL"]
+
+
+def test_hierarchy_and_plain_refs_mix_in_declaration_order():
+    dims, _ = wells_to_query(
+        "bar",
+        {"axis": ["hierarchy:h1"], "legend": ["CUSTOMERS.SEGMENT"],
+         "values": ["ORDERS.TOTAL"]},
+        hierarchies=HIERARCHIES,
+    )
+    assert dims == [
+        "CUSTOMERS.COUNTRY", "CUSTOMERS.STATE", "CUSTOMERS.CITY", "CUSTOMERS.SEGMENT"
+    ]
+
+
+def test_an_unknown_hierarchy_reference_is_dropped_rather_than_emitted_raw():
+    """parse_definition already rejects undeclared hierarchy references, so
+    reaching here means the caller passed no map. Emitting "hierarchy:h9" as
+    a field reference would surface as a confusing unknown-dimension error."""
+    dims, _ = wells_to_query(
+        "bar", {"axis": ["hierarchy:h9"], "values": ["ORDERS.TOTAL"]}, hierarchies={}
+    )
+    assert dims == []

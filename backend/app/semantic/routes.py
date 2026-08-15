@@ -37,7 +37,12 @@ def describe_view(
     cache = get_cache()
     entry = cache.acquire(db, sess)
     with entry.lock:
-        return cache.describe(entry, database, schema, name, force=refresh)
+        detail = cache.describe(entry, database, schema, name, force=refresh)
+    # Model-declared hierarchies, normalised into the same shape a
+    # report-defined one has. Empty on every account seen so far, which is why
+    # reports can also define their own -- see detect_hierarchies. Built here
+    # rather than stored, so the cached describe stays the parser's raw output.
+    return {**detail, "modelHierarchies": discovery.detect_hierarchies(detail)}
 
 
 # A picker listing more than a thousand values is not a picker; past this the

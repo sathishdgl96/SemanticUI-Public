@@ -121,3 +121,91 @@ def test_import_accepts_an_unbound_definition_when_a_view_override_is_supplied(
         "schema": "MARTS",
         "name": "SALES_V2",
     }
+
+
+# --- v2: hierarchy levels and filter fields --------------------------------
+
+
+def _v2_doc(**overrides) -> dict:
+    doc = valid_definition()
+    doc.setdefault("filters", [])
+    doc.setdefault("hierarchies", [])
+    doc.update(overrides)
+    return doc
+
+
+def test_import_validates_every_hierarchy_level(client, signed_in):
+    """A level the importer's role cannot see must fail the import, not lie
+    dormant until someone drills into it."""
+    doc = _v2_doc(
+        hierarchies=[{"id": "h1", "name": "Geography",
+                      "levels": ["C.REGION", "C.SECRET_CITY"]}],
+    )
+    doc["visuals"][0]["wells"]["axis"] = ["hierarchy:h1"]
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 400
+    assert "C.SECRET_CITY" in response.json()["message"]
+
+
+def test_import_accepts_a_hierarchy_whose_levels_all_exist(
+    client, signed_in, monkeypatch
+):
+    # A two-level hierarchy needs two visible dimensions, and the shared
+    # DESCRIBE only exposes one. Patching a wider catalog for this case beats
+    # mutating the shared dict, which would leak into whatever ran next.
+    wider = {**DESCRIBE, "dimensions": DESCRIBE["dimensions"] + [
+        {"table": "C", "name": "REGION2", "dataType": "TEXT"}
+    ]}
+    monkeypatch.setattr(
+        "app.snowflake.provider.describe_semantic_view",
+        lambda conn, d, s, n: wider,
+    )
+    doc = _v2_doc(
+        hierarchies=[{"id": "h1", "name": "Geography",
+                      "levels": ["C.REGION", "C.REGION2"]}],
+    )
+    doc["visuals"][0]["wells"]["axis"] = ["hierarchy:h1"]
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 201, response.json()
+    assert response.json()["definition"]["visuals"][0]["wells"]["axis"] == ["hierarchy:h1"]
+
+
+def test_import_validates_report_scope_filter_fields(client, signed_in):
+    """A filter naming a field the importer cannot see is exactly the leak the
+    reference check exists to close."""
+    doc = _v2_doc(
+        filters=[{"id": "f1", "field": "C.SECRET", "op": "is", "values": ["X"]}],
+    )
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 400
+    assert "C.SECRET" in response.json()["message"]
+
+
+def test_import_validates_visual_scope_filter_fields(client, signed_in):
+    doc = _v2_doc()
+    doc["visuals"][0]["filters"] = [
+        {"id": "f1", "field": "C.ALSO_SECRET", "op": "is", "values": ["X"]}
+    ]
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 400
+    assert "C.ALSO_SECRET" in response.json()["message"]
+
+
+def test_import_accepts_a_filter_on_a_visible_field(client, signed_in):
+    doc = _v2_doc(
+        filters=[{"id": "f1", "field": "C.REGION", "op": "is", "values": ["EAST"]}],
+    )
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 201, response.json()
+    assert response.json()["definition"]["filters"][0]["field"] == "C.REGION"
+
+
+def test_importing_a_v1_document_still_works(client, signed_in):
+    """Exports taken before this branch must remain importable."""
+    doc = valid_definition()
+    doc["schemaVersion"] = 1
+    doc.pop("filters", None)
+    doc.pop("hierarchies", None)
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 201, response.json()
+    assert response.json()["definition"]["schemaVersion"] == 2

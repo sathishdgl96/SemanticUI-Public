@@ -274,3 +274,12 @@ def test_distinct_values_does_not_shadow_the_describe_route(client, db):
     r = client.get("/api/semantic-views/ANALYTICS/PUBLIC/SALES")
     assert r.status_code == 200
     assert r.json()["dimensions"][0]["name"] == "ORDER_DATE"
+
+
+def test_describe_exposes_model_hierarchies_as_an_empty_list(client, db):
+    """Empty, not absent: the frontend merges this with report-defined
+    hierarchies, and a missing key would make that merge conditional."""
+    login(client, db)
+    r = client.get("/api/semantic-views/ANALYTICS/PUBLIC/SALES")
+    assert r.status_code == 200
+    assert r.json()["modelHierarchies"] == []

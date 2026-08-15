@@ -88,19 +88,35 @@ CATALOG: dict[str, VisualSpec] = {
 
 
 def wells_to_query(
-    visual_type: str, wells: dict[str, list[str]]
+    visual_type: str,
+    wells: dict[str, list[str]],
+    hierarchies: dict[str, list[str]] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Flatten a visual's wells into the (dimensions, metrics) the query API takes.
 
     Order matters: dimensions come out in well-declaration order, so for a bar
     the axis precedes the legend and the caller can rely on that when pivoting.
+
+    A "hierarchy:<id>" entry expands to EVERY level of that hierarchy. Callers
+    use this for validation -- "can this user see all the fields this report
+    could drill to?" -- not for querying: the client picks the single level to
+    select from the current drill position before it calls the query API.
     """
     spec = CATALOG[visual_type]
+    lookup = hierarchies or {}
     dimensions: list[str] = []
     metrics: list[str] = []
     for well in spec.wells:
         target = dimensions if well.kind == "dimension" else metrics
-        target.extend(wells.get(well.key, []))
+        for ref in wells.get(well.key, []):
+            if ref.startswith(HIERARCHY_PREFIX):
+                # An unknown id yields nothing: parse_definition has already
+                # rejected undeclared references, so the only way to get here
+                # is a caller that passed no map -- and emitting the raw
+                # "hierarchy:h9" would surface as a bogus unknown-field error.
+                target.extend(lookup.get(ref[len(HIERARCHY_PREFIX):], []))
+            else:
+                target.append(ref)
     return dimensions, metrics
 
 

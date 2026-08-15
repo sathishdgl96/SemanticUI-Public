@@ -123,12 +123,28 @@ def import_report(
         )
 
     known = _known_refs(detail)
+    hierarchy_levels = {h.id: list(h.levels) for h in definition.hierarchies}
+
     missing: list[str] = []
+    # Report-scope filters first, then each visual's fields and its own
+    # filters. A filter reference is exactly as sensitive as a well reference:
+    # both name a field this user's role must be able to see.
+    for f in definition.filters:
+        if f.field.upper() not in known:
+            missing.append(f.field)
     for visual in definition.visuals:
-        dimensions, metrics = wells_to_query(visual.type, visual.wells)
+        # Passing the hierarchy map expands "hierarchy:h1" into every level,
+        # so a level the importer cannot see fails the import now rather than
+        # lying dormant until someone drills into it.
+        dimensions, metrics = wells_to_query(
+            visual.type, visual.wells, hierarchies=hierarchy_levels
+        )
         for ref in dimensions + metrics:
             if ref.upper() not in known:
                 missing.append(ref)
+        for f in visual.filters:
+            if f.field.upper() not in known:
+                missing.append(f.field)
     if missing:
         unique = sorted(set(missing))
         raise ApiError(

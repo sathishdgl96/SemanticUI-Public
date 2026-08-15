@@ -3,6 +3,7 @@ import pytest
 from app.errors import ApiError
 from app.semantic.discovery import (
     describe_semantic_view,
+    detect_hierarchies,
     list_semantic_views,
     quote_ident,
 )
@@ -96,3 +97,48 @@ def test_describe_semantic_view_parses_shape():
     assert detail["facts"] == [
         {"table": "ORDERS", "name": "ORDER_AMOUNT", "dataType": "NUMBER(38,2)"}
     ]
+
+
+# --- model-declared hierarchies --------------------------------------------
+
+HIERARCHY_ROWS = DESCRIBE_ROWS + [
+    ("HIERARCHY", "GEOGRAPHY", "CUSTOMERS", "LEVELS", "COUNTRY, STATE, CITY"),
+]
+
+
+def _detail(rows):
+    cur = FakeCursor(rows=list(rows), description=DESCRIBE_DESC)
+    return describe_semantic_view(FakeConnection(cur), "D", "S", "V")
+
+
+def test_describe_reports_no_hierarchies_on_todays_accounts():
+    """Snowflake does not expose hierarchies in DESCRIBE on the account this
+    was built against. An empty list -- not a missing key -- is what lets the
+    report-defined path work unchanged."""
+    assert _detail(DESCRIBE_ROWS)["hierarchies"] == []
+
+
+def test_detect_hierarchies_finds_nothing_in_todays_output():
+    assert detect_hierarchies(_detail(DESCRIBE_ROWS)) == []
+
+
+def test_detect_hierarchies_reads_a_hierarchy_shaped_object():
+    assert detect_hierarchies(_detail(HIERARCHY_ROWS)) == [
+        {
+            "id": "model:CUSTOMERS.GEOGRAPHY",
+            "name": "GEOGRAPHY",
+            "levels": ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE", "CUSTOMERS.CITY"],
+        }
+    ]
+
+
+def test_detect_hierarchies_skips_one_level_objects():
+    """A one-level hierarchy is a plain field; surfacing it as drillable would
+    offer a drill that immediately dead-ends."""
+    rows = DESCRIBE_ROWS + [("HIERARCHY", "SOLO", "CUSTOMERS", "LEVELS", "COUNTRY")]
+    assert detect_hierarchies(_detail(rows)) == []
+
+
+def test_detect_hierarchies_tolerates_a_hierarchy_with_no_levels_property():
+    rows = DESCRIBE_ROWS + [("HIERARCHY", "EMPTY", "CUSTOMERS", "COMMENT", "hi")]
+    assert detect_hierarchies(_detail(rows)) == []

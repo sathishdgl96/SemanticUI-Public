@@ -58,6 +58,7 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
     tables: list[dict] = []
     relationships: list[str] = []
     fields: dict[tuple[str, str, str], dict] = {}
+    hierarchies: dict[tuple[str, str], dict] = {}
 
     for row in rows:
         kind = (row.get("object_kind") or "").upper()
@@ -69,6 +70,15 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
         elif kind == "RELATIONSHIP" and obj_name:
             if obj_name not in relationships:
                 relationships.append(obj_name)
+        elif kind == "HIERARCHY" and obj_name:
+            # Collected verbatim; detect_hierarchies below decides what, if
+            # anything, is usable. No account seen so far emits these rows.
+            entry = hierarchies.setdefault(
+                (parent or "", obj_name),
+                {"table": parent or "", "name": obj_name, "levels": None},
+            )
+            if (row.get("property") or "").upper() == "LEVELS":
+                entry["levels"] = row.get("property_value")
         elif kind in _FIELD_KINDS and obj_name:
             key = (kind, parent or "", obj_name)
             field = fields.setdefault(
@@ -83,7 +93,42 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
         "dimensions": [],
         "metrics": [],
         "facts": [],
+        "hierarchies": list(hierarchies.values()),
     }
     for (kind, _parent, _name), field in fields.items():
         detail[_FIELD_KINDS[kind]].append(field)
     return detail
+
+
+def detect_hierarchies(detail: dict) -> list[dict]:
+    """Hierarchies the semantic model itself declares, or [] if it declares none.
+
+    Snowflake does not expose hierarchies in DESCRIBE SEMANTIC VIEW on the
+    accounts this was built against, so today this returns [] and the
+    report-defined path is what works. It ships anyway so the model-first path
+    activates on its own the day an account does expose them, rather than
+    needing a code change at that point.
+    """
+    found: list[dict] = []
+    for raw in detail.get("hierarchies", []):
+        table = (raw.get("table") or "").strip()
+        levels = [
+            f"{table}.{part.strip()}" if table else part.strip()
+            for part in (raw.get("levels") or "").split(",")
+            if part.strip()
+        ]
+        # Two levels minimum, the same rule report-defined hierarchies obey:
+        # a one-level hierarchy is a plain field, and offering it as drillable
+        # would promise a drill that immediately dead-ends.
+        if len(levels) < 2:
+            continue
+        found.append(
+            {
+                # Namespaced, so a model hierarchy can never collide with a
+                # report-defined id.
+                "id": f"model:{table}.{raw['name']}" if table else f"model:{raw['name']}",
+                "name": raw["name"],
+                "levels": levels,
+            }
+        )
+    return found
