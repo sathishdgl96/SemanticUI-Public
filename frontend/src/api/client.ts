@@ -22,8 +22,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers.set("Content-Type", "application/json");
   }
   const response = await fetch(path, {
-    credentials: "same-origin",
     ...init,
+    // Spread after `...init` so a caller-supplied `init.credentials` can
+    // never override this security-relevant default.
+    credentials: "same-origin",
     headers,
   });
   if (response.status === 401) {

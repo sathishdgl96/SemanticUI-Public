@@ -35,8 +35,13 @@ export function addToWell(
   wells: Wells, wellId: WellId, ref: string, kind: FieldKind,
 ): Wells {
   if (!canDrop(wellId, kind)) return wells;
+  // A ref may only ever occupy one well at a time. Without this, clicking
+  // (or dropping) an already-placed field onto a different well — e.g. a
+  // second click on a dimension that's already in Axis, which
+  // `defaultWellFor` routes to Legend — would duplicate it across wells and
+  // produce a query with the same column twice.
+  if (Object.values(wells).some((refs) => refs.includes(ref))) return wells;
   const current = wells[wellId];
-  if (current.includes(ref)) return wells;
   const next = CAPS[wellId] === 1 ? [ref] : [...current, ref];
   return { ...wells, [wellId]: next };
 }
@@ -56,6 +61,10 @@ export function reorderWell(
 
 export function defaultWellFor(kind: FieldKind, wells: Wells): WellId {
   if (kind === "metric") return "values";
+  // Doesn't need to know whether the specific ref being placed is already
+  // in axis: if it is, routing it here to "legend" is harmless because
+  // `addToWell`'s cross-well dedupe refuses the add and leaves the wells
+  // unchanged — a second click on an already-placed field is a no-op.
   return wells.axis.length === 0 ? "axis" : "legend";
 }
 

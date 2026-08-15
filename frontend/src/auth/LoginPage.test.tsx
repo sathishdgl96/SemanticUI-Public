@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/client", () => ({
@@ -25,15 +25,22 @@ import LoginPage from "./LoginPage";
 
 const apiFetchMock = vi.mocked(apiFetch);
 
-function renderPage() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+function renderPage(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  return {
+    qc,
+    // Mirrors App.tsx's routing: a successful login navigates to "/" and
+    // LoginPage actually unmounts, the way it does in production.
+    ...render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/login"]}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<p>Home page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -58,11 +65,20 @@ describe("LoginPage", () => {
     apiFetchMock.mockResolvedValueOnce({
       snowflakeUser: "ALICE", snowflakeAccount: "ACME", mode: "dev",
     });
+    // A successful login now does a full `queryClient.clear()` (see below),
+    // which leaves the still-mounted `["config"]` query without cached data
+    // for a moment and triggers an incidental background refetch before the
+    // route swap unmounts LoginPage — queue a response so that refetch
+    // doesn't hit an empty mock.
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser", "password"],
+    });
     await userEvent.type(screen.getByLabelText(/account/i), "myorg-myaccount");
     await userEvent.type(screen.getByLabelText(/user/i), "alice");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
     await waitFor(() =>
-      expect(apiFetchMock).toHaveBeenLastCalledWith("/auth/dev-login", {
+      expect(apiFetchMock).toHaveBeenCalledWith("/auth/dev-login", {
         method: "POST",
         body: JSON.stringify({
           account: "myorg-myaccount",
@@ -88,9 +104,17 @@ describe("LoginPage", () => {
     apiFetchMock.mockResolvedValueOnce({
       snowflakeUser: "ALICE", snowflakeAccount: "ACME", mode: "dev",
     });
+    // Queue a response for the incidental `["config"]` background refetch
+    // that the post-login `queryClient.clear()` triggers on the
+    // still-mounted observer before LoginPage unmounts (see comment above).
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser", "keypair"],
+    });
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
     await waitFor(() => {
-      const body = JSON.parse(apiFetchMock.mock.lastCall![1]!.body as string);
+      const devLoginCall = apiFetchMock.mock.calls.find(([path]) => path === "/auth/dev-login");
+      const body = JSON.parse(devLoginCall![1]!.body as string);
       expect(body.authenticator).toBe("keypair");
       expect(body.private_key_pem).toBe("PEMDATA");
     });
@@ -120,5 +144,27 @@ describe("LoginPage", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/re-paste your private key/i);
     });
     expect(textarea).toHaveValue("");
+  });
+
+  it("clears the whole query client cache on a successful login, not just [me]", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser"],
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Simulate a browser that still holds a previous identity's cache
+    // (e.g. user A's semantic-views list) when user B logs in.
+    qc.setQueryData(["semantic-views"], { views: [{ name: "A's view" }] });
+    renderPage(qc);
+    await screen.findByLabelText(/account/i);
+    apiFetchMock.mockResolvedValueOnce({
+      snowflakeUser: "BOB", snowflakeAccount: "ACME", mode: "dev",
+    });
+    await userEvent.type(screen.getByLabelText(/account/i), "myorg-myaccount");
+    await userEvent.type(screen.getByLabelText(/user/i), "bob");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(qc.getQueryData(["semantic-views"])).toBeUndefined();
+    });
   });
 });

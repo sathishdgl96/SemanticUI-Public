@@ -1,5 +1,5 @@
 import { DndContext, type Announcements, type DragEndEvent } from "@dnd-kit/core";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
@@ -26,6 +26,7 @@ function dragDataOf(active: { data: { current?: Record<string, unknown> } }): Dr
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const me = useMe();
   const [selectedView, setSelectedView] = useState<SemanticViewSummary | null>(null);
   const [wells, setWells] = useState<Wells>(emptyWells());
@@ -121,8 +122,21 @@ export default function ExplorerPage() {
   }
 
   async function logout() {
-    await apiFetch("/auth/logout", { method: "POST" });
-    navigate("/login");
+    // The server-side session is over the moment the user asks to log out,
+    // regardless of whether the request below succeeds — a network hiccup
+    // must not strand the user on the explorer with another identity's
+    // cached data still readable. Clear the cache before navigating so
+    // nothing from this identity survives to be shown to whoever logs in
+    // next in this browser.
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch {
+      // Local logout proceeds regardless; the server may already have
+      // dropped the session, or the failure is transient/irrelevant now.
+    } finally {
+      queryClient.clear();
+      navigate("/login");
+    }
   }
 
   return (

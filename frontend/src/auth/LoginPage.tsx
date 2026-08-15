@@ -56,7 +56,11 @@ export default function LoginPage() {
       // Drop key material from memory now that the connection is established.
       setPrivateKeyPem("");
       setPrivateKeyPassphrase("");
-      await queryClient.invalidateQueries({ queryKey: ["me"] });
+      // A full clear, not just an invalidation of ["me"]: this browser may
+      // still hold another identity's cached semantic-views/semantic-view
+      // data from a previous session, which must never be shown to whoever
+      // just signed in.
+      queryClient.clear();
       navigate("/");
     } catch (err) {
       const message = err instanceof ApiError ? err.message : "Login failed";

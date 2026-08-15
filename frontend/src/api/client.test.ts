@@ -34,6 +34,13 @@ describe("apiFetch", () => {
     expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
   });
 
+  it("does not let a caller-supplied init.credentials override same-origin", async () => {
+    const fn = mockFetch(200, { ok: true });
+    await apiFetch("/api/config", { credentials: "include" });
+    const [, init] = fn.mock.calls[0];
+    expect(init.credentials).toBe("same-origin");
+  });
+
   it("throws ApiError built from the error envelope", async () => {
     mockFetch(400, { code: "QUERY_ERROR", message: "bad field", detail: null });
     const err = await apiFetch<never>("/api/query/semantic").catch((e: unknown) => e as ApiError);

@@ -55,4 +55,31 @@ describe("wells model", () => {
       metrics: ["A.REVENUE"],
     });
   });
+
+  it("refuses to add a ref that is already present in a different well", () => {
+    let w = addToWell(emptyWells(), "axis", "ORDERS.ORDER_DATE", "dimension");
+    // Same ref, same kind, but targeting legend this time — must be a no-op
+    // rather than duplicating the field across two wells.
+    w = addToWell(w, "legend", "ORDERS.ORDER_DATE", "dimension");
+    expect(w).toEqual({ axis: ["ORDERS.ORDER_DATE"], legend: [], values: [] });
+  });
+
+  it("treats a second click on an already-placed field as a no-op", () => {
+    let w = addToWell(emptyWells(), "axis", "ORDERS.ORDER_DATE", "dimension");
+    // defaultWellFor still routes a second dimension to legend once axis is
+    // occupied (its signature is unchanged) — but addToWell now refuses to
+    // add a ref that's already present in a different well, so routing
+    // there is harmless and the wells stay exactly as before.
+    const target = defaultWellFor("dimension", w);
+    expect(target).toBe("legend");
+    w = addToWell(w, target, "ORDERS.ORDER_DATE", "dimension");
+    expect(w).toEqual({ axis: ["ORDERS.ORDER_DATE"], legend: [], values: [] });
+  });
+
+  it("never produces a duplicate ref across wells via wellsToQuery", () => {
+    let w = addToWell(emptyWells(), "axis", "ORDERS.ORDER_DATE", "dimension");
+    w = addToWell(w, "legend", "ORDERS.ORDER_DATE", "dimension");
+    const { dimensions } = wellsToQuery(w);
+    expect(new Set(dimensions).size).toBe(dimensions.length);
+  });
 });

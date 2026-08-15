@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/client", () => ({
@@ -39,15 +39,20 @@ function mockRoutes(detailResult: () => Promise<unknown>) {
   });
 }
 
-function renderPage() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <ExplorerPage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+function renderPage(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+  return {
+    qc,
+    ...render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/"]}>
+          <Routes>
+            <Route path="/" element={<ExplorerPage />} />
+            <Route path="/login" element={<p>Login page</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -101,5 +106,50 @@ describe("ExplorerPage", () => {
     await screen.findByRole("alert");
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/semantic-views/DB/SCH/My%20View");
+  });
+
+  it("clears the query client cache and navigates to /login on logout", async () => {
+    mockRoutes(() => Promise.reject(new ApiError("VIEW_ERROR", 500, "boom")));
+    apiFetchMock.mockImplementation((...args: unknown[]) => {
+      const path = String(args[0]);
+      if (path === "/api/me") return Promise.resolve(ME);
+      if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
+      if (path.startsWith("/api/semantic-views/")) return Promise.reject(new ApiError("VIEW_ERROR", 500, "boom"));
+      if (path === "/auth/logout") return Promise.resolve(undefined);
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+    const { qc } = renderPage();
+
+    // Wait for A's semantic-views list to actually populate the cache, the
+    // way a real logged-in session leaves it.
+    await screen.findByRole("button", { name: "My View" });
+    expect(qc.getQueryData(["semantic-views"])).toBeDefined();
+
+    await userEvent.click(screen.getByRole("button", { name: /log out/i }));
+
+    await screen.findByText("Login page");
+    expect(qc.getQueryData(["semantic-views"])).toBeUndefined();
+  });
+
+  it("clears the cache and navigates to /login even when the logout request itself fails", async () => {
+    apiFetchMock.mockImplementation((...args: unknown[]) => {
+      const path = String(args[0]);
+      if (path === "/api/me") return Promise.resolve(ME);
+      if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
+      if (path === "/auth/logout") return Promise.reject(new Error("network down"));
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+    const { qc } = renderPage();
+
+    await screen.findByRole("button", { name: "My View" });
+    expect(qc.getQueryData(["semantic-views"])).toBeDefined();
+
+    await userEvent.click(screen.getByRole("button", { name: /log out/i }));
+
+    // Local session is over regardless of whether the server call
+    // succeeded — the user must not be stranded on the explorer with a
+    // stale cache.
+    await screen.findByText("Login page");
+    expect(qc.getQueryData(["semantic-views"])).toBeUndefined();
   });
 });
