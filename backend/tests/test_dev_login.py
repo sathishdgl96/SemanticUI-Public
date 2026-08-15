@@ -1,3 +1,5 @@
+import pytest
+
 from app.snowflake import connect as sf_connect
 from app.auth.sessions import SESSION_COOKIE
 from tests.fakes import FakeConnection
@@ -107,6 +109,101 @@ def test_config_reports_direct_login_methods(client):
     body = client.get("/api/config").json()
     assert body["authMode"] == "dev"
     assert "keypair" in body["directLoginMethods"]
+
+
+def test_keypair_login_rejects_foreign_account_when_pinned(make_client, monkeypatch):
+    from tests.test_connect import _make_pem
+
+    client = make_client(
+        SEMANTICUI_AUTH_MODE="dev",
+        SEMANTICUI_SNOWFLAKE_ACCOUNT="myorg-myaccount",
+    )
+    pem = _make_pem()
+    calls = []
+    monkeypatch.setattr(
+        sf_connect, "connect_dev", lambda **kw: calls.append(kw) or FakeConnection()
+    )
+    r = client.post(
+        "/auth/dev-login",
+        json={
+            "account": "some-other-account",
+            "user": "alice",
+            "authenticator": "keypair",
+            "private_key_pem": pem,
+            "private_key_passphrase": None,
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "AUTH_FAILED"
+    # Must reject before ever opening a Snowflake connection to the
+    # foreign account.
+    assert calls == []
+
+
+def test_keypair_login_allows_matching_account_case_insensitive(make_client, monkeypatch):
+    from tests.test_connect import _make_pem
+
+    client = make_client(
+        SEMANTICUI_AUTH_MODE="dev",
+        SEMANTICUI_SNOWFLAKE_ACCOUNT="myorg-myaccount",
+    )
+    pem = _make_pem()
+    monkeypatch.setattr(sf_connect, "connect_dev", lambda **kw: FakeConnection())
+    monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("MYORG-MYACCOUNT", "ALICE"))
+    r = client.post(
+        "/auth/dev-login",
+        json={
+            "account": "MyOrg-MyAccount",
+            "user": "alice",
+            "authenticator": "keypair",
+            "private_key_pem": pem,
+            "private_key_passphrase": None,
+        },
+    )
+    assert r.status_code == 200
+
+
+def test_keypair_login_allows_any_account_when_unpinned(client, monkeypatch):
+    from tests.test_connect import _make_pem
+
+    pem = _make_pem()
+    monkeypatch.setattr(sf_connect, "connect_dev", lambda **kw: FakeConnection())
+    monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("SOME-OTHER-ACCT", "ALICE"))
+    r = client.post(
+        "/auth/dev-login",
+        json={
+            "account": "some-other-acct",
+            "user": "alice",
+            "authenticator": "keypair",
+            "private_key_pem": pem,
+            "private_key_passphrase": None,
+        },
+    )
+    assert r.status_code == 200
+
+
+def test_dev_login_closes_connection_when_probe_identity_fails(client, monkeypatch):
+    # If anything after connect_dev() raises (probe_identity, create_session
+    # -- e.g. Postgres is down), the just-opened Snowflake connection was
+    # never handed to the cache, so nothing else would ever close it. A
+    # systematic failure here would leak one Snowflake session per login
+    # attempt.
+    conn = FakeConnection()
+    monkeypatch.setattr(sf_connect, "connect_dev", lambda **kw: conn)
+
+    def boom(c):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(sf_connect, "probe_identity", boom)
+    # The TestClient re-raises unhandled server exceptions by default
+    # (rather than surfacing the envelope response); what this test cares
+    # about is that the connection was closed either way.
+    with pytest.raises(RuntimeError):
+        client.post(
+            "/auth/dev-login",
+            json={"account": "acct", "user": "alice", "authenticator": "externalbrowser"},
+        )
+    assert conn.closed is True
 
 
 def test_oversized_pem_validation_error_does_not_echo_key_material(client):

@@ -8,8 +8,9 @@ from app.auth.sessions import (
     delete_session,
     get_active_session,
     new_session_id,
+    purge_expired_sessions,
 )
-from app.db.models import User
+from app.db.models import DbSession, User
 
 
 def test_session_ids_are_long_random():
@@ -42,6 +43,28 @@ def test_get_active_session_touches_and_expires(db):
     db.commit()
     assert get_active_session(db, sess.id) is None
     assert get_active_session(db, "nonsense") is None
+
+
+def test_purge_expired_sessions_deletes_only_stale_rows(db):
+    fresh = create_session(db, account="ACME", user="ALICE", mode="dev")
+    stale = create_session(
+        db, account="ACME", user="BOB", mode="oauth",
+        access_token="at-1", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    stale.last_seen_at = datetime.now(timezone.utc) - timedelta(hours=9)
+    db.commit()
+
+    count = purge_expired_sessions(db)
+
+    assert count == 1
+    assert db.get(DbSession, stale.id) is None
+    assert db.get(DbSession, fresh.id) is not None
+
+
+def test_purge_expired_sessions_is_noop_when_nothing_stale(db):
+    create_session(db, account="ACME", user="ALICE", mode="dev")
+    assert purge_expired_sessions(db) == 0
 
 
 def test_delete_session(db):

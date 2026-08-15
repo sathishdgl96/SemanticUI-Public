@@ -118,13 +118,53 @@ never stores it.
        SEMANTICUI_OAUTH_CLIENT_SECRET=<from step 1>
        SEMANTICUI_OAUTH_REDIRECT_URI=https://<your-host>/auth/callback
        SEMANTICUI_DIRECT_LOGIN_METHODS=["keypair"]
+       SEMANTICUI_POST_LOGIN_REDIRECT_URL=/
 
-   The last line is optional but recommended if you also want to offer
-   key-pair login alongside OAuth SSO in production; omit it entirely (or
-   set `[]`) to make OAuth the only way in. Any value other than `[]` or
-   `["keypair"]` is rejected at startup in production.
+   `SEMANTICUI_DIRECT_LOGIN_METHODS` is optional but recommended if you
+   also want to offer key-pair login alongside OAuth SSO in production;
+   omit it entirely (or set `[]`) to make OAuth the only way in. Any value
+   other than `[]` or `["keypair"]` is rejected at startup in production.
+   `SEMANTICUI_POST_LOGIN_REDIRECT_URL` controls where `/auth/callback`
+   sends the browser after login - see "Serving the SPA in production"
+   below before changing it from the default `/`.
 
 The backend refuses to start with `AUTH_MODE=dev` in production.
+
+### Serving the SPA in production
+
+**The backend does not serve the frontend.** `backend/app/main.py` mounts no
+static files - it is an API-and-auth server only (`/auth/*`, `/api/*`,
+`/healthz`). In local dev this is invisible because the Vite dev server
+proxies `/api` and `/auth` through to the backend on your behalf; there is
+no equivalent proxy in a production build, so an operator who only follows
+the "Configure the backend env" steps above ends up with a backend that
+answers API calls correctly but returns a JSON `404 {"code": "HTTP_ERROR",
+...}` for `GET /` - and `/auth/callback`'s post-login redirect (default
+target `/`) lands there too. Pick one of these two layouts:
+
+1. **Reverse proxy serving both from one origin (recommended).** Point
+   your proxy (nginx, Caddy, a cloud load balancer, etc.) at
+   `frontend/dist` (the output of `cd frontend && npm run build`) for `/`,
+   and proxy `/api/*` and `/auth/*` through to the backend process. Leave
+   `SEMANTICUI_POST_LOGIN_REDIRECT_URL` at its default (`/`) - the OAuth
+   callback's redirect then lands back on the SPA, on the same origin, with
+   no CORS configuration needed anywhere.
+2. **Frontend on a separate static host.** Deploy `frontend/dist` to a
+   static host/CDN (S3+CloudFront, Netlify, Vercel static hosting, etc.)
+   that is a different origin from the backend, and set
+   `SEMANTICUI_POST_LOGIN_REDIRECT_URL=https://<your-frontend-host>/` so
+   `/auth/callback` redirects the browser there instead of to the backend's
+   own `/`. The frontend's `VITE_API_BASE_URL` (or equivalent build-time
+   config) must then point at the backend's origin, and the backend's
+   session cookie (`SameSite=Lax`, see `set_session_cookie` in
+   `backend/app/auth/sessions.py`) works for this as long as the frontend
+   navigates the browser to the backend for `/auth/login` (a top-level
+   navigation, not a fetch/XHR) rather than trying to call it cross-origin.
+
+Either way, this backend never renders HTML or ships JS/CSS itself -
+`post_login_redirect_url` is the only knob it exposes for this; the actual
+topology (single origin vs. split) is a deployment decision, not something
+the app hardcodes.
 
 ## The explorer UI
 

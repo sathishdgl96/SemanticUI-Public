@@ -10,7 +10,7 @@ from app.auth.sessions import create_session
 from app.db.models import DbSession
 from app.errors import AuthExpiredError
 from app.snowflake import connect as sf_connect
-from app.snowflake.provider import ConnectionCache
+from app.snowflake.provider import CacheEntry, ConnectionCache
 from tests.fakes import FakeConnection
 
 
@@ -174,6 +174,55 @@ def test_concurrent_acquire_same_session_leaks_nothing(db_factory, monkeypatch):
     assert results[0].conn is results[1].conn
     closed_flags = sorted(c.closed for c in created)
     assert closed_flags == [False, True]
+
+
+def test_enforce_cap_skips_busy_entries(db):
+    now = [1000.0]
+    cache = make_cache(clock=lambda: now[0], max_size=2)
+    busy = FakeConnection()
+    cache.put("sid-busy", busy)
+    entry = cache._entries["sid-busy"]
+    entry.lock.acquire()
+    now[0] += 1
+    other = FakeConnection()
+    cache.put("sid-2", other)
+    now[0] += 1
+    third = FakeConnection()
+    # Adding a third entry pushes the cache over cap (2). The oldest entry
+    # (sid-busy) is mid-query (lock held) and must not be evicted; the
+    # next-oldest free entry (sid-2) should be evicted instead.
+    cache.put("sid-3", third)
+
+    assert busy.closed is False
+    assert "sid-busy" in cache._entries
+    assert cache._entries["sid-busy"].conn is busy
+    assert other.closed is True
+    assert "sid-2" not in cache._entries
+    assert third.closed is False
+    assert "sid-3" in cache._entries
+
+    entry.lock.release()
+
+
+def test_enforce_cap_leaves_cache_over_cap_when_all_busy(db):
+    # Every entry over cap is mid-query (lock held). Exercise
+    # _enforce_cap_locked directly: put() always inserts its new entry
+    # unlocked, so the "every candidate is busy" case can't be reached
+    # through the public put()/acquire() API alone.
+    cache = make_cache(max_size=1)
+    first, second = FakeConnection(), FakeConnection()
+    cache._entries["sid-1"] = CacheEntry(conn=first, last_used=1000.0)
+    cache._entries["sid-2"] = CacheEntry(conn=second, last_used=1001.0)
+    cache._entries["sid-1"].lock.acquire()
+    cache._entries["sid-2"].lock.acquire()
+
+    with cache._lock:
+        to_close = cache._enforce_cap_locked()
+
+    assert to_close == []
+    assert first.closed is False
+    assert second.closed is False
+    assert len(cache._entries) == 2
 
 
 def test_sweep_skips_busy_entries(db):

@@ -104,14 +104,28 @@ client: client id + secret configured on the backend; a Snowflake
 
 1. `GET /auth/login` → 302 to the account's `/oauth/authorize` with
    `client_id`, `redirect_uri`, and a random `state` (stored server-side,
-   single-use, short TTL).
+   single-use, short TTL) that is **also bound to the browser** that
+   started the flow: the same response sets a short-lived, `HttpOnly`,
+   `SameSite=Lax` cookie (`semanticui_oauth_state`, `Secure` outside dev
+   mode) containing that `state` value, with a max-age matching the
+   state's server-side TTL.
 2. User signs in on Snowflake's own login page (honors the account's
    SSO/MFA) and consents.
-3. `GET /auth/callback` → validate `state`; exchange the code at
-   `/oauth/token-request` for **access + refresh tokens**; open one
-   connection to read `CURRENT_USER()` / `CURRENT_ACCOUNT()`; upsert the
-   `users` row for that identity and create a session row referencing it
-   (see Data Model); set the session cookie.
+3. `GET /auth/callback` → require the `semanticui_oauth_state` cookie to
+   be present **and equal** to the `state` query parameter before
+   consulting the server-side store; reject with `401 AUTH_FAILED`
+   (without calling into the server-side single-use check) if the cookie
+   is missing or mismatched, deleting the cookie either way. Server-side
+   `state` alone is single-use but not browser-bound, so without this
+   check any browser holding a live, unconsumed `state` value could
+   complete another browser's callback — a login CSRF that silently signs
+   the victim in as whoever's flow that state belongs to. Once the cookie
+   check passes: validate `state` against the server-side store; exchange
+   the code at `/oauth/token-request` for **access + refresh tokens**;
+   open one connection to read `CURRENT_USER()` / `CURRENT_ACCOUNT()`;
+   upsert the `users` row for that identity and create a session row
+   referencing it (see Data Model); set the session cookie; delete the
+   `semanticui_oauth_state` cookie.
 4. Cookie: session id only — `HttpOnly; Secure; SameSite=Lax`
    (`Secure` relaxed only under `AUTH_MODE=dev` on localhost).
 5. **Silent refresh:** Snowflake access tokens live ~10 minutes. On every

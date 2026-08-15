@@ -47,6 +47,7 @@ def test_production_allows_only_keypair_direct_login():
         oauth_client_id="b",
         oauth_client_secret="c",
         direct_login_methods=["keypair"],
+        secret_key="a" * 32,
     )
     assert s.direct_login_methods == ["keypair"]
 
@@ -60,3 +61,48 @@ def test_production_allows_only_keypair_direct_login():
             oauth_client_secret="c",
             direct_login_methods=["password"],
         )
+
+
+def _prod_kwargs(**overrides):
+    kwargs = dict(
+        _env_file=None,
+        auth_mode="oauth",
+        environment="production",
+        snowflake_account="a",
+        oauth_client_id="b",
+        oauth_client_secret="c",
+        direct_login_methods=["keypair"],
+        secret_key="a" * 32,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_production_rejects_default_secret_key():
+    with pytest.raises(ValidationError, match="secret_key"):
+        Settings(**_prod_kwargs(secret_key="dev-secret-change-me"))
+
+
+def test_production_rejects_short_secret_key():
+    with pytest.raises(ValidationError, match="secret_key"):
+        Settings(**_prod_kwargs(secret_key="short-key-not-32-bytes"))
+
+
+def test_production_accepts_strong_secret_key():
+    s = Settings(**_prod_kwargs(secret_key="s" * 32))
+    assert s.secret_key == "s" * 32
+
+
+def test_development_allows_default_secret_key():
+    s = Settings(_env_file=None)
+    assert s.secret_key == "dev-secret-change-me"
+
+
+def test_post_login_redirect_url_defaults_to_root():
+    s = Settings(_env_file=None)
+    assert s.post_login_redirect_url == "/"
+
+
+def test_post_login_redirect_url_is_configurable():
+    s = Settings(_env_file=None, post_login_redirect_url="https://spa.example.com/app")
+    assert s.post_login_redirect_url == "https://spa.example.com/app"

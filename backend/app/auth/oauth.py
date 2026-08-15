@@ -4,10 +4,23 @@ from dataclasses import dataclass
 from urllib.parse import urlencode
 
 import httpx
+from fastapi import Response
 
 from app.config import Settings, get_settings
 
+# Cookie that ties an OAuth login attempt to the browser that started it.
+# `_states` alone is not enough: it is process-global with no binding to
+# the browser, so any browser presenting a live (unconsumed) state value
+# could complete someone else's callback and be signed in as them (login
+# CSRF). The cookie is single-use/short-TTL like the state itself.
+OAUTH_STATE_COOKIE = "semanticui_oauth_state"
+
 _STATE_TTL_SECONDS = 600
+# /auth/login needs no credentials, so an abandoned-flow loop must not be
+# able to grow this process-global dict without bound: prune expired
+# entries on every insert and cap the total count, dropping the oldest
+# entries first once the cap is hit.
+_STATE_MAX_ENTRIES = 10_000
 _states: dict[str, float] = {}
 
 
@@ -22,15 +35,46 @@ class OAuthRefreshError(Exception):
     pass
 
 
+def _prune_expired_states() -> None:
+    cutoff = time.monotonic() - _STATE_TTL_SECONDS
+    expired = [s for s, created in _states.items() if created < cutoff]
+    for s in expired:
+        _states.pop(s, None)
+
+
+def _enforce_state_cap() -> None:
+    # Dicts preserve insertion order in Python; if still over cap after
+    # pruning, drop the oldest entries first (FIFO) rather than let the
+    # dict grow without bound.
+    overflow = len(_states) - _STATE_MAX_ENTRIES
+    if overflow > 0:
+        for s in list(_states.keys())[:overflow]:
+            _states.pop(s, None)
+
+
 def make_state() -> str:
+    _prune_expired_states()
     state = secrets.token_urlsafe(16)
     _states[state] = time.monotonic()
+    _enforce_state_cap()
     return state
 
 
 def consume_state(state: str) -> bool:
     created = _states.pop(state, None)
     return created is not None and (time.monotonic() - created) < _STATE_TTL_SECONDS
+
+
+def set_state_cookie(response: Response, state: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        OAUTH_STATE_COOKIE,
+        state,
+        httponly=True,
+        secure=settings.auth_mode != "dev",
+        samesite="lax",
+        max_age=_STATE_TTL_SECONDS,
+    )
 
 
 class SnowflakeOAuthClient:

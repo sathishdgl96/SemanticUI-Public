@@ -4,7 +4,17 @@ from typing import Any
 from snowflake.connector.constants import FIELD_ID_TO_NAME
 from snowflake.connector.errors import Error as SnowflakeError
 
-from app.errors import ApiError
+from app.errors import ApiError, AuthExpiredError
+
+# Snowflake errnos for a session/token that is gone server-side: the
+# connection is otherwise fine, but re-authentication is required. Mapped
+# to AUTH_EXPIRED (401) so the frontend routes to login instead of showing
+# an unactionable "Query failed".
+_AUTH_EXPIRED_ERRNOS = {390114, 390111}
+# The 08001 sqlstate family ("SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION")
+# covers session/connection-gone cases that don't always carry one of the
+# specific errnos above.
+_AUTH_EXPIRED_SQLSTATES = {"08001"}
 
 
 @dataclass
@@ -18,7 +28,10 @@ class QueryResult:
 def map_snowflake_error(exc: Exception) -> ApiError:
     if isinstance(exc, SnowflakeError):
         errno = getattr(exc, "errno", None)
+        sqlstate = getattr(exc, "sqlstate", None)
         message = getattr(exc, "raw_msg", None) or getattr(exc, "msg", None) or str(exc)
+        if errno in _AUTH_EXPIRED_ERRNOS or sqlstate in _AUTH_EXPIRED_SQLSTATES:
+            return AuthExpiredError(message)
         if errno == 3001 or "insufficient privileges" in message.lower():
             return ApiError("SNOWFLAKE_FORBIDDEN", 403, message)
         if errno in (604, 630) or "timeout" in message.lower():

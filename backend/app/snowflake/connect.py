@@ -82,6 +82,22 @@ def connect_dev(
     return snowflake.connector.connect(**kwargs)
 
 
+def close_quietly(conn: Any) -> None:
+    """Best-effort close for a connection that failed after connect().
+
+    Callers use this when a step *after* a successful connect() (e.g.
+    probe_identity, create_session) raises. That connection was never
+    handed to the provider's cache, so nothing else -- not even the
+    background sweeper -- would ever close it; a systematic failure here
+    (e.g. Postgres down) would otherwise leak one live Snowflake session
+    per login attempt.
+    """
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
 def probe_identity(conn: Any) -> tuple[str, str]:
     cur = conn.cursor()
     try:

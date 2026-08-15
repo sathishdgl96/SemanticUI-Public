@@ -1,11 +1,16 @@
+import logging
 import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.auth.sessions import purge_expired_sessions
 from app.config import get_settings
+from app.db.base import new_session
 from app.errors import register_error_handlers
 from app.snowflake.provider import get_cache
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -16,8 +21,16 @@ async def lifespan(app: FastAPI):
         while not stop.wait(60):
             try:
                 get_cache().sweep()
+                db = new_session()
+                try:
+                    purge_expired_sessions(db)
+                finally:
+                    db.close()
             except Exception:
-                pass
+                # A permanently failing sweeper (e.g. Postgres down) must
+                # not fail silently -- log it, but keep the loop alive so
+                # it can recover once the underlying issue clears.
+                logger.exception("background sweeper iteration failed")
 
     thread = threading.Thread(target=_sweep_loop, daemon=True)
     thread.start()

@@ -93,6 +93,34 @@ def get_active_session(db: Session, session_id: str) -> DbSession | None:
     return sess
 
 
+def purge_expired_sessions(db: Session) -> int:
+    """Delete every session row whose last_seen_at is past the TTL.
+
+    Unlike get_active_session (which only reaps a row when someone
+    presents that exact cookie again), this is meant to be called
+    periodically by a background sweeper so an abandoned OAuth session
+    doesn't keep its Fernet-encrypted refresh token in Postgres
+    indefinitely and the table doesn't grow without bound.
+
+    Filters in Python (via _as_utc) rather than at the SQL level: SQLite
+    loses tzinfo on stored datetimes (see _as_utc), so a naive DB-side
+    comparison against an aware cutoff is not reliable across both the
+    SQLite test backend and Postgres.
+    """
+    ttl = timedelta(hours=get_settings().session_ttl_hours)
+    cutoff = _utcnow() - ttl
+    stale = [
+        sess
+        for sess in db.scalars(select(DbSession)).all()
+        if _as_utc(sess.last_seen_at) < cutoff
+    ]
+    for sess in stale:
+        db.delete(sess)
+    if stale:
+        db.commit()
+    return len(stale)
+
+
 def delete_session(db: Session, session_id: str) -> None:
     sess = db.get(DbSession, session_id)
     if sess is not None:

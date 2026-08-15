@@ -56,6 +56,29 @@ DESCRIBE_ROWS = [
 ]
 
 
+def test_execute_dicts_bounds_fetch_by_configured_row_cap(monkeypatch):
+    # SHOW/DESCRIBE go through _execute_dicts, which previously called
+    # fetchall() with no cap at all -- bypassing the gateway's row_cap
+    # entirely for these statement kinds.
+    from app.config import get_settings
+
+    monkeypatch.setenv("SEMANTICUI_ROW_CAP", "2")
+    get_settings.cache_clear()
+    try:
+        cur = FakeCursor(
+            rows=[
+                (f"2026-01-0{i}", f"VIEW_{i}", "ANALYTICS", "PUBLIC", None)
+                for i in range(1, 6)
+            ],
+            description=SHOW_DESC,
+        )
+        conn = FakeConnection(cur)
+        views = list_semantic_views(conn)
+        assert len(views) == 2
+    finally:
+        get_settings.cache_clear()
+
+
 def test_describe_semantic_view_parses_shape():
     cur = FakeCursor(rows=DESCRIBE_ROWS, description=DESCRIBE_DESC)
     conn = FakeConnection(cur)

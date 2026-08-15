@@ -1,7 +1,7 @@
 import pytest
-from snowflake.connector.errors import ProgrammingError
+from snowflake.connector.errors import DatabaseError, ProgrammingError
 
-from app.errors import ApiError
+from app.errors import ApiError, AuthExpiredError
 from app.snowflake.gateway import map_snowflake_error, run_query
 from tests.fakes import FakeCol, FakeConnection, FakeCursor
 
@@ -56,3 +56,45 @@ def test_map_unknown_exception_is_query_error():
     err = map_snowflake_error(RuntimeError("boom"))
     assert err.code == "QUERY_ERROR"
     assert err.status == 400
+
+
+def test_map_token_expired_errno_390114_is_auth_expired():
+    err = map_snowflake_error(
+        ProgrammingError(
+            msg="Authentication token has expired.  The user must authenticate again.",
+            errno=390114,
+            sqlstate="08001",
+        )
+    )
+    assert isinstance(err, AuthExpiredError)
+    assert err.code == "AUTH_EXPIRED"
+    assert err.status == 401
+
+
+def test_map_session_gone_errno_390111_is_auth_expired():
+    err = map_snowflake_error(
+        ProgrammingError(msg="Session is gone", errno=390111, sqlstate="08001")
+    )
+    assert isinstance(err, AuthExpiredError)
+    assert err.code == "AUTH_EXPIRED"
+    assert err.status == 401
+
+
+def test_map_sqlstate_08001_family_is_auth_expired():
+    # Some client/session-gone errors surface without one of the specific
+    # errnos above but still carry the 08001 (connection-does-not-exist /
+    # authentication) sqlstate family.
+    err = map_snowflake_error(
+        DatabaseError(msg="Connection is closed", errno=250006, sqlstate="08001")
+    )
+    assert isinstance(err, AuthExpiredError)
+    assert err.code == "AUTH_EXPIRED"
+    assert err.status == 401
+
+
+def test_map_unrelated_sqlstate_is_not_auth_expired():
+    err = map_snowflake_error(
+        ProgrammingError(msg="Syntax error near X", errno=1003, sqlstate="42000")
+    )
+    assert err.code == "QUERY_ERROR"
+    assert not isinstance(err, AuthExpiredError)

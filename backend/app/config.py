@@ -4,6 +4,9 @@ from typing import Literal
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_SECRET_KEY = "dev-secret-change-me"
+MIN_SECRET_KEY_LENGTH = 32
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -12,7 +15,7 @@ class Settings(BaseSettings):
 
     auth_mode: Literal["oauth", "dev"] = "dev"
     environment: Literal["development", "production"] = "development"
-    secret_key: str = "dev-secret-change-me"
+    secret_key: str = DEFAULT_SECRET_KEY
     database_url: str = "postgresql+psycopg://semanticui:semanticui@localhost:5432/semanticui"
 
     session_ttl_hours: int = 8
@@ -26,6 +29,13 @@ class Settings(BaseSettings):
     oauth_client_id: str | None = None
     oauth_client_secret: str | None = None
     oauth_redirect_uri: str = "http://localhost:8000/auth/callback"
+
+    # Where /auth/callback sends the browser after a successful login. The
+    # backend does not serve the SPA itself (see README "Serving the SPA
+    # in production"), so this must point at wherever the frontend is
+    # actually hosted -- "/" only works when a reverse proxy serves the
+    # SPA from the same origin as this backend.
+    post_login_redirect_url: str = "/"
 
     direct_login_methods: list[Literal["externalbrowser", "password", "keypair"]] = [
         "externalbrowser",
@@ -48,6 +58,14 @@ class Settings(BaseSettings):
             if disallowed:
                 raise ValueError(
                     f"in production, direct_login_methods may contain only 'keypair'; got {disallowed}"
+                )
+            if self.secret_key == DEFAULT_SECRET_KEY:
+                raise ValueError(
+                    "secret_key must be overridden (not the published default) in production"
+                )
+            if len(self.secret_key) < MIN_SECRET_KEY_LENGTH:
+                raise ValueError(
+                    f"secret_key must be at least {MIN_SECRET_KEY_LENGTH} characters in production"
                 )
         return self
 

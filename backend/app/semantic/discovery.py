@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.config import get_settings
 from app.errors import ApiError
 from app.snowflake.gateway import map_snowflake_error
 
@@ -18,7 +19,11 @@ def _execute_dicts(conn: Any, sql: str) -> list[dict]:
         except Exception as exc:
             raise map_snowflake_error(exc) from exc
         names = [d.name.lower() for d in (cur.description or [])]
-        return [dict(zip(names, row)) for row in cur.fetchall()]
+        # SHOW/DESCRIBE statements went through fetchall() with no cap,
+        # bypassing the gateway's row_cap entirely for this statement
+        # kind. Bound it the same way run_query() bounds regular queries.
+        rows = cur.fetchmany(get_settings().row_cap)
+        return [dict(zip(names, row)) for row in rows]
     finally:
         cur.close()
 

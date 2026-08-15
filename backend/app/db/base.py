@@ -16,9 +16,19 @@ def get_engine():
     return create_engine(get_settings().database_url, pool_pre_ping=True)
 
 
-def get_db() -> Iterator[Session]:
+def new_session() -> Session:
+    """Open a short-lived Session outside of the FastAPI request cycle.
+
+    Used by background tasks (e.g. the connection-cache/session sweeper)
+    that need a Session but aren't wired through the get_db dependency.
+    Caller is responsible for closing it.
+    """
     factory = sessionmaker(bind=get_engine(), expire_on_commit=False)
-    session = factory()
+    return factory()
+
+
+def get_db() -> Iterator[Session]:
+    session = new_session()
     try:
         yield session
     finally:

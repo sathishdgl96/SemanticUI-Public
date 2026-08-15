@@ -1,6 +1,7 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -36,35 +37,65 @@ def oauth_login() -> RedirectResponse:
     if get_settings().auth_mode != "oauth":
         raise ApiError("AUTH_FAILED", 400, "OAuth login is not available in dev mode")
     client = oauth_mod.get_oauth_client()
-    return RedirectResponse(client.authorize_url(oauth_mod.make_state()))
+    state = oauth_mod.make_state()
+    response = RedirectResponse(client.authorize_url(state))
+    oauth_mod.set_state_cookie(response, state)
+    return response
+
+
+def _reject_oauth_callback(message: str) -> JSONResponse:
+    response = JSONResponse(
+        status_code=401,
+        content={"code": "AUTH_FAILED", "message": message, "detail": None},
+    )
+    response.delete_cookie(oauth_mod.OAUTH_STATE_COOKIE)
+    return response
 
 
 @router.get("/auth/callback")
 def oauth_callback(
-    code: str, state: str, db: Session = Depends(get_db)
-) -> RedirectResponse:
+    code: str, state: str, request: Request, db: Session = Depends(get_db)
+) -> Response:
     if get_settings().auth_mode != "oauth":
         raise ApiError("AUTH_FAILED", 400, "OAuth login is not available in dev mode")
+
+    # The state cookie set by /auth/login ties this callback to the
+    # browser that began the flow. Without this check, `state` alone
+    # (server-side single-use, but not browser-bound) would let any
+    # browser complete any other browser's live login attempt -- a login
+    # CSRF that silently signs the victim in as the attacker's identity.
+    cookie_state = request.cookies.get(oauth_mod.OAUTH_STATE_COOKIE)
+    if not cookie_state or not secrets.compare_digest(cookie_state, state):
+        return _reject_oauth_callback("Invalid or expired OAuth state")
+
     if not oauth_mod.consume_state(state):
-        raise ApiError("AUTH_FAILED", 401, "Invalid or expired OAuth state")
+        return _reject_oauth_callback("Invalid or expired OAuth state")
     try:
         tok = oauth_mod.get_oauth_client().exchange_code(code)
     except OAuthRefreshError:
-        raise ApiError("AUTH_FAILED", 401, "OAuth code exchange failed")
+        return _reject_oauth_callback("OAuth code exchange failed")
     conn = sf_connect.connect_oauth(tok.access_token)
-    account, user = sf_connect.probe_identity(conn)
-    sess = create_session(
-        db,
-        account=account,
-        user=user,
-        mode="oauth",
-        access_token=tok.access_token,
-        refresh_token=tok.refresh_token,
-        access_expires_at=datetime.now(timezone.utc) + timedelta(seconds=tok.expires_in),
-    )
+    try:
+        account, user = sf_connect.probe_identity(conn)
+        sess = create_session(
+            db,
+            account=account,
+            user=user,
+            mode="oauth",
+            access_token=tok.access_token,
+            refresh_token=tok.refresh_token,
+            access_expires_at=datetime.now(timezone.utc)
+            + timedelta(seconds=tok.expires_in),
+        )
+    except Exception:
+        sf_connect.close_quietly(conn)
+        raise
     get_cache().put(sess.id, conn)
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(
+        get_settings().post_login_redirect_url, status_code=303
+    )
     set_session_cookie(response, sess.id)
+    response.delete_cookie(oauth_mod.OAUTH_STATE_COOKIE)
     return response
 
 

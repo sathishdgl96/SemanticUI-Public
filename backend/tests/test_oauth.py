@@ -78,3 +78,41 @@ def test_state_is_single_use():
     assert consume_state(s) is True
     assert consume_state(s) is False
     assert consume_state("unknown") is False
+
+
+def test_make_state_prunes_expired_entries(monkeypatch):
+    from app.auth import oauth as oauth_mod
+
+    oauth_mod._states.clear()
+    fake_now = [1000.0]
+    monkeypatch.setattr(oauth_mod.time, "monotonic", lambda: fake_now[0])
+
+    stale = make_state()
+    assert stale in oauth_mod._states
+
+    # Past the TTL: the next make_state() call should prune the stale entry.
+    fake_now[0] += oauth_mod._STATE_TTL_SECONDS + 1
+    make_state()
+
+    assert stale not in oauth_mod._states
+
+
+def test_states_dict_is_capped(monkeypatch):
+    from app.auth import oauth as oauth_mod
+
+    oauth_mod._states.clear()
+    monkeypatch.setattr(oauth_mod, "_STATE_MAX_ENTRIES", 5)
+    fake_now = [1000.0]
+    monkeypatch.setattr(oauth_mod.time, "monotonic", lambda: fake_now[0])
+
+    created = []
+    for i in range(10):
+        fake_now[0] += 1  # keep insertion order distinguishable, all still fresh
+        created.append(make_state())
+
+    assert len(oauth_mod._states) <= 5
+    # The oldest entries should have been dropped first (FIFO/oldest-first).
+    for old_state in created[:5]:
+        assert old_state not in oauth_mod._states
+    for new_state in created[-5:]:
+        assert new_state in oauth_mod._states

@@ -33,6 +33,14 @@ def dev_login(req: DevLoginRequest, db: Session = Depends(get_db)) -> JSONRespon
         )
     if req.authenticator != "keypair" and settings.auth_mode != "dev":
         raise ApiError("AUTH_FAILED", 400, "Dev login is disabled in oauth mode")
+    if settings.snowflake_account and (
+        req.account.strip().lower() != settings.snowflake_account.strip().lower()
+    ):
+        raise ApiError(
+            "AUTH_FAILED",
+            400,
+            "This deployment only accepts logins to a fixed Snowflake account",
+        )
     try:
         conn = sf_connect.connect_dev(
             account=req.account,
@@ -47,8 +55,12 @@ def dev_login(req: DevLoginRequest, db: Session = Depends(get_db)) -> JSONRespon
     except Exception as exc:
         detail = None if req.authenticator == "keypair" else str(exc)
         raise ApiError("AUTH_FAILED", 401, "Snowflake login failed", detail=detail)
-    account, user = sf_connect.probe_identity(conn)
-    sess = create_session(db, account=account, user=user, mode="dev")
+    try:
+        account, user = sf_connect.probe_identity(conn)
+        sess = create_session(db, account=account, user=user, mode="dev")
+    except Exception:
+        sf_connect.close_quietly(conn)
+        raise
     get_cache().put(sess.id, conn)
     response = JSONResponse(
         {"snowflakeUser": user, "snowflakeAccount": account, "mode": "dev"}
