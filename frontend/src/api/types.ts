@@ -52,3 +52,47 @@ export interface SemanticQueryBody {
   orderBy?: { field: string; direction?: "asc" | "desc" }[];
   limit?: number;
 }
+
+export interface ViewRef {
+  database: string;
+  schema: string;
+  name: string;
+}
+
+export interface VisualLayout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface Visual {
+  id: string;
+  type: string;
+  title: string;
+  layout: VisualLayout;
+  wells: Record<string, string[]>;
+  options: Record<string, unknown>;
+}
+
+export interface CanvasSettings {
+  columns: number;
+  rowHeight: number;
+}
+
+export interface ReportDefinition {
+  schemaVersion: number;
+  name: string;
+  view: ViewRef;
+  canvas: CanvasSettings;
+  visuals: Visual[];
+}
+
+export interface ReportSummary {
+  id: string;
+  name: string;
+  view: ViewRef;
+  updatedAt: string;
+}
+
+export type ReportDetail = ReportSummary & { definition: ReportDefinition };
