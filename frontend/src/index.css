@@ -1,4 +1,15 @@
+/* ==========================================================================
+   SemanticUI — dense-analytical design system
+   A query tool over typed Snowflake semantic views. Chrome stays quiet and
+   neutral; the eight-color chart palette (src/query/palette.ts) is the only
+   place color carries meaning. Two type roles: system sans for interface
+   voice, monospace for literal database identifiers (field refs, chips,
+   table headers, SQL) — the tool's one typographic signature.
+   ========================================================================== */
+
 :root {
+  /* Palette — fixed, validated against chart contrast. Do not invent or
+     substitute; slots 2-8 of SERIES_COLORS never appear here. */
   --page: #f9f9f7;
   --surface: #fcfcfb;
   --ink: #0b0b0b;
@@ -8,18 +19,158 @@
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
   --accent: #2a78d6;
+  --accent-wash: rgba(42, 120, 214, 0.04);
+  --ink-wash: rgba(11, 11, 11, 0.02);
+  --error: #d03b3b;
+
+  /* Type */
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, "SF Mono", monospace;
+
+  /* Density */
+  --row-height: 26px;
+  --pane-padding: 8px;
+  --canvas-padding: 16px;
+  --radius-chip: 4px;
+  --radius-pane: 6px;
+  --pane-fields: 248px;
+  --pane-wells: 248px;
+
+  --transition-fast: 100ms ease;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--page);
   color: var(--ink);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
 }
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  font-family: var(--font-sans);
+}
+
+/* Shared focus treatment: 2px accent outline, 1px offset, everywhere.
+   Never removed without this replacement. The mouse-click case (:focus but
+   not :focus-visible) suppresses the ring since :focus-visible still fires
+   for keyboard users on the same element. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ==========================================================================
+   Forms & controls
+   ========================================================================== */
+
+input,
+select,
+textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--ink-secondary);
+}
+
+button,
+.button {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: filter var(--transition-fast), opacity var(--transition-fast);
+}
+
+button:hover,
+.button:hover {
+  filter: brightness(0.93);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+  filter: none;
+}
+
+.link {
+  background: none;
+  color: var(--accent);
+  padding: 0 0 0 12px;
+  border: none;
+  font-size: 12px;
+}
+
+.link:hover {
+  filter: none;
+  text-decoration: underline;
+}
+
+[role="alert"] {
+  color: var(--error);
+  margin: 0;
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .button,
+  .well,
+  .view-item,
+  .field-row,
+  .chip-remove {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Login
+   ========================================================================== */
 
 .login {
   max-width: 360px;
@@ -28,6 +179,18 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.login h1 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.login > p {
+  margin: 0 0 16px;
+  color: var(--ink-secondary);
+  font-size: 13px;
 }
 
 .login form {
@@ -40,55 +203,45 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 14px;
+  font-size: 12px;
   color: var(--ink-secondary);
 }
 
-input,
-select {
-  padding: 8px;
-  border: 1px solid var(--axis);
-  border-radius: 4px;
-  font: inherit;
+.login .button {
+  width: 100%;
 }
 
-button,
-.button {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #ffffff;
-  font: inherit;
-  cursor: pointer;
-  text-decoration: none;
-  text-align: center;
-  display: inline-block;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-[role="alert"] {
-  color: #d03b3b;
-  margin: 0;
-}
+/* ==========================================================================
+   Explorer shell
+   ========================================================================== */
 
 .explorer {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex: 0 0 auto;
   padding: 8px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+}
+
+.topbar strong {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.topbar span {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-secondary);
 }
 
 .columns {
@@ -99,43 +252,88 @@ button:disabled {
 
 .left,
 .middle {
-  width: 240px;
+  flex: 0 0 auto;
   overflow-y: auto;
-  padding: 12px;
+  padding: var(--pane-padding);
   border-right: 1px solid var(--border);
   background: var(--surface);
 }
 
-.main {
-  flex: 1;
-  overflow: auto;
-  padding: 16px;
+.left {
+  width: var(--pane-fields);
 }
 
-.view-tree h3 {
-  font-size: 13px;
+.middle {
+  width: var(--pane-wells);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--canvas-padding);
+  background: var(--page);
+}
+
+.main > p {
   color: var(--ink-secondary);
-  margin: 8px 0 2px;
+  font-size: 13px;
+}
+
+/* ==========================================================================
+   View tree
+   ========================================================================== */
+
+.view-tree h3 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.view-tree > div:first-child h3 {
+  margin-top: 0;
 }
 
 .view-tree h4 {
-  font-size: 12px;
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--ink-muted);
-  margin: 6px 0 2px;
 }
 
 .view-tree ul {
   list-style: none;
   margin: 0;
-  padding: 0 0 0 8px;
+  padding: 0 0 0 2px;
 }
 
 .view-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--row-height);
+  padding: 0 8px;
+  margin: 0;
   background: none;
+  border: none;
+  border-radius: 4px;
   color: var(--ink);
   text-align: left;
-  width: 100%;
-  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-item:hover {
+  background: var(--ink-wash);
 }
 
 .view-item.selected {
@@ -143,10 +341,33 @@ button:disabled {
   color: #ffffff;
 }
 
+.view-item.selected:hover {
+  background: var(--accent);
+}
+
+/* ==========================================================================
+   Field panel
+   ========================================================================== */
+
 .field-hint {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
   color: var(--ink-muted);
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.field-group {
+  margin-bottom: 4px;
+}
+
+.field-group-title {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
 }
 
 .field-row {
@@ -154,36 +375,63 @@ button:disabled {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 4px 6px;
+  height: var(--row-height);
+  padding: 0 6px;
   margin: 0;
   background: none;
   color: var(--ink);
   border: none;
   border-radius: 4px;
   text-align: left;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   cursor: grab;
+  overflow: hidden;
 }
 
 .field-row:hover {
-  background: var(--grid);
+  background: var(--ink-wash);
 }
 
 .field-row[aria-pressed="true"] {
   cursor: grabbing;
   opacity: 0.6;
+  /* The one sanctioned shadow in the system: a 1px hairline ring on the
+     item mid-drag (there is no separate DragOverlay node, so this is the
+     drag overlay's visual). */
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* A UPPER_SNAKE_CASE identifier can run longer than the 248px pane
+   (e.g. `ORDERS.FULFILLMENT_STATUS`). Truncate it with an ellipsis rather
+   than letting it push the data-type badge out or overflow the pane —
+   `min-width: 0` is what lets a flex child shrink below its content size. */
+.field-ref {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field-row small {
+  flex: 0 0 auto;
   color: var(--ink-muted);
-  margin-left: auto;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .field-glyph,
 .chip-glyph {
+  flex: 0 0 auto;
   color: var(--ink-muted);
+  font-family: var(--font-sans);
   font-size: 12px;
 }
+
+/* ==========================================================================
+   Wells — the typed socket
+   ========================================================================== */
 
 .well-panel {
   display: flex;
@@ -197,94 +445,176 @@ button:disabled {
 .well {
   padding: 8px;
   border: 1px dashed var(--axis);
-  border-radius: 6px;
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.well-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
 }
 
 .well h4 {
-  margin: 0 0 6px;
-  font-size: 12px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--ink-secondary);
+}
+
+.well-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
 }
 
 .well-hint {
   margin: 0;
   color: var(--ink-muted);
   font-size: 12px;
+  font-style: normal;
 }
 
-/* The blocked state is never color-only: the cursor and the underlying
-   data-state attribute both signal it independently of any color choice
-   (color/border treatment for each state lands in the follow-up visual
-   pass). */
-.well[data-state="blocked"] {
-  cursor: not-allowed;
+/* Drop states — driven by the `data-state` attribute WellPanel sets. None
+   of the three rely on color alone: `eligible`/`over` add a border-style
+   change on top of the accent hue, and `blocked` pairs muted color with
+   `cursor: not-allowed` plus a dimmed, still-legible type declaration. */
+.well[data-state="eligible"] {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.well[data-state="eligible"] .well-type {
+  color: var(--accent);
 }
 
 .well[data-state="over"] {
   border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-wash);
 }
+
+.well[data-state="over"] .well-type {
+  color: var(--accent);
+}
+
+.well[data-state="blocked"] {
+  border-style: dashed;
+  border-color: var(--ink-muted);
+  background: var(--surface);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Chips
+   ========================================================================== */
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  height: 20px;
   margin: 2px 4px 2px 0;
-  padding: 2px 6px;
+  padding: 0 6px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-chip);
+  color: var(--ink);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .chip-remove {
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
-  line-height: 1;
+  padding: 0;
   background: none;
-  color: var(--ink-muted);
+  border: none;
   border-radius: 50%;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
   font-size: 13px;
+  line-height: 1;
 }
 
 .chip-remove:hover {
-  background: var(--grid);
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   Canvas: chart, results, SQL
+   ========================================================================== */
+
+.query-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink);
 }
 
 .chart-note {
-  margin: -8px 0 12px;
+  margin: -4px 0 12px;
   color: var(--ink-secondary);
-  font-size: 13px;
-}
-
-.link {
-  background: none;
-  color: var(--accent);
-  padding: 0 0 0 12px;
+  font-size: 12px;
 }
 
 .auto-chart {
   height: 320px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-pane);
   margin-bottom: 16px;
 }
 
 .banner {
-  background: #fff7e0;
-  border: 1px solid var(--grid);
-  border-radius: 4px;
+  margin: 0 0 8px;
   padding: 6px 10px;
-  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--grid);
+  border-left: 3px solid var(--ink-muted);
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  font-size: 12px;
 }
 
+.results {
+  margin-bottom: 16px;
+}
+
+/* No `overflow-x: auto` here on purpose: setting overflow on only one axis
+   forces the CSS engine to compute the other axis as `auto` too (the
+   overflow "pairing" rule), which would turn this box into its own
+   scroll container and break `th`'s `position: sticky` -- it would stick
+   to *this* box (whose height always equals its content) rather than to
+   `.main`, so the header would just scroll away with everything else.
+   `.main` already has `overflow: auto` on both axes, so it's what
+   actually handles a table too wide for the canvas; this box only
+   supplies the visual frame. */
 .table-scroll {
-  overflow-x: auto;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-pane);
 }
 
 table {
@@ -295,9 +625,11 @@ table {
 
 th,
 td {
-  text-align: left;
-  padding: 6px 10px;
+  height: var(--row-height);
+  padding: 0 10px;
   border-bottom: 1px solid var(--grid);
+  text-align: left;
+  white-space: nowrap;
 }
 
 td {
@@ -305,21 +637,51 @@ td {
 }
 
 th {
-  color: var(--ink-secondary);
   position: sticky;
-  top: 0;
+  /* `.main` (the sticky positioning ancestor) has its own top padding, so a
+     plain `top: 0` would rest the header `--canvas-padding` below the
+     scrollport's true top edge -- leaving a gap the row above it scrolls
+     through. Canceling that padding here sticks the header flush with the
+     actual top of the visible scroll area instead. */
+  top: calc(-1 * var(--canvas-padding));
+  z-index: 1;
   background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .sql-preview {
   margin-top: 12px;
   color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.sql-preview summary {
+  padding: 4px 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sql-preview summary:hover {
+  color: var(--ink-secondary);
 }
 
 .sql-preview pre {
+  margin: 6px 0 0;
+  padding: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 10px;
   overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }

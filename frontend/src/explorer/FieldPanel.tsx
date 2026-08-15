@@ -39,7 +39,7 @@ function FieldRow({ field, kind, wells, onAdd }: {
       {...attributes}
     >
       <span className="field-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
-      <span>{ref}</span>
+      <span className="field-ref">{ref}</span>
       {field.dataType && <small>{field.dataType}</small>}
     </button>
   );
@@ -55,8 +55,8 @@ function FieldGroup({
   onAdd: Props["onAdd"];
 }) {
   return (
-    <section>
-      <h4>{title}</h4>
+    <section className="field-group">
+      <h4 className="field-group-title">{title}</h4>
       {fields.map((field) => (
         <FieldRow key={refOf(field)} field={field} kind={kind} wells={wells} onAdd={onAdd} />
       ))}

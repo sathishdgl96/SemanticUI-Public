@@ -1,11 +1,11 @@
 import { useDroppable } from "@dnd-kit/core";
 import FieldChip from "./FieldChip";
-import { canDrop, type DragData, type WellId, type Wells } from "./wells";
+import { canDrop, type DragData, type FieldKind, type WellId, type Wells } from "./wells";
 
-const WELLS: { id: WellId; label: string; hint: string }[] = [
-  { id: "axis", label: "Axis", hint: "Drop a field here" },
-  { id: "legend", label: "Legend", hint: "Drop a field here" },
-  { id: "values", label: "Values", hint: "Drop a field here" },
+const WELLS: { id: WellId; label: string; hint: string; accepts: FieldKind }[] = [
+  { id: "axis", label: "Axis", hint: "Drop a field here", accepts: "dimension" },
+  { id: "legend", label: "Legend", hint: "Drop a field here", accepts: "dimension" },
+  { id: "values", label: "Values", hint: "Drop a field here", accepts: "metric" },
 ];
 
 interface Props {
@@ -15,17 +15,23 @@ interface Props {
   running: boolean;
 }
 
-function Well({ id, label, hint, refs, onRemove }: {
-  id: WellId; label: string; hint: string; refs: string[];
+function Well({ id, label, hint, accepts, refs, onRemove }: {
+  id: WellId; label: string; hint: string; accepts: FieldKind; refs: string[];
   onRemove: Props["onRemove"];
 }) {
   const { setNodeRef, isOver, active } = useDroppable({ id });
   const kind = (active?.data.current as DragData | undefined)?.kind;
-  const accepts = kind === undefined || canDrop(id, kind);
-  const state = !active ? "" : accepts ? (isOver ? "over" : "eligible") : "blocked";
+  const eligible = kind === undefined || canDrop(id, kind);
+  const state = !active ? "" : eligible ? (isOver ? "over" : "eligible") : "blocked";
   return (
-    <section ref={setNodeRef} className="well" data-state={state} aria-label={label}>
-      <h4>{label}</h4>
+    <section ref={setNodeRef} className="well" data-state={state} role="region" aria-label={label}>
+      <div className="well-head">
+        <h4>{label}</h4>
+        {/* Glyph and word share one text run (not a nested span) so this
+            declaration never collides with the identical `Σ`/`⬦` glyphs
+            FieldChip renders as their own elements elsewhere on the page. */}
+        <span className="well-type">{accepts === "metric" ? "Σ metric" : "⬦ dimension"}</span>
+      </div>
       {refs.length === 0 ? (
         <p className="well-hint">{hint}</p>
       ) : (
