@@ -163,4 +163,8 @@ def test_report_row_stores_no_query_results(client, db):
     sign_in(client, db)
     client.post("/api/reports", json={"definition": valid_definition()})
     row = db.scalars(select(Report)).one()
-    assert set(row.definition) == {"schemaVersion", "name", "view", "canvas", "visuals"}
+    # An exact set, not a subset: the point is that the row holds the
+    # definition and NOTHING else -- no cached rows, no query results.
+    assert set(row.definition) == {
+        "schemaVersion", "name", "view", "canvas", "visuals", "filters", "hierarchies",
+    }

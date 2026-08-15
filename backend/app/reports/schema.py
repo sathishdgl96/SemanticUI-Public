@@ -12,11 +12,15 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.errors import ApiError, safe_error_details
-from app.reports.catalog import CATALOG, validate_wells
+from app.reports.catalog import CATALOG, HIERARCHY_PREFIX, validate_wells
+from app.reports.filters import FilterList
+from app.reports.migrate import migrate_definition
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_VISUALS = 50
 MAX_DEFINITION_BYTES = 65536
+MAX_HIERARCHIES = 20
+MAX_HIERARCHY_LEVELS = 10
 
 # A well reference is "TABLE.FIELD"; each part is a Snowflake identifier,
 # which tops out at 255 characters, so 255 + "." + 255 = 511 is the longest
@@ -52,6 +56,12 @@ class VisualLayout(_Strict):
     h: int = Field(ge=1, le=100)
 
 
+class Hierarchy(_Strict):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=200)
+    levels: list[WellRef] = Field(min_length=1, max_length=MAX_HIERARCHY_LEVELS)
+
+
 class Visual(_Strict):
     id: str = Field(min_length=1, max_length=64)
     type: str
@@ -59,6 +69,7 @@ class Visual(_Strict):
     layout: VisualLayout
     wells: dict[str, WellRefs] = Field(default_factory=dict)
     options: dict[str, object] = Field(default_factory=dict)
+    filters: FilterList = Field(default_factory=list)
 
 
 class CanvasSettings(_Strict):
@@ -72,6 +83,10 @@ class ReportDefinition(_Strict):
     view: ViewRef
     canvas: CanvasSettings = Field(default_factory=CanvasSettings)
     visuals: list[Visual] = Field(default_factory=list)
+    filters: FilterList = Field(default_factory=list)
+    hierarchies: list[Hierarchy] = Field(
+        default_factory=list, max_length=MAX_HIERARCHIES
+    )
 
 
 def _invalid(message: str, detail: str | None = None) -> ApiError:
@@ -82,6 +97,11 @@ def parse_definition(raw: dict) -> ReportDefinition:
     """Validate an untrusted definition document. Raises ApiError on any problem."""
     if not isinstance(raw, dict):
         raise _invalid("A report definition must be a JSON object")
+
+    # Upgrade first: the model below demands the current schemaVersion exactly
+    # and forbids unknown keys, so a v1 document has to become a v2 document
+    # before it is ever handed to pydantic.
+    raw = migrate_definition(raw)
 
     # Every write path (create, update, import) funnels through here, so this
     # is the one place that bounds what a definition can weigh before any
@@ -141,7 +161,62 @@ def parse_definition(raw: dict) -> ReportDefinition:
         if problems:
             raise _invalid(f"Visual {visual.id!r}: {problems[0]}")
 
+    _check_unique_filter_ids(definition)
+    _check_hierarchies(definition)
+
     return definition
+
+
+def _check_unique_filter_ids(definition: ReportDefinition) -> None:
+    """Filter ids must be unique within their scope, so the UI can address one."""
+    scopes: list[tuple[str, list]] = [("report", list(definition.filters))]
+    scopes += [(f"visual {v.id!r}", list(v.filters)) for v in definition.visuals]
+    for scope, filters in scopes:
+        seen: set[str] = set()
+        for f in filters:
+            if f.id in seen:
+                raise _invalid(f"Duplicate filter id {f.id!r} in {scope} filters")
+            seen.add(f.id)
+
+
+def _check_hierarchies(definition: ReportDefinition) -> None:
+    by_id: dict[str, Hierarchy] = {}
+    for hierarchy in definition.hierarchies:
+        if hierarchy.id in by_id:
+            raise _invalid(f"Duplicate hierarchy id {hierarchy.id!r}")
+        if len(hierarchy.levels) < 2:
+            raise _invalid(
+                f"Hierarchy {hierarchy.name!r} needs at least two levels; a "
+                "one-level hierarchy is just a field"
+            )
+        seen_levels: set[str] = set()
+        for level in hierarchy.levels:
+            if level.upper() in seen_levels:
+                raise _invalid(
+                    f"Hierarchy {hierarchy.name!r} lists {level} more than once"
+                )
+            seen_levels.add(level.upper())
+        by_id[hierarchy.id] = hierarchy
+
+    for visual in definition.visuals:
+        spec = CATALOG[visual.type]
+        for well_key, refs in visual.wells.items():
+            for ref in refs:
+                if not ref.startswith(HIERARCHY_PREFIX):
+                    continue
+                well = spec.well(well_key)
+                # A hierarchy is a drill path through dimensions; a metric well
+                # holds aggregates, so the reference is meaningless there.
+                if well is not None and well.kind != "dimension":
+                    raise _invalid(
+                        f"Visual {visual.id!r}: {well.label} takes metrics, so it "
+                        f"cannot hold the hierarchy reference {ref!r}"
+                    )
+                if ref[len(HIERARCHY_PREFIX):] not in by_id:
+                    raise _invalid(
+                        f"Visual {visual.id!r} references {ref!r}, but this report "
+                        "declares no such hierarchy"
+                    )
 
 
 def to_export_document(definition: ReportDefinition) -> str:

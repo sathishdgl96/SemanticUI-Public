@@ -13,6 +13,11 @@ from typing import Literal
 
 FieldKind = Literal["dimension", "metric"]
 
+# A well entry of the form "hierarchy:<id>" stands in for a whole drill path
+# rather than a single field. Declared here rather than in schema.py because
+# both modules need it and schema.py already imports from this one.
+HIERARCHY_PREFIX = "hierarchy:"
+
 
 @dataclass(frozen=True)
 class WellSpec:

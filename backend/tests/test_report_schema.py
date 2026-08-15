@@ -184,3 +184,163 @@ def test_validation_errors_do_not_echo_the_submitted_value():
     assert "layout" in str(exc.value.detail)
     assert "int_parsing" in str(exc.value.detail)
     assert "valid integer" in str(exc.value.detail)
+
+
+# --- v2: filters, hierarchies and the v1 migration -------------------------
+
+
+def _bar(**overrides) -> dict:
+    base = {
+        "id": "v1",
+        "type": "bar",
+        "title": "",
+        "layout": {"x": 0, "y": 0, "w": 6, "h": 6},
+        "wells": {"axis": ["CUSTOMERS.REGION"], "legend": [], "values": ["ORDERS.TOTAL"]},
+        "options": {},
+        "filters": [],
+    }
+    return {**base, **overrides}
+
+
+def test_a_v1_document_still_parses_through_the_migration():
+    """Reports saved before this branch must keep opening, forever."""
+    v1 = {
+        "schemaVersion": 1,
+        "name": "R",
+        "view": {"database": "D", "schema": "S", "name": "V"},
+        "canvas": {"columns": 12, "rowHeight": 40},
+        "visuals": [],
+    }
+    definition = parse_definition(v1)
+    assert definition.schemaVersion == SCHEMA_VERSION == 2
+    assert definition.filters == []
+    assert definition.hierarchies == []
+
+
+def test_a_version_above_the_current_one_is_still_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(schemaVersion=99))
+    assert "99" in exc.value.message
+
+
+def test_report_scope_filters_parse():
+    definition = parse_definition(
+        valid_doc(filters=[
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]}
+        ])
+    )
+    assert definition.filters[0].field == "CUSTOMERS.REGION"
+
+
+def test_visual_scope_filters_parse():
+    definition = parse_definition(
+        valid_doc(visuals=[_bar(filters=[
+            {"id": "f2", "field": "ORDERS.ORDER_DATE", "op": "relativeDate",
+             "unit": "day", "count": 30}
+        ])])
+    )
+    assert definition.visuals[0].filters[0].op == "relativeDate"
+
+
+def test_an_unknown_operator_is_report_invalid():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(filters=[
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "regex", "values": [".*"]}
+        ]))
+    assert exc.value.code == "REPORT_INVALID"
+
+
+def test_duplicate_filter_ids_are_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(filters=[
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]},
+            {"id": "f1", "field": "CUSTOMERS.COUNTRY", "op": "is", "values": ["US"]},
+        ]))
+    assert "f1" in exc.value.message
+
+
+def test_the_same_filter_id_may_appear_in_two_different_scopes():
+    """Scopes are addressed separately, so an id only has to be unique within
+    one of them -- report "f1" and a visual's "f1" never collide."""
+    definition = parse_definition(valid_doc(
+        filters=[{"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]}],
+        visuals=[_bar(filters=[
+            {"id": "f1", "field": "ORDERS.CHANNEL", "op": "is", "values": ["WEB"]}
+        ])],
+    ))
+    assert definition.filters[0].id == definition.visuals[0].filters[0].id == "f1"
+
+
+def test_a_hierarchy_parses():
+    definition = parse_definition(valid_doc(hierarchies=[
+        {"id": "h1", "name": "Geography",
+         "levels": ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE", "CUSTOMERS.CITY"]}
+    ]))
+    assert definition.hierarchies[0].levels[2] == "CUSTOMERS.CITY"
+
+
+def test_a_one_level_hierarchy_is_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(hierarchies=[
+            {"id": "h1", "name": "Geography", "levels": ["CUSTOMERS.COUNTRY"]}
+        ]))
+    assert "two levels" in exc.value.message
+
+
+def test_duplicate_levels_within_one_hierarchy_are_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(hierarchies=[
+            {"id": "h1", "name": "Geo",
+             "levels": ["CUSTOMERS.COUNTRY", "customers.country"]}
+        ]))
+    assert "more than once" in exc.value.message
+
+
+def test_duplicate_hierarchy_ids_are_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(hierarchies=[
+            {"id": "h1", "name": "A", "levels": ["C.X", "C.Y"]},
+            {"id": "h1", "name": "B", "levels": ["C.P", "C.Q"]},
+        ]))
+    assert "h1" in exc.value.message
+
+
+def test_a_well_may_reference_a_declared_hierarchy():
+    definition = parse_definition(valid_doc(
+        hierarchies=[{"id": "h1", "name": "Geo",
+                      "levels": ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE"]}],
+        visuals=[_bar(wells={"axis": ["hierarchy:h1"], "legend": [],
+                             "values": ["ORDERS.TOTAL"]})],
+    ))
+    assert definition.visuals[0].wells["axis"] == ["hierarchy:h1"]
+
+
+def test_a_well_referencing_an_undeclared_hierarchy_is_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(visuals=[
+            _bar(wells={"axis": ["hierarchy:nope"], "legend": [],
+                        "values": ["ORDERS.TOTAL"]})
+        ]))
+    assert "hierarchy:nope" in exc.value.message
+
+
+def test_a_hierarchy_reference_in_a_metric_well_is_rejected():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(valid_doc(
+            hierarchies=[{"id": "h1", "name": "Geo",
+                          "levels": ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE"]}],
+            visuals=[_bar(wells={"axis": ["CUSTOMERS.REGION"], "legend": [],
+                                 "values": ["hierarchy:h1"]})],
+        ))
+    assert "Values" in exc.value.message
+
+
+def test_filters_survive_the_export_round_trip():
+    """`from` is aliased off a Python keyword, so a between filter is the one
+    most likely to lose its wire name on the way out."""
+    doc = valid_doc(filters=[
+        {"id": "f1", "field": "ORDERS.TOTAL", "op": "between", "from": 1, "to": 9}
+    ])
+    exported = json.loads(to_export_document(parse_definition(doc)))
+    assert exported["filters"][0]["from"] == 1
+    assert parse_definition(exported).filters[0].from_ == 1
