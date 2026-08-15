@@ -260,3 +260,65 @@ class TestRelativeDateResolution:
 
     def test_year_to_date(self):
         assert self.resolve(preset="yearToDate") == (date(2026, 1, 1), date(2026, 8, 15))
+
+
+class TestInactiveFilters:
+    """A filter the user has started but not finished means "not filtering
+    yet", not "match nothing".
+
+    This is not cosmetic. Adding a filter and not yet ticking a value used to
+    422 every tile on the report, because `IN ()` is neither valid SQL nor a
+    valid request body. Found by driving the real API in a browser; every
+    stubbed test missed it.
+    """
+
+    def test_an_is_filter_with_no_values_is_accepted_and_ignored(self):
+        assert build([
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": []}
+        ]) == ([], [])
+
+    def test_an_is_not_filter_with_no_values_is_ignored(self):
+        assert build([
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "isNot", "values": []}
+        ]) == ([], [])
+
+    def test_a_between_with_empty_endpoints_is_ignored(self):
+        """Switching the operator to `between` seeds empty strings; they are
+        not a range until the user types one."""
+        assert build([
+            {"id": "f1", "field": "ORDERS.ORDER_AMOUNT", "op": "between",
+             "from": "", "to": ""}
+        ]) == ([], [])
+
+    def test_a_half_filled_between_is_ignored(self):
+        assert build([
+            {"id": "f1", "field": "ORDERS.ORDER_AMOUNT", "op": "between",
+             "from": "5", "to": ""}
+        ]) == ([], [])
+
+    def test_a_between_of_zero_to_zero_is_still_a_real_filter(self):
+        """0 is falsy but is a perfectly good bound -- the emptiness check must
+        not swallow it."""
+        sql, params = build([
+            {"id": "f1", "field": "ORDERS.ORDER_AMOUNT", "op": "between",
+             "from": 0, "to": 0}
+        ])
+        assert len(sql) == 1
+        assert params == [0, 0]
+
+    def test_an_inactive_filter_does_not_shift_the_parameter_order(self):
+        """The dangerous failure: dropping a fragment but keeping its params
+        would bind every later value to the wrong placeholder."""
+        sql, params = build([
+            {"id": "f0", "field": "CUSTOMERS.REGION", "op": "is", "values": []},
+            {"id": "f1", "field": "ORDERS.ORDER_AMOUNT", "op": "between",
+             "from": 1, "to": 9},
+        ])
+        assert len(sql) == 1
+        assert params == [1, 9]
+
+    def test_an_inactive_filter_on_an_unknown_field_is_still_rejected(self):
+        """Being inactive is not a way to smuggle an unvalidated reference
+        into a saved report."""
+        with pytest.raises(ApiError):
+            build([{"id": "f1", "field": "CUSTOMERS.NOPE", "op": "is", "values": []}])

@@ -33,7 +33,10 @@ class _StrictFilter(BaseModel):
 
 class InFilter(_StrictFilter):
     op: Literal["is", "isNot"]
-    values: list[FilterValue] = Field(min_length=1, max_length=MAX_FILTER_VALUES)
+    # No lower bound: an empty list is a filter the user has added but not yet
+    # finished, and a report holding one must still save and still query.
+    # `is_active` below is what stops it from becoming `IN ()`.
+    values: list[FilterValue] = Field(default_factory=list, max_length=MAX_FILTER_VALUES)
 
 
 class BetweenFilter(_StrictFilter):
@@ -46,6 +49,12 @@ class BetweenFilter(_StrictFilter):
     @model_validator(mode="after")
     def _ordered_and_same_kind(self) -> "BetweenFilter":
         lo, hi = self.from_, self.to
+        # A half-typed range is not yet a range. Ordering and kind only mean
+        # something once both ends exist, and rejecting "" here would make a
+        # filter unsavable the moment its operator was switched to `between`.
+        # `is_active` keeps it out of the query until it is finished.
+        if lo == "" or hi == "":
+            return self
         if isinstance(lo, str) != isinstance(hi, str):
             raise ValueError("between endpoints must both be numbers or both be dates")
         if lo > hi:  # type: ignore[operator]
@@ -72,6 +81,26 @@ class RelativeDateFilter(_StrictFilter):
         if (self.unit is None) != (self.count is None):
             raise ValueError("relativeDate needs unit and count together")
         return self
+
+
+def is_active(f: "InFilter | BetweenFilter | RelativeDateFilter") -> bool:
+    """Does this filter actually constrain anything yet?
+
+    A half-built filter -- one just added from the field picker, or one whose
+    operator was switched a moment ago -- means "not filtering yet", not
+    "match nothing". Treating it as a real predicate produces `IN ()`, which
+    is neither valid SQL nor a valid request body, and 422s every tile on the
+    report. That was a live bug, found by driving the real API in a browser.
+    """
+    if isinstance(f, InFilter):
+        return bool(f.values)
+    if isinstance(f, BetweenFilter):
+        # `is not None` and an explicit "" check rather than truthiness: 0 is
+        # a perfectly good bound.
+        return f.from_ != "" and f.to != ""
+    # A relative window always has a resolved unit+count or a preset; the
+    # model validator guarantees one of them.
+    return True
 
 
 # Discriminated on `op`, so an unknown operator fails at the union itself

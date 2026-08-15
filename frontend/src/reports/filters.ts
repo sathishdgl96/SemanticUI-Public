@@ -90,6 +90,20 @@ export function drillFilters(drill: DrillState | undefined): Filter[] {
   }));
 }
 
+/** Does this filter actually constrain anything yet?
+ *
+ *  A half-built filter — just added from the field picker, or whose operator
+ *  was switched a moment ago — means "not filtering yet", not "match nothing".
+ *  Sending one produced `IN ()`, which the API rejects with a 422 that fails
+ *  every tile on the report. Mirrors `is_active` in
+ *  backend/app/reports/filters.py. */
+export function isActive(filter: Filter): boolean {
+  if (filter.op === "is" || filter.op === "isNot") return filter.values.length > 0;
+  // Compared against "" rather than tested for truthiness: 0 is a real bound.
+  if (filter.op === "between") return filter.from !== "" && filter.to !== "";
+  return true;
+}
+
 /** The composed filter set for one visual: report scope AND its own AND the
  *  drill path AND any active cross-filter. Intersection, in that order. */
 export function effectiveFilters({
@@ -107,7 +121,10 @@ export function effectiveFilters({
     ...reportFilters,
     ...(visual.filters ?? []),
     ...drillFilters(drill),
-  ];
+    // Filtered at the end so an unfinished filter never reaches the API, and
+    // — just as importantly — never churns the query key while the user is
+    // still ticking boxes.
+  ].filter(isActive);
   // A visual filtering itself by its own selection would collapse to the one
   // clicked mark the moment you clicked it.
   if (crossFilter && crossFilter.sourceVisualId !== visual.id) {

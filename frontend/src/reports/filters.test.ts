@@ -7,6 +7,7 @@ import {
   drillFilters,
   effectiveFilters,
   hierarchyIdOf,
+  isActive,
   resolveWells,
 } from "./filters";
 
@@ -226,5 +227,52 @@ describe("describeFilter", () => {
     expect(
       describeFilter({ id: "f", field: "F", op: "relativeDate", preset: "monthToDate" }),
     ).toBe("F month to date");
+  });
+});
+
+describe("isActive", () => {
+  it("treats an empty selection as not filtering yet", () => {
+    expect(isActive({ id: "f", field: "F", op: "is", values: [] })).toBe(false);
+    expect(isActive({ id: "f", field: "F", op: "isNot", values: [] })).toBe(false);
+  });
+
+  it("treats a chosen value as filtering", () => {
+    expect(isActive({ id: "f", field: "F", op: "is", values: ["A"] })).toBe(true);
+  });
+
+  it("treats a half-typed range as not filtering yet", () => {
+    expect(isActive({ id: "f", field: "F", op: "between", from: "", to: "" })).toBe(false);
+    expect(isActive({ id: "f", field: "F", op: "between", from: "5", to: "" })).toBe(false);
+  });
+
+  it("does not mistake a zero bound for an empty one", () => {
+    expect(isActive({ id: "f", field: "F", op: "between", from: 0, to: 0 })).toBe(true);
+  });
+
+  it("treats a relative window as always filtering", () => {
+    expect(
+      isActive({ id: "f", field: "F", op: "relativeDate", preset: "yearToDate" }),
+    ).toBe(true);
+  });
+});
+
+describe("effectiveFilters drops unfinished filters", () => {
+  it("omits a filter with nothing selected", () => {
+    const out = effectiveFilters({
+      reportFilters: [{ id: "f1", field: "C.R", op: "is", values: [] }],
+      visual: visual(),
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("keeps the finished ones alongside", () => {
+    const out = effectiveFilters({
+      reportFilters: [
+        { id: "f1", field: "C.R", op: "is", values: [] },
+        { id: "f2", field: "C.S", op: "is", values: ["X"] },
+      ],
+      visual: visual(),
+    });
+    expect(out.map((f) => f.id)).toEqual(["f2"]);
   });
 });

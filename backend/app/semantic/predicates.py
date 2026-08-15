@@ -14,7 +14,13 @@ from datetime import date, timedelta
 from typing import Any
 
 from app.errors import ApiError
-from app.reports.filters import BetweenFilter, Filter, InFilter, RelativeDateFilter
+from app.reports.filters import (
+    BetweenFilter,
+    Filter,
+    InFilter,
+    RelativeDateFilter,
+    is_active,
+)
 from app.semantic.discovery import quote_ident
 
 # Server-side binding with the `qmark` paramstyle. The spike confirmed both
@@ -113,7 +119,15 @@ def build_filter_predicates(
     params: list[Any] = []
 
     for f in filters:
+        # Resolve first, then skip: an inactive filter still names a field,
+        # and being unfinished is not a way to smuggle an unvalidated
+        # reference past the catalog check into a saved report.
         table, name = _resolve(detail, f.field)
+        if not is_active(f):
+            # Both the fragment and its params are skipped together. Dropping
+            # one without the other would bind every later value to the wrong
+            # placeholder -- a wrong answer rather than an error.
+            continue
         column = f"{quote_ident(table)}.{quote_ident(name)}"
 
         if isinstance(f, InFilter):

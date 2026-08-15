@@ -8,6 +8,7 @@ from app.reports.filters import (
     Filter,
     InFilter,
     RelativeDateFilter,
+    is_active,
 )
 
 ADAPTER = TypeAdapter(Filter)
@@ -35,11 +36,36 @@ def test_unknown_operator_is_rejected():
         )
 
 
-def test_empty_value_list_is_rejected():
-    with pytest.raises(ValidationError):
-        ADAPTER.validate_python(
-            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": []}
-        )
+def test_an_empty_value_list_is_accepted_but_inactive():
+    """Deliberately NOT rejected. An empty list is a filter the user has added
+    but not yet finished; refusing it made the report unsavable and 422'd every
+    tile. `is_active` is what keeps it out of the generated SQL."""
+    f = ADAPTER.validate_python(
+        {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": []}
+    )
+    assert f.values == []
+    assert is_active(f) is False
+
+
+def test_a_populated_value_list_is_active():
+    f = ADAPTER.validate_python(
+        {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]}
+    )
+    assert is_active(f) is True
+
+
+def test_a_half_typed_between_is_accepted_but_inactive():
+    f = ADAPTER.validate_python(
+        {"id": "f1", "field": "ORDERS.TOTAL", "op": "between", "from": "5", "to": ""}
+    )
+    assert is_active(f) is False
+
+
+def test_a_relative_date_is_always_active():
+    f = ADAPTER.validate_python(
+        {"id": "f1", "field": "ORDERS.D", "op": "relativeDate", "preset": "yearToDate"}
+    )
+    assert is_active(f) is True
 
 
 def test_too_many_values_is_rejected():
