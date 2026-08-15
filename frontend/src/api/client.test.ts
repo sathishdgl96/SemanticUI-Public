@@ -72,3 +72,19 @@ describe("apiFetch", () => {
     expect(err.message).toBe("Dev session connection lost; sign in again");
   });
 });
+
+describe("auth-expired handler", () => {
+  it("passes the backend's reason to the handler", async () => {
+    mockFetch(401, {
+      code: "AUTH_EXPIRED",
+      message: "Dev session connection lost; sign in again",
+      detail: null,
+    });
+    const handler = vi.fn();
+    setOnAuthExpired(handler);
+    await apiFetch<never>("/api/semantic-views").catch((e: unknown) => e as ApiError);
+    // Without the reason the login page can only show a blank redirect, which
+    // reads to the user as the session silently failing.
+    expect(handler).toHaveBeenCalledWith("Dev session connection lost; sign in again");
+  });
+});

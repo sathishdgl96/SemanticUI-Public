@@ -62,7 +62,9 @@ def dev_login(req: DevLoginRequest, db: Session = Depends(get_db)) -> JSONRespon
     except Exception:
         sf_connect.close_quietly(conn)
         raise
-    get_cache().put(sess.id, conn)
+    # This connection is the only copy of the user's credential — there is no
+    # stored token to rebuild it from, so it must survive the idle sweep.
+    get_cache().put(sess.id, conn, rebuildable=False)
     response = JSONResponse(
         {"snowflakeUser": user, "snowflakeAccount": account, "mode": "dev"}
     )

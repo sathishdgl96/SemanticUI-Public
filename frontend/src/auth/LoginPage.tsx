@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import type { Config } from "../api/types";
 
@@ -14,6 +14,9 @@ const AUTHENTICATOR_LABELS: Record<Authenticator, string> = {
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  // Set when an expired session bounced the user here, so the page can explain
+  // the redirect instead of looking like the session vanished on its own.
+  const redirectReason = (useLocation().state as { reason?: string } | null)?.reason;
   const queryClient = useQueryClient();
   const config = useQuery({
     queryKey: ["config"],
@@ -89,6 +92,7 @@ export default function LoginPage() {
   return (
     <main className="login">
       <h1>SemanticUI</h1>
+      {redirectReason && <p className="notice">{redirectReason}</p>}
       {authMode === "oauth" && (
         <a className="button" href="/auth/login">
           Sign in with Snowflake

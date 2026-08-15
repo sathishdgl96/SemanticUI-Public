@@ -10,9 +10,12 @@ export class ApiError extends Error {
   }
 }
 
-let authExpiredHandler: (() => void) | null = null;
+let authExpiredHandler: ((reason?: string) => void) | null = null;
 
-export function setOnAuthExpired(handler: (() => void) | null): void {
+/** Registers the redirect-to-login handler. It receives the backend's own
+ *  explanation so the login page can say why the user was sent back, rather
+ *  than appearing to drop the session for no reason. */
+export function setOnAuthExpired(handler: ((reason?: string) => void) | null): void {
   authExpiredHandler = handler;
 }
 
@@ -35,7 +38,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     } catch {
       // non-JSON error body; fall through to defaults
     }
-    authExpiredHandler?.();
+    authExpiredHandler?.(body.message);
     throw new ApiError(
       body.code ?? "AUTH_EXPIRED",
       401,

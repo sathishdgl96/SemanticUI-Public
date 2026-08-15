@@ -22,6 +22,12 @@ class CacheEntry:
     conn: Any
     last_used: float
     lock: threading.Lock = field(default_factory=threading.Lock)
+    #: An OAuth connection can be rebuilt silently from its stored refresh
+    #: token, so reclaiming it when idle is invisible to the user. A dev or
+    #: key-pair connection IS the only copy of the credential — reclaiming it
+    #: forces a fresh SSO round trip or a re-pasted private key, so it is held
+    #: for the life of the session instead. See ConnectionCache.sweep.
+    rebuildable: bool = True
 
 
 def _is_alive(conn: Any) -> bool:
@@ -44,21 +50,28 @@ class ConnectionCache:
         *,
         idle_ttl: float,
         max_size: int,
+        retain_ttl: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         self._idle_ttl = idle_ttl
+        #: Idle budget for connections that cannot be rebuilt without the user
+        #: signing in again. Defaults to the plain idle TTL so existing callers
+        #: keep their behaviour; production passes the session lifetime.
+        self._retain_ttl = idle_ttl if retain_ttl is None else retain_ttl
         self._max_size = max_size
         self._clock = clock
         self._entries: dict[str, CacheEntry] = {}
         self._lock = threading.Lock()
 
-    def put(self, session_id: str, conn: Any) -> None:
+    def put(self, session_id: str, conn: Any, *, rebuildable: bool = True) -> None:
         to_close: list[Any] = []
         with self._lock:
             old = self._entries.pop(session_id, None)
             if old is not None:
                 to_close.append(old.conn)
-            self._entries[session_id] = CacheEntry(conn=conn, last_used=self._clock())
+            self._entries[session_id] = CacheEntry(
+                conn=conn, last_used=self._clock(), rebuildable=rebuildable
+            )
             to_close.extend(self._enforce_cap_locked())
         for c in to_close:
             _close_quietly(c)
@@ -122,7 +135,11 @@ class ConnectionCache:
             else:
                 if existing is not None:
                     to_close.append(self._entries.pop(sess.id).conn)
-                self._entries[sess.id] = CacheEntry(conn=conn, last_used=self._clock())
+                # Only OAuth reaches this rebuild path, so the entry is
+                # rebuildable by construction.
+                self._entries[sess.id] = CacheEntry(
+                    conn=conn, last_used=self._clock(), rebuildable=True
+                )
                 to_close.extend(self._enforce_cap_locked())
                 result = self._entries[sess.id]
         for c in to_close:
@@ -159,10 +176,24 @@ class ConnectionCache:
             _close_quietly(entry.conn)
 
     def sweep(self) -> int:
-        cutoff = self._clock() - self._idle_ttl
+        """Reclaim idle connections.
+
+        Rebuildable (OAuth) entries go at the idle TTL, since rebuilding them
+        is transparent. Non-rebuildable (dev / key-pair) entries are the only
+        copy of the user's credential, so evicting one silently logs them out
+        mid-session; those are held until their session would have expired
+        anyway.
+        """
+        now = self._clock()
+        idle_cutoff = now - self._idle_ttl
+        retain_cutoff = now - self._retain_ttl
         to_close: list[Any] = []
         with self._lock:
-            candidates = [s for s, e in self._entries.items() if e.last_used < cutoff]
+            candidates = [
+                s
+                for s, e in self._entries.items()
+                if e.last_used < (idle_cutoff if e.rebuildable else retain_cutoff)
+            ]
             for sid in candidates:
                 entry = self._entries.get(sid)
                 if entry is None:
@@ -190,6 +221,10 @@ def get_cache() -> ConnectionCache:
         _cache = ConnectionCache(
             idle_ttl=settings.connection_idle_ttl_seconds,
             max_size=settings.connection_cache_max,
+            # A credential-bearing connection is held for the session's own
+            # lifetime: reclaiming it earlier would log the user out mid-session
+            # with no way to reconnect except a fresh SSO or PEM entry.
+            retain_ttl=settings.session_ttl_hours * 3600,
         )
     return _cache
 

@@ -238,3 +238,59 @@ def test_sweep_skips_busy_entries(db):
     entry.lock.release()
     assert cache.sweep() == 1
     assert conn.closed is True
+
+
+# --- idle eviction must not log out sessions that cannot rebuild -----------
+# An OAuth entry can be rebuilt silently from its stored refresh token, so
+# evicting it when idle costs nothing. A dev or key-pair entry IS the only
+# credential: evicting it forces the user through a fresh SSO/PEM login. The
+# idle sweep must therefore hold non-rebuildable connections for as long as
+# their session is valid, rather than the much shorter connection TTL.
+
+
+def test_sweep_holds_non_rebuildable_entries_past_the_idle_ttl(db):
+    now = [1000.0]
+    cache = ConnectionCache(
+        idle_ttl=900, max_size=10, clock=lambda: now[0], retain_ttl=28800
+    )
+    conn = FakeConnection()
+    cache.put("sid-dev", conn, rebuildable=False)
+    now[0] += 901
+    assert cache.sweep() == 0
+    assert conn.closed is False
+
+
+def test_sweep_still_evicts_non_rebuildable_entries_once_the_session_expires(db):
+    now = [1000.0]
+    cache = ConnectionCache(
+        idle_ttl=900, max_size=10, clock=lambda: now[0], retain_ttl=28800
+    )
+    conn = FakeConnection()
+    cache.put("sid-dev", conn, rebuildable=False)
+    now[0] += 28801
+    assert cache.sweep() == 1
+    assert conn.closed is True
+
+
+def test_sweep_still_evicts_rebuildable_entries_at_the_idle_ttl(db):
+    now = [1000.0]
+    cache = ConnectionCache(
+        idle_ttl=900, max_size=10, clock=lambda: now[0], retain_ttl=28800
+    )
+    conn = FakeConnection()
+    cache.put("sid-oauth", conn, rebuildable=True)
+    now[0] += 901
+    assert cache.sweep() == 1
+    assert conn.closed is True
+
+
+def test_oauth_acquire_marks_its_entry_rebuildable(db, monkeypatch):
+    sess = create_session(
+        db, account="ACME", user="ALICE", mode="oauth",
+        access_token="at-1", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: FakeConnection())
+    cache = ConnectionCache(idle_ttl=900, max_size=10, retain_ttl=28800)
+    entry = cache.acquire(db, sess)
+    assert entry.rebuildable is True

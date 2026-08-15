@@ -26,7 +26,9 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 function AuthExpiredBridge() {
   const navigate = useNavigate();
   useEffect(() => {
-    setOnAuthExpired(() => navigate("/login"));
+    setOnAuthExpired((reason?: string) =>
+      navigate("/login", { state: reason ? { reason } : undefined }),
+    );
     return () => setOnAuthExpired(null);
   }, [navigate]);
   return null;
