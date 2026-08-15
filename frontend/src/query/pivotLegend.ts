@@ -14,7 +14,12 @@ export function pivotLegend(
 
   const categories: string[] = [];
   const legendValues: string[] = [];
-  const cell = new Map<string, number | null>();
+  // Keyed category -> legend -> value, rather than a single string-joined
+  // key. A joined key like `${category} ${legend}` can collide for two
+  // distinct pairs (e.g. "East Coast"+"Sales" and "East"+"Coast Sales" both
+  // stringify to "East Coast Sales"), silently overwriting one series'
+  // value with another's. Nesting removes that possibility structurally.
+  const cells = new Map<string, Map<string, number | null>>();
 
   for (const row of result.rows) {
     const category = String(row[a] ?? "");
@@ -22,16 +27,19 @@ export function pivotLegend(
     if (!categories.includes(category)) categories.push(category);
     if (!legendValues.includes(legend)) legendValues.push(legend);
     const value = row[m];
-    cell.set(
-      `${category} ${legend}`,
-      value === null || value === undefined ? null : Number(value),
-    );
+    const resolved = value === null || value === undefined ? null : Number(value);
+    let byLegend = cells.get(category);
+    if (!byLegend) {
+      byLegend = new Map();
+      cells.set(category, byLegend);
+    }
+    byLegend.set(legend, resolved);
   }
 
   const series = legendValues.map((legend, i) => ({
     name: legend,
     colorIndex: i,
-    data: categories.map((c) => cell.get(`${c} ${legend}`) ?? null),
+    data: categories.map((c) => cells.get(c)?.get(legend) ?? null),
   }));
   return { categories, series };
 }

@@ -32,4 +32,34 @@ describe("pivotLegend", () => {
     const { series } = pivotLegend(RESULT, "ORDER_DATE", "REGION", "REVENUE");
     expect(series.map((s) => s.colorIndex)).toEqual([0, 1]);
   });
+
+  it("does not collide when a space-joined category+legend pair is ambiguous", () => {
+    // "East Coast" + "Sales" and "East" + "Coast Sales" both stringify to
+    // "East Coast Sales" under a space-joined key — a real risk for TEXT
+    // dimensions like region/segment/product names.
+    const AMBIGUOUS = {
+      columns: [
+        { name: "REGION", type: "TEXT" },
+        { name: "SEGMENT", type: "TEXT" },
+        { name: "REVENUE", type: "FIXED" },
+      ],
+      rows: [
+        ["East Coast", "Sales", 100],
+        ["East", "Coast Sales", 200],
+      ],
+      truncated: false,
+      sfqid: null,
+      sql: "",
+    };
+    const { categories, series } = pivotLegend(
+      AMBIGUOUS, "REGION", "SEGMENT", "REVENUE",
+    );
+    expect(categories).toEqual(["East Coast", "East"]);
+    expect(series.map((s) => s.name)).toEqual(["Sales", "Coast Sales"]);
+
+    const sales = series.find((s) => s.name === "Sales")!;
+    const coastSales = series.find((s) => s.name === "Coast Sales")!;
+    expect(sales.data).toEqual([100, null]);
+    expect(coastSales.data).toEqual([null, 200]);
+  });
 });

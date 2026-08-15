@@ -96,7 +96,7 @@ export default function QueryPanel({ result, detail, wells }: Props) {
     chart = (
       <>
         <h3 className="chart-title">{title}</h3>
-        {hasLegend && firstMetricName && (
+        {hasLegend && firstMetricName && wells.values.length > 1 && (
           <p className="chart-note">
             Charting {firstMetricName} only — a legend splits a single measure. The
             table shows all selected fields.

@@ -2,10 +2,12 @@ import { useDraggable } from "@dnd-kit/core";
 import type { FieldInfo, SemanticViewDetail } from "../api/types";
 import { defaultWellFor, type DragData, type FieldKind, type WellId, type Wells } from "./wells";
 
+export type OnAdd = (wellId: WellId, ref: string, kind: FieldKind) => void;
+
 interface Props {
   detail: SemanticViewDetail;
   wells: Wells;
-  onAdd: (wellId: WellId, ref: string, kind: FieldKind) => void;
+  onAdd: OnAdd;
 }
 
 function refOf(field: FieldInfo): string {
@@ -65,6 +67,9 @@ function FieldGroup({
 export default function FieldPanel({ detail, wells, onAdd }: Props) {
   return (
     <aside className="field-panel">
+      <p className="field-hint">
+        Enter adds to the default well · Space picks up to drag
+      </p>
       <FieldGroup
         title="Dimensions" kind="dimension" fields={detail.dimensions}
         wells={wells} onAdd={onAdd}

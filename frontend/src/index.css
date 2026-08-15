@@ -143,6 +143,12 @@ button:disabled {
   color: #ffffff;
 }
 
+.field-hint {
+  margin: 0 0 6px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
 .field-row {
   display: flex;
   align-items: center;

@@ -1,13 +1,6 @@
-import {
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+import { DndContext, type Announcements, type DragEndEvent } from "@dnd-kit/core";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import type {
@@ -18,22 +11,54 @@ import type {
 } from "../api/types";
 import { useMe } from "../auth/useMe";
 import QueryPanel from "../query/QueryPanel";
+import {
+  announceDragCancel, announceDragEnd, announceDragOver, announceDragStart,
+} from "./announcements";
+import { useFieldSensors } from "./dndSensors";
 import FieldPanel from "./FieldPanel";
 import ViewTree from "./ViewTree";
 import WellPanel from "./WellPanel";
 import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
+
+function dragDataOf(active: { data: { current?: Record<string, unknown> } }): DragData | undefined {
+  return active.data.current as DragData | undefined;
+}
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
   const me = useMe();
   const [selectedView, setSelectedView] = useState<SemanticViewSummary | null>(null);
   const [wells, setWells] = useState<Wells>(emptyWells());
-  // `distance: 8` keeps PointerSensor from hijacking a plain click on a
-  // field row (mousedown+mouseup with no movement) as a drag start, so
-  // click-to-add stays a real, independent path from dragging.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor),
+  const sensors = useFieldSensors();
+
+  // dnd-kit's default announcer is purely geometric and knows nothing
+  // about `canDrop`, so an invalid drop (a metric over Axis, say) would
+  // otherwise be announced as if it succeeded. These consult the same
+  // `canDrop` rule the wells model itself enforces, so the announcement
+  // always matches what actually happened — this is also the only signal
+  // an invalid drop gets during a keyboard drag (the blocked well's
+  // `data-state`/cursor mean nothing to a screen reader).
+  const announcements = useMemo<Announcements>(
+    () => ({
+      onDragStart({ active }) {
+        const data = dragDataOf(active);
+        return data ? announceDragStart(data.ref) : undefined;
+      },
+      onDragOver({ active, over }) {
+        const data = dragDataOf(active);
+        if (!data) return undefined;
+        return announceDragOver(data.ref, data.kind, (over?.id as WellId | undefined) ?? null);
+      },
+      onDragEnd({ active, over }) {
+        const data = dragDataOf(active);
+        if (!data) return undefined;
+        return announceDragEnd(data.ref, data.kind, (over?.id as WellId | undefined) ?? null);
+      },
+      onDragCancel() {
+        return announceDragCancel();
+      },
+    }),
+    [],
   );
 
   const views = useQuery({
@@ -78,7 +103,7 @@ export default function ExplorerPage() {
   function onDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over) return;
-    const data = active.data.current as DragData | undefined;
+    const data = dragDataOf(active);
     if (!data) return;
     setWells((prev) => addToWell(prev, over.id as WellId, data.ref, data.kind));
   }
@@ -111,7 +136,7 @@ export default function ExplorerPage() {
           </button>
         </span>
       </header>
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} onDragEnd={onDragEnd} accessibility={{ announcements }}>
         <div className="columns">
           <div className="left">
             {views.isLoading && <p>Loading views...</p>}

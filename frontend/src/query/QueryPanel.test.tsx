@@ -60,14 +60,23 @@ const DETAIL_WITH_REGION = {
     { table: "ORDERS", name: "ORDER_DATE", dataType: "DATE" },
     { table: "CUSTOMERS", name: "REGION", dataType: "TEXT" },
   ],
-  metrics: [{ table: "ORDERS", name: "TOTAL_REVENUE", dataType: "NUMBER(38,2)" }],
+  metrics: [
+    { table: "ORDERS", name: "TOTAL_REVENUE", dataType: "NUMBER(38,2)" },
+    { table: "ORDERS", name: "ORDER_COUNT", dataType: "NUMBER(38,0)" },
+  ],
   facts: [],
 };
 
-const WELLS_WITH_LEGEND = {
+const WELLS_WITH_LEGEND_ONE_METRIC = {
   axis: ["ORDERS.ORDER_DATE"],
   legend: ["CUSTOMERS.REGION"],
   values: ["ORDERS.TOTAL_REVENUE"],
+};
+
+const WELLS_WITH_LEGEND_AND_HIDDEN_METRIC = {
+  axis: ["ORDERS.ORDER_DATE"],
+  legend: ["CUSTOMERS.REGION"],
+  values: ["ORDERS.TOTAL_REVENUE", "ORDERS.ORDER_COUNT"],
 };
 
 describe("QueryPanel", () => {
@@ -81,19 +90,43 @@ describe("QueryPanel", () => {
     expect(chart).toBeInTheDocument();
   });
 
-  it("still names what's charted and notes the single-measure limit when a legend is active", () => {
+  it("still names what's charted when a legend is active", () => {
     render(
-      <QueryPanel result={RESULT_WITH_REGION} detail={DETAIL_WITH_REGION} wells={WELLS_WITH_LEGEND} />,
+      <QueryPanel
+        result={RESULT_WITH_REGION}
+        detail={DETAIL_WITH_REGION}
+        wells={WELLS_WITH_LEGEND_ONE_METRIC}
+      />,
     );
 
     const heading = screen.getByRole("heading", { name: "TOTAL_REVENUE by ORDER_DATE" });
     expect(heading).toHaveClass("chart-title");
 
-    expect(
-      screen.getByText(/charting total_revenue only/i),
-    ).toBeInTheDocument();
-
     const chart = screen.getByRole("img", { name: "TOTAL_REVENUE by ORDER_DATE" });
     expect(chart).toBeInTheDocument();
+  });
+
+  it("notes the single-measure limit only when a legend actually hides another selected metric", () => {
+    render(
+      <QueryPanel
+        result={RESULT_WITH_REGION}
+        detail={DETAIL_WITH_REGION}
+        wells={WELLS_WITH_LEGEND_AND_HIDDEN_METRIC}
+      />,
+    );
+
+    expect(screen.getByText(/charting total_revenue only/i)).toBeInTheDocument();
+  });
+
+  it("omits the single-measure note when nothing is actually hidden", () => {
+    render(
+      <QueryPanel
+        result={RESULT_WITH_REGION}
+        detail={DETAIL_WITH_REGION}
+        wells={WELLS_WITH_LEGEND_ONE_METRIC}
+      />,
+    );
+
+    expect(screen.queryByText(/charting total_revenue only/i)).not.toBeInTheDocument();
   });
 });

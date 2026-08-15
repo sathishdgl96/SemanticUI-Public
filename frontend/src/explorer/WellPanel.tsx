@@ -1,6 +1,6 @@
 import { useDroppable } from "@dnd-kit/core";
 import FieldChip from "./FieldChip";
-import type { DragData, WellId, Wells } from "./wells";
+import { canDrop, type DragData, type WellId, type Wells } from "./wells";
 
 const WELLS: { id: WellId; label: string; hint: string }[] = [
   { id: "axis", label: "Axis", hint: "Drop a field here" },
@@ -21,7 +21,7 @@ function Well({ id, label, hint, refs, onRemove }: {
 }) {
   const { setNodeRef, isOver, active } = useDroppable({ id });
   const kind = (active?.data.current as DragData | undefined)?.kind;
-  const accepts = kind === undefined || (id === "values" ? kind === "metric" : kind === "dimension");
+  const accepts = kind === undefined || canDrop(id, kind);
   const state = !active ? "" : accepts ? (isOver ? "over" : "eligible") : "blocked";
   return (
     <section ref={setNodeRef} className="well" data-state={state} aria-label={label}>
