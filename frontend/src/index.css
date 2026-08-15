@@ -1110,3 +1110,31 @@ button.secondary,
     cursor: default;
   }
 }
+
+.visual-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.picker-item {
+  background: var(--surface);
+  color: var(--ink-secondary);
+  border: 1px solid var(--axis);
+  min-height: 28px;
+  font-size: 14px;
+  padding: 2px;
+}
+
+.picker-item.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.visual-wells {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
