@@ -63,7 +63,15 @@ export default function LoginPage() {
       queryClient.clear();
       navigate("/");
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Login failed";
+      // Snowflake's own explanation arrives in `detail`; without it the user
+      // sees only "Snowflake login failed" and cannot tell a wrong password
+      // from an MFA policy or a malformed account identifier. The backend
+      // already withholds `detail` on the keypair path, so showing it here
+      // cannot surface key material.
+      const message =
+        err instanceof ApiError
+          ? [err.message, err.detail].filter(Boolean).join(" ")
+          : "Login failed";
       setError(
         authenticator === "keypair"
           ? `${message} Re-paste your private key to try again.`

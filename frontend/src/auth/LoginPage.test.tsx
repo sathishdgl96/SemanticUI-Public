@@ -146,6 +146,53 @@ describe("LoginPage", () => {
     expect(textarea).toHaveValue("");
   });
 
+  it("shows Snowflake's own reason for a rejected password login", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser", "password"],
+    });
+    renderPage();
+    await screen.findByLabelText(/account/i);
+    await userEvent.selectOptions(screen.getByLabelText(/authenticator/i), "password");
+    await userEvent.type(screen.getByLabelText(/account/i), "acct");
+    await userEvent.type(screen.getByLabelText(/^user/i), "alice");
+    await userEvent.type(screen.getByLabelText(/^password/i), "hunter2");
+    apiFetchMock.mockRejectedValueOnce(
+      new ApiError(
+        "AUTH_FAILED",
+        401,
+        "Snowflake login failed",
+        "250001 (08001): Failed to connect to DB: acct.snowflakecomputing.com:443. " +
+          "Incorrect username or password was specified.",
+      ),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      // The generic message alone is useless — the caller needs the actual cause.
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /incorrect username or password was specified/i,
+      );
+    });
+  });
+
+  it("falls back to the generic message when no detail is supplied", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser", "password"],
+    });
+    renderPage();
+    await screen.findByLabelText(/account/i);
+    await userEvent.type(screen.getByLabelText(/account/i), "acct");
+    await userEvent.type(screen.getByLabelText(/^user/i), "alice");
+    apiFetchMock.mockRejectedValueOnce(
+      new ApiError("AUTH_FAILED", 401, "Snowflake login failed", null),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/snowflake login failed/i);
+    });
+  });
+
   it("clears the whole query client cache on a successful login, not just [me]", async () => {
     apiFetchMock.mockResolvedValueOnce({
       authMode: "dev",
