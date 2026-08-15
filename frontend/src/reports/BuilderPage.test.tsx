@@ -128,6 +128,28 @@ describe("BuilderPage", () => {
     expect(savedDefinition.visuals[0].wells.axis).toEqual([]);
   });
 
+  it("prompts to pick a semantic view for a brand-new, unbound report", async () => {
+    // Mirrors what ReportListPage's "New report" now creates: an empty
+    // view (all fields "") and no visuals. The builder must treat this as
+    // "no view bound yet", not crash or render a blank canvas.
+    getMock.mockResolvedValue({
+      id: "r1",
+      name: "Untitled report",
+      view: { database: "", schema: "", name: "" },
+      updatedAt: "2026-08-15T10:00:00+00:00",
+      definition: {
+        schemaVersion: 1,
+        name: "Untitled report",
+        view: { database: "", schema: "", name: "" },
+        canvas: { columns: 12, rowHeight: 40 },
+        visuals: [],
+      },
+    });
+    vi.mocked(apiFetch).mockResolvedValue({ views: [] });
+    renderBuilder();
+    expect(await screen.findByText(/pick a semantic view to start this report/i)).toBeInTheDocument();
+  });
+
   it("offers to rebind when the bound view no longer resolves", async () => {
     // The describe call is the /api/semantic-views/... fetch made through
     // apiFetch; make it reject with a real ApiError (as production's

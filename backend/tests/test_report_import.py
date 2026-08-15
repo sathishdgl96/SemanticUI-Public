@@ -77,3 +77,37 @@ def test_import_requires_authentication(client):
     assert client.post(
         "/api/reports/import", json={"definition": valid_definition()}
     ).status_code == 401
+
+
+def test_import_rejects_an_unbound_definition_with_no_view_override(client, signed_in):
+    # There is nothing to DESCRIBE and validate field references against, so
+    # an unbound import (no view, no override) is meaningless -- reject it
+    # rather than silently creating a report nobody can use.
+    doc = valid_definition()
+    doc["view"] = {"database": "", "schema": "", "name": ""}
+    doc["visuals"] = []
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 400
+    assert response.json()["code"] == "REPORT_INVALID"
+    assert "view override" in response.json()["message"].lower()
+
+
+def test_import_accepts_an_unbound_definition_when_a_view_override_is_supplied(
+    client, signed_in
+):
+    doc = valid_definition()
+    doc["view"] = {"database": "", "schema": "", "name": ""}
+    doc["visuals"] = []
+    response = client.post(
+        "/api/reports/import",
+        json={
+            "definition": doc,
+            "viewOverride": {"database": "PROD", "schema": "MARTS", "name": "SALES_V2"},
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["view"] == {
+        "database": "PROD",
+        "schema": "MARTS",
+        "name": "SALES_V2",
+    }

@@ -108,6 +108,37 @@ def test_export_document_is_deterministic_and_sorted():
     assert a.endswith("\n")
 
 
+def test_an_unbound_definition_with_no_visuals_parses():
+    # A brand-new report isn't attached to a semantic view yet -- that's a
+    # legitimate starting state as long as it holds no visuals.
+    doc = valid_doc(
+        view={"database": "", "schema": "", "name": ""},
+        visuals=[],
+    )
+    d = parse_definition(doc)
+    assert d.view.database == ""
+    assert d.view.schema_ == ""
+    assert d.view.name == ""
+    assert d.visuals == []
+
+
+def test_an_unbound_definition_with_a_visual_is_rejected():
+    # A visual's fields have to come from somewhere -- an empty view can't
+    # back a visual, so this must fail even though each field individually
+    # (empty string) is now allowed by the schema.
+    doc = valid_doc(view={"database": "", "schema": "", "name": ""})
+    with pytest.raises(ApiError) as exc:
+        parse_definition(doc)
+    assert exc.value.code == "REPORT_INVALID"
+    assert "semantic view" in exc.value.message.lower()
+
+
+def test_a_bound_definition_with_visuals_still_parses():
+    d = parse_definition(valid_doc())
+    assert d.view.name == "SALES"
+    assert len(d.visuals) == 1
+
+
 def test_validation_errors_do_not_echo_the_submitted_value():
     marker = "SENSITIVE-MARKER-VALUE"
     doc = valid_doc()

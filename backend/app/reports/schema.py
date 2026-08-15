@@ -23,9 +23,13 @@ class _Strict(BaseModel):
 
 
 class ViewRef(_Strict):
-    database: str = Field(min_length=1, max_length=255)
-    schema_: str = Field(alias="schema", min_length=1, max_length=255)
-    name: str = Field(min_length=1, max_length=255)
+    # Empty strings are allowed: a brand-new report is not bound to a
+    # semantic view yet. `parse_definition` enforces the real invariant --
+    # a report may be unbound only while it holds no visuals -- below, once
+    # pydantic's structural checks have passed.
+    database: str = Field(max_length=255)
+    schema_: str = Field(alias="schema", max_length=255)
+    name: str = Field(max_length=255)
 
 
 class VisualLayout(_Strict):
@@ -87,6 +91,14 @@ def parse_definition(raw: dict) -> ReportDefinition:
         raise _invalid(
             "The report definition is not valid",
             detail=str(safe_error_details(exc.errors())),
+        )
+
+    view = definition.view
+    is_unbound = not view.database or not view.schema_ or not view.name
+    if is_unbound and definition.visuals:
+        raise _invalid(
+            "This report must be bound to a semantic view before it can hold "
+            "visuals. Pick a semantic view first, or remove its visuals."
         )
 
     seen_ids: set[str] = set()

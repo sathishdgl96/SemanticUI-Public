@@ -11,11 +11,12 @@ vi.mock("../api/reports", () => ({
 }));
 
 import { ApiError } from "../api/client";
-import { deleteReport, listReports } from "../api/reports";
+import { createReport, deleteReport, listReports } from "../api/reports";
 import ReportListPage from "./ReportListPage";
 
 const listMock = vi.mocked(listReports);
 const deleteMock = vi.mocked(deleteReport);
+const createMock = vi.mocked(createReport);
 
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -31,6 +32,7 @@ function renderPage() {
 beforeEach(() => {
   listMock.mockReset();
   deleteMock.mockReset();
+  createMock.mockReset();
 });
 
 describe("ReportListPage", () => {
@@ -103,5 +105,24 @@ describe("ReportListPage", () => {
     // Failure must not silently dismiss the dialog — the user needs to see
     // why nothing happened and still has Cancel/retry available.
     expect(screen.getByRole("dialog", { name: /confirm delete/i })).toBeInTheDocument();
+  });
+
+  it("shows an alert with the backend's message when creating a report fails", async () => {
+    listMock.mockResolvedValue({ reports: [] });
+    createMock.mockRejectedValue(
+      new ApiError(
+        "REPORT_INVALID",
+        400,
+        "This report must be bound to a semantic view before it can hold visuals.",
+      ),
+    );
+    renderPage();
+    await screen.findByText(/no reports yet/i);
+    await userEvent.click(screen.getByRole("button", { name: /new report/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      /this report must be bound to a semantic view before it can hold visuals/i,
+    );
   });
 });

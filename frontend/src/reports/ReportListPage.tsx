@@ -42,9 +42,18 @@ export default function ReportListPage() {
     },
   });
 
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const create = useMutation({
     mutationFn: () => createReport(blankDefinition("Untitled report")),
     onSuccess: (report) => navigate(`/reports/${report.id}`),
+    // Without this, a rejected create silently does nothing: no report, no
+    // navigation, no feedback -- clicking "New report" would look broken.
+    onError: (error) => {
+      setCreateError(
+        error instanceof ApiError ? error.message : "Could not create a new report.",
+      );
+    },
   });
 
   function onImported(report: ReportDetail) {
@@ -63,12 +72,19 @@ export default function ReportListPage() {
           <button className="secondary" onClick={() => setShowImport(true)}>
             Import
           </button>
-          <button onClick={() => create.mutate()} disabled={create.isPending}>
+          <button
+            onClick={() => {
+              setCreateError(null);
+              create.mutate();
+            }}
+            disabled={create.isPending}
+          >
             {create.isPending ? "Creating..." : "New report"}
           </button>
         </div>
       </header>
 
+      {createError && <p role="alert">{createError}</p>}
       {reports.isLoading && <p>Loading reports...</p>}
       {reports.isError && (
         <p role="alert">

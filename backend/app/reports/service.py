@@ -112,6 +112,18 @@ def import_report(
 
     definition = parse_definition(raw_definition)
 
+    if not (definition.view.database and definition.view.schema_ and definition.view.name):
+        # An unbound definition can pass `parse_definition` (an empty view
+        # with no visuals is legitimate for a fresh report), but importing
+        # one is meaningless: there is nothing to DESCRIBE and validate
+        # field references against.
+        raise ApiError(
+            "REPORT_INVALID",
+            400,
+            "This definition has no semantic view bound and no viewOverride "
+            "was supplied. Provide a view override to import it.",
+        )
+
     with entry.lock:
         detail = cache.describe(
             entry,
