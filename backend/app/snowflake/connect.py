@@ -7,6 +7,30 @@ from app.config import get_settings
 from app.errors import ApiError
 
 
+_HOST_SUFFIX = ".snowflakecomputing.com"
+
+
+def normalize_account(value: str) -> str:
+    """Reduce a pasted Snowflake host or console URL to an account identifier.
+
+    The connector appends ".snowflakecomputing.com" itself, so passing a full
+    hostname yields a doubled domain that fails DNS as an opaque 250001
+    "could not connect", and a URL fails as 251001. Both are unambiguous
+    enough to recover. Legacy locators such as "xy12345.us-east-1" contain
+    dots legitimately, so only the known host suffix is removed — never
+    everything after the first dot.
+    """
+    account = value.strip()
+    for scheme in ("https://", "http://"):
+        if account.lower().startswith(scheme):
+            account = account[len(scheme) :]
+            break
+    account = account.split("/", 1)[0]
+    if account.lower().endswith(_HOST_SUFFIX):
+        account = account[: -len(_HOST_SUFFIX)]
+    return account.strip(". ")
+
+
 def _session_parameters() -> dict:
     return {"STATEMENT_TIMEOUT_IN_SECONDS": get_settings().statement_timeout_seconds}
 
@@ -62,6 +86,7 @@ def connect_dev(
     private_key_pem: str | None = None,
     private_key_passphrase: str | None = None,
 ) -> Any:
+    account = normalize_account(account)
     if authenticator == "keypair":
         if not private_key_pem:
             raise ApiError("AUTH_FAILED", 401, "A private key is required")

@@ -115,3 +115,60 @@ def test_connect_dev_keypair_passes_der(monkeypatch):
     assert "password" not in seen
     assert "authenticator" not in seen
     assert seen["session_parameters"]["STATEMENT_TIMEOUT_IN_SECONDS"] == 60
+
+
+# --- account identifier normalisation -------------------------------------
+# Users routinely paste the Snowflake console URL or the full hostname into an
+# "Account" field. The connector re-appends ".snowflakecomputing.com", so the
+# hostname form fails with an opaque 250001 "could not connect"; the URL form
+# fails with 251001. Both are recoverable without guessing at the user's intent.
+
+
+def test_normalize_account_strips_hostname_suffix():
+    assert (
+        sf_connect.normalize_account("xriieim-eh01350.snowflakecomputing.com")
+        == "xriieim-eh01350"
+    )
+    assert (
+        sf_connect.normalize_account("XRIIEIM-EH01350.SnowflakeComputing.COM")
+        == "XRIIEIM-EH01350"
+    )
+
+
+def test_normalize_account_strips_scheme_and_path():
+    assert (
+        sf_connect.normalize_account("https://xriieim-eh01350.snowflakecomputing.com/")
+        == "xriieim-eh01350"
+    )
+    assert (
+        sf_connect.normalize_account("http://xriieim-eh01350.snowflakecomputing.com/x/y")
+        == "xriieim-eh01350"
+    )
+
+
+def test_normalize_account_preserves_legacy_region_locators():
+    # Legacy locators legitimately contain dots and must survive untouched.
+    assert sf_connect.normalize_account("xy12345.us-east-1") == "xy12345.us-east-1"
+    assert (
+        sf_connect.normalize_account("xy12345.central-india.azure")
+        == "xy12345.central-india.azure"
+    )
+
+
+def test_normalize_account_trims_whitespace_and_is_idempotent():
+    assert sf_connect.normalize_account("  xriieim-eh01350  ") == "xriieim-eh01350"
+    once = sf_connect.normalize_account("xriieim-eh01350.snowflakecomputing.com")
+    assert sf_connect.normalize_account(once) == once
+
+
+def test_connect_dev_normalizes_the_account_before_connecting(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        snowflake.connector, "connect", lambda **kw: seen.update(kw) or "CONN"
+    )
+    sf_connect.connect_dev(
+        account="https://xriieim-eh01350.snowflakecomputing.com/",
+        user="alice",
+        authenticator="externalbrowser",
+    )
+    assert seen["account"] == "xriieim-eh01350"
