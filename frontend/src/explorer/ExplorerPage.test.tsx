@@ -180,6 +180,38 @@ describe("ExplorerPage", () => {
     expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
   });
 
+  // The hand-off always builds a "bar" visual (see the comment above
+  // `addToReport` in ExplorerPage), and the catalog requires bar to have
+  // Axis >= 1 AND Values >= 1. Placing only a dimension is the most natural
+  // first action in the explorer, so this is exactly the case that must stay
+  // disabled -- enabling it would let the user submit a definition the
+  // server rejects with a 400 naming an internal visual id.
+  it("stays disabled with a hint when only a dimension is placed", async () => {
+    mockRoutes(() => Promise.resolve(DETAIL));
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+
+    expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
+    expect(
+      screen.getByText(/add a dimension and a measure to start a report/i),
+    ).toBeInTheDocument();
+  });
+
+  it("stays disabled with a hint when only a metric is placed", async () => {
+    mockRoutes(() => Promise.resolve(DETAIL));
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REVENUE/ }));
+
+    expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
+    expect(
+      screen.getByText(/add a dimension and a measure to start a report/i),
+    ).toBeInTheDocument();
+  });
+
   it("creates a report from the current view and wells, then navigates to its builder", async () => {
     mockRoutes(() => Promise.resolve(DETAIL));
     createReportMock.mockResolvedValue({
@@ -198,10 +230,17 @@ describe("ExplorerPage", () => {
     renderPage();
 
     await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    // A dimension alone (or a metric alone) is exactly the combination the
+    // server's catalog rejects for a bar visual -- both a dimension and a
+    // metric must be placed for this to be a definition the API accepts.
     await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /REVENUE/ }));
 
     const addButton = screen.getByRole("button", { name: /add to report/i });
     expect(addButton).toBeEnabled();
+    expect(
+      screen.queryByText(/add a dimension and a measure to start a report/i),
+    ).not.toBeInTheDocument();
     await userEvent.click(addButton);
 
     await waitFor(() => expect(createReportMock).toHaveBeenCalledTimes(1));
@@ -211,7 +250,7 @@ describe("ExplorerPage", () => {
     expect(definition.visuals[0]).toMatchObject({
       type: "bar",
       layout: { x: 0, y: 0, w: 6, h: 6 },
-      wells: { axis: ["T.REGION"], legend: [], values: [] },
+      wells: { axis: ["T.REGION"], legend: [], values: ["T.REVENUE"] },
     });
 
     await screen.findByText("Builder page");

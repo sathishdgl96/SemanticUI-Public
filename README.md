@@ -211,10 +211,12 @@ Axis dimension and at least one metric are selected), a results table, and a
 `/reports` lists the signed-in user's own saved reports (owned per user -
 nobody sees anyone else's). **New report** creates a blank, unbound report
 and opens it in the builder at `/reports/{id}`; the explorer's **Add to
-report** button (top bar, enabled once a view is selected and at least one
-field is placed in a well) does the same but seeds it with a single Bar
-visual holding the wells you already built - a one-click hand-off from ad
-hoc exploration to a saved report.
+report** button (top bar, enabled once a view is selected and the wells hold
+a combination the resulting visual actually accepts - for the Bar visual it
+seeds, that means at least one Axis dimension *and* at least one Values
+metric; a hint next to the button explains this while it's disabled) does
+the same but seeds it with a single Bar visual holding the wells you already
+built - a one-click hand-off from ad hoc exploration to a saved report.
 
 **Binding a view.** A fresh or orphaned report (its bound view renamed,
 dropped, or no longer visible to your role) shows the same semantic-view
@@ -362,14 +364,21 @@ Fix anything that fails before committing.
 > account was available in this environment). Item 15 (report round trip)
 > *was* driven end-to-end in a real Chromium browser against the running
 > app, with only the network layer stubbed (Playwright `page.route()` faking
-> `/api/*` responses) since no Snowflake account was available - every
-> component, layout rule, and interaction (click-to-place, drag, resize,
-> type switching, per-tile error isolation, save/export/import) was
-> exercised for real. That pass caught and led to a fix for a real bug: at
-> the <960px stacked breakpoint, a chart tile's height resolved to 0 (a
-> `height: 100%` percentage chain through an ancestor whose own `height` was
-> `auto`), leaving every chart blank on narrow screens even though the query
-> underneath had succeeded; `.tile-body`/`.auto-chart` now use flex sizing
-> instead. Everything else in this README - config keys, validator behavior,
-> endpoint names, component/interaction behavior - was verified directly
-> against the source in `backend/app` and `frontend/src`.
+> `/api/*` responses) since no Snowflake account was available. A pass like
+> this exercises component wiring, routing, and rendering for real - every
+> layout rule and interaction (click-to-place, drag, resize, type switching,
+> per-tile error isolation, save/export/import) ran against the actual UI
+> code. **It does not verify that the request bodies the frontend sends are
+> ones the real API would accept** - the stub answers whatever the test
+> script tells it to, regardless of what a real backend validator would do
+> with that same body, so a client/server contract mismatch (e.g. a payload
+> shape the catalog rejects) can pass this checklist item and still 400
+> against the real API. That pass caught and led to a fix for a real bug
+> that stubbing *could* catch: at the <960px stacked breakpoint, a chart
+> tile's height resolved to 0 (a `height: 100%` percentage chain through an
+> ancestor whose own `height` was `auto`), leaving every chart blank on
+> narrow screens even though the query underneath had succeeded;
+> `.tile-body`/`.auto-chart` now use flex sizing instead. Everything else in
+> this README - config keys, validator behavior, endpoint names,
+> component/interaction behavior - was verified directly against the source
+> in `backend/app` and `frontend/src`.

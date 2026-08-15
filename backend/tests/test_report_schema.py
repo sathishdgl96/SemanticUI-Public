@@ -4,11 +4,15 @@ import pytest
 
 from app.errors import ApiError
 from app.reports.schema import (
+    MAX_DEFINITION_BYTES,
+    MAX_REF_LENGTH,
+    MAX_REFS_PER_WELL,
     MAX_VISUALS,
     SCHEMA_VERSION,
     parse_definition,
     to_export_document,
 )
+from tests.test_report_routes import oversized_definition
 
 
 def valid_doc(**overrides):
@@ -95,6 +99,33 @@ def test_rejects_too_many_visuals():
     with pytest.raises(ApiError) as exc:
         parse_definition(doc)
     assert str(MAX_VISUALS) in exc.value.message
+
+
+def test_rejects_a_well_with_too_many_refs():
+    doc = valid_doc()
+    doc["visuals"][0]["wells"]["values"] = [
+        f"A.M{i}" for i in range(MAX_REFS_PER_WELL + 1)
+    ]
+    with pytest.raises(ApiError) as exc:
+        parse_definition(doc)
+    assert exc.value.code == "REPORT_INVALID"
+
+
+def test_rejects_an_overlong_well_ref():
+    doc = valid_doc()
+    doc["visuals"][0]["wells"]["axis"] = ["C." + "R" * MAX_REF_LENGTH]
+    with pytest.raises(ApiError) as exc:
+        parse_definition(doc)
+    assert exc.value.code == "REPORT_INVALID"
+
+
+def test_rejects_an_oversized_document_even_when_every_field_is_individually_legal():
+    with pytest.raises(ApiError) as exc:
+        parse_definition(oversized_definition())
+    assert exc.value.code == "REPORT_INVALID"
+    assert exc.value.message == (
+        f"The definition exceeds the {MAX_DEFINITION_BYTES} byte limit"
+    )
 
 
 def test_export_document_is_deterministic_and_sorted():

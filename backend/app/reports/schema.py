@@ -7,6 +7,7 @@ and the whole thing is size-bounded.
 """
 
 import json
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -16,6 +17,18 @@ from app.reports.catalog import CATALOG, validate_wells
 SCHEMA_VERSION = 1
 MAX_VISUALS = 50
 MAX_DEFINITION_BYTES = 65536
+
+# A well reference is "TABLE.FIELD"; each part is a Snowflake identifier,
+# which tops out at 255 characters, so 255 + "." + 255 = 511 is the longest
+# a legitimate reference can ever be.
+MAX_REF_LENGTH = 511
+# No real visual places more than a few dozen fields in one well (the
+# widest catalog well -- Values/metrics -- is naturally small in practice);
+# 50 is a generous ceiling that also matches MAX_VISUALS below.
+MAX_REFS_PER_WELL = 50
+
+WellRef = Annotated[str, Field(max_length=MAX_REF_LENGTH)]
+WellRefs = Annotated[list[WellRef], Field(max_length=MAX_REFS_PER_WELL)]
 
 
 class _Strict(BaseModel):
@@ -44,7 +57,7 @@ class Visual(_Strict):
     type: str
     title: str = Field(default="", max_length=200)
     layout: VisualLayout
-    wells: dict[str, list[str]] = Field(default_factory=dict)
+    wells: dict[str, WellRefs] = Field(default_factory=dict)
     options: dict[str, object] = Field(default_factory=dict)
 
 
@@ -69,6 +82,12 @@ def parse_definition(raw: dict) -> ReportDefinition:
     """Validate an untrusted definition document. Raises ApiError on any problem."""
     if not isinstance(raw, dict):
         raise _invalid("A report definition must be a JSON object")
+
+    # Every write path (create, update, import) funnels through here, so this
+    # is the one place that bounds what a definition can weigh before any
+    # more expensive validation (or a database write) happens.
+    if len(json.dumps(raw)) > MAX_DEFINITION_BYTES:
+        raise _invalid(f"The definition exceeds the {MAX_DEFINITION_BYTES} byte limit")
 
     version = raw.get("schemaVersion")
     if version != SCHEMA_VERSION:

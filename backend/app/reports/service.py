@@ -70,7 +70,6 @@ def delete_report(db: Session, user_id: uuid.UUID, report_id: str) -> None:
 
 
 from app.reports.catalog import wells_to_query
-from app.reports.schema import MAX_DEFINITION_BYTES
 
 
 def _known_refs(detail: dict) -> set[str]:
@@ -98,15 +97,6 @@ def import_report(
     importing user's own connection, so an imported report can only reference
     fields their Snowflake role can see.
     """
-    import json as _json
-
-    if len(_json.dumps(raw_definition)) > MAX_DEFINITION_BYTES:
-        raise ApiError(
-            "REPORT_INVALID",
-            400,
-            f"The definition exceeds the {MAX_DEFINITION_BYTES} byte limit",
-        )
-
     if view_override:
         raw_definition = {**raw_definition, "view": view_override}
 

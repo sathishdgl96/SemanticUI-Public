@@ -296,6 +296,12 @@ button:disabled {
   white-space: nowrap;
 }
 
+.topbar .add-to-report-hint {
+  flex: 0 1 auto;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
 .columns {
   display: flex;
   flex: 1;

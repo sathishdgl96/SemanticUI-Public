@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.auth.sessions import SESSION_COOKIE, create_session
 from app.db.models import Report, User
+from app.reports.schema import MAX_DEFINITION_BYTES, MAX_REFS_PER_WELL, MAX_VISUALS
 
 
 def valid_definition(name="Sales overview"):
@@ -22,6 +23,40 @@ def valid_definition(name="Sales overview"):
                 "options": {"stacked": False},
             }
         ],
+    }
+
+
+def oversized_definition():
+    """A definition that is large only because it holds many legal visuals and
+    refs. Every individual value stays inside the schema's own per-field
+    limits (visual count <= MAX_VISUALS, refs-per-well <= MAX_REFS_PER_WELL,
+    each ref comfortably under the 511-char TABLE.FIELD cap, title <= 200
+    chars), so the *only* thing that can reject this document is the shared
+    MAX_DEFINITION_BYTES cap -- unlike the old version of this fixture, which
+    relied on `Visual.title`'s own max_length and so would have passed with
+    or without a byte cap.
+    """
+    pad = "X" * 100
+    visuals = []
+    for i in range(MAX_VISUALS):
+        dims = [f"D{i}.FIELD_{k:03d}_{pad}" for k in range(MAX_REFS_PER_WELL)]
+        mets = [f"M{i}.FIELD_{k:03d}_{pad}" for k in range(MAX_REFS_PER_WELL)]
+        visuals.append(
+            {
+                "id": f"v{i}",
+                "type": "table",
+                "title": "Visual",
+                "layout": {"x": 0, "y": i, "w": 6, "h": 1},
+                "wells": {"dimensions": dims, "metrics": mets},
+                "options": {},
+            }
+        )
+    return {
+        "schemaVersion": 1,
+        "name": "Huge report",
+        "view": {"database": "ANALYTICS", "schema": "PUBLIC", "name": "SALES"},
+        "canvas": {"columns": 12, "rowHeight": 40},
+        "visuals": visuals,
     }
 
 
@@ -84,6 +119,31 @@ def test_invalid_definition_is_rejected(client, db):
     response = client.post("/api/reports", json={"definition": bad})
     assert response.status_code == 400
     assert response.json()["code"] == "REPORT_INVALID"
+
+
+def test_create_rejects_an_oversized_definition(client, db):
+    sign_in(client, db)
+    response = client.post("/api/reports", json={"definition": oversized_definition()})
+    assert response.status_code == 400
+    assert response.json()["code"] == "REPORT_INVALID"
+    assert f"exceeds the {MAX_DEFINITION_BYTES} byte limit" in response.json()["message"]
+    # Nothing was persisted -- the request was rejected, not silently
+    # truncated or stored oversized.
+    assert client.get("/api/reports").json()["reports"] == []
+
+
+def test_update_rejects_an_oversized_definition(client, db):
+    sign_in(client, db)
+    report_id = client.post("/api/reports", json={"definition": valid_definition()}).json()["id"]
+
+    response = client.put(
+        f"/api/reports/{report_id}", json={"definition": oversized_definition()}
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "REPORT_INVALID"
+    assert f"exceeds the {MAX_DEFINITION_BYTES} byte limit" in response.json()["message"]
+    # The existing report is untouched by the rejected update.
+    assert client.get(f"/api/reports/{report_id}").json()["name"] == "Sales overview"
 
 
 def test_export_is_deterministic_and_carries_no_identity(client, db):

@@ -13,6 +13,7 @@ import type {
 } from "../api/types";
 import { useMe } from "../auth/useMe";
 import QueryPanel from "../query/QueryPanel";
+import { validateWells } from "../reports/catalog";
 import {
   announceDragCancel, announceDragEnd, announceDragOver, announceDragStart,
 } from "./announcements";
@@ -98,8 +99,19 @@ export default function ExplorerPage() {
     onSuccess: (report) => navigate(`/reports/${report.id}`),
   });
 
-  const hasPlacedField = wells.axis.length > 0 || wells.legend.length > 0 || wells.values.length > 0;
-  const canAddToReport = selectedView !== null && hasPlacedField;
+  // The hand-off always builds a "bar" visual (see the comment above
+  // `addToReport`), so enablement has to mirror the catalog's own rule for
+  // that type -- Axis >= 1 AND Values >= 1 -- rather than "any field
+  // placed". A dimension alone (or a metric alone) is a combination the
+  // server's catalog rejects with a 400, so it must not be offered here.
+  const barWells: Record<string, string[]> = {
+    axis: wells.axis,
+    legend: wells.legend,
+    values: wells.values,
+  };
+  const wellProblems = validateWells("bar", barWells);
+  const canAddToReport = selectedView !== null && wellProblems.length === 0;
+  const showAddToReportHint = selectedView !== null && !canAddToReport;
 
   function handleAddToReport() {
     if (!selectedView) return;
@@ -188,9 +200,15 @@ export default function ExplorerPage() {
             className="add-to-report"
             onClick={handleAddToReport}
             disabled={!canAddToReport || addToReport.isPending}
+            aria-describedby={showAddToReportHint ? "add-to-report-hint" : undefined}
           >
             {addToReport.isPending ? "Adding…" : "Add to report"}
           </button>
+          {showAddToReportHint && (
+            <span id="add-to-report-hint" className="add-to-report-hint">
+              Add a dimension and a measure to start a report.
+            </span>
+          )}
           {addToReport.isError && (
             <span role="alert">
               {addToReport.error instanceof ApiError

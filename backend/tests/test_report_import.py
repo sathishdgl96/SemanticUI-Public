@@ -1,9 +1,10 @@
 import pytest
 
 from app.auth.sessions import SESSION_COOKIE, create_session
+from app.reports.schema import MAX_DEFINITION_BYTES
 from app.snowflake.provider import get_cache
 from tests.fakes import FakeConnection
-from tests.test_report_routes import valid_definition
+from tests.test_report_routes import oversized_definition, valid_definition
 
 DESCRIBE = {
     "tables": [{"name": "A"}, {"name": "C"}],
@@ -59,11 +60,20 @@ def test_import_applies_a_view_override(client, signed_in):
 
 
 def test_import_rejects_an_oversized_body(client, signed_in):
-    doc = valid_definition()
-    doc["visuals"][0]["title"] = "x" * 70000
-    response = client.post("/api/reports/import", json={"definition": doc})
-    assert response.status_code in (400, 422)
-    assert response.json()["code"] in ("REPORT_INVALID", "VALIDATION_ERROR")
+    # Built from many individually-legal visuals and refs -- every visual
+    # count, refs-per-well count, ref length and title obeys its own field
+    # limit, so only the shared MAX_DEFINITION_BYTES cap can reject this.
+    # (The old version of this test built its payload from a single
+    # 70000-char title, which `Visual.title`'s own max_length=200 already
+    # rejects -- that test would have passed with or without a byte cap.)
+    response = client.post(
+        "/api/reports/import", json={"definition": oversized_definition()}
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "REPORT_INVALID"
+    assert response.json()["message"] == (
+        f"The definition exceeds the {MAX_DEFINITION_BYTES} byte limit"
+    )
 
 
 def test_import_always_creates_rather_than_overwrites(client, signed_in):
