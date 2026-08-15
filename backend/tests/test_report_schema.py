@@ -115,6 +115,10 @@ def test_validation_errors_do_not_echo_the_submitted_value():
     with pytest.raises(ApiError) as exc:
         parse_definition(doc)
     assert marker not in str(exc.value.detail or "")
-    assert marker not in exc.value.message
+    # message is a static string, never derived from input; assert the
+    # real invariant rather than a trivially-true absence check.
+    assert exc.value.message == "The report definition is not valid"
     # The path and reason must survive — the point is redaction, not silence.
     assert "layout" in str(exc.value.detail)
+    assert "int_parsing" in str(exc.value.detail)
+    assert "valid integer" in str(exc.value.detail)
