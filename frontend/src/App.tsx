@@ -11,6 +11,7 @@ import { setOnAuthExpired } from "./api/client";
 import LoginPage from "./auth/LoginPage";
 import { useMe } from "./auth/useMe";
 import ExplorerPage from "./explorer/ExplorerPage";
+import ReportListPage from "./reports/ReportListPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -41,8 +42,17 @@ export default function App() {
         <AuthExpiredBridge />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={<Navigate to="/reports" replace />} />
           <Route
-            path="/"
+            path="/reports"
+            element={
+              <RequireAuth>
+                <ReportListPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/explore"
             element={
               <RequireAuth>
                 <ExplorerPage />
