@@ -10,18 +10,27 @@ class ScriptedCursor:
 
     def __init__(self):
         self.executed: list[str] = []
+        #: Positionally aligned with `executed`: what each call bound, or None.
+        self.bound: list = []
+        #: When set, plain SELECTs answer with these rows instead of the
+        #: default two -- lets a test drive the distinct-values endpoint.
+        self.value_rows: list[tuple] | None = None
         self._rows: list = []
         self.description: list = []
         self.sfqid = "q-77"
 
-    def execute(self, sql: str):
+    def execute(self, sql: str, params=None):
         self.executed.append(sql)
+        self.bound.append(params)
         if sql.startswith("SHOW SEMANTIC VIEWS"):
             self.description = SHOW_DESC
             self._rows = [("2026-01-01", "SALES", "ANALYTICS", "PUBLIC", None)]
         elif sql.startswith("DESCRIBE SEMANTIC VIEW"):
             self.description = DESCRIBE_DESC
             self._rows = list(DESCRIBE_ROWS)
+        elif self.value_rows is not None:
+            self.description = [FakeCol("VALUE", 2)]
+            self._rows = list(self.value_rows)
         else:
             self.description = [FakeCol("ORDER_DATE", 3), FakeCol("TOTAL_REVENUE", 0)]
             self._rows = [("2026-01-01", 10.0), ("2026-01-02", 20.0)]
@@ -108,6 +117,96 @@ def test_semantic_query_unknown_field_is_400(client, db):
         json={
             "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
             "dimensions": ["ORDERS.NOPE"], "metrics": [],
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "QUERY_ERROR"
+
+
+def _select_index(cursor) -> int:
+    return next(
+        i for i, s in enumerate(cursor.executed)
+        if "SEMANTIC_VIEW" in s and not s.startswith("DESCRIBE")
+    )
+
+
+def test_a_filtered_query_binds_its_values(client, db):
+    conn = login(client, db)
+    r = client.post(
+        "/api/query/semantic",
+        json={
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "dimensions": ["ORDERS.ORDER_DATE"], "metrics": ["ORDERS.TOTAL_REVENUE"],
+            "filters": [{"id": "f1", "field": "CUSTOMERS.REGION", "op": "is",
+                         "values": ["EAST", "WEST"]}],
+        },
+    )
+    assert r.status_code == 200
+    cursor = conn.cursor_obj
+    at = _select_index(cursor)
+    assert cursor.bound[at] == ["EAST", "WEST"]
+    assert "EAST" not in cursor.executed[at], "value leaked into SQL text"
+
+
+def test_an_unfiltered_query_binds_an_empty_list(client, db):
+    conn = login(client, db)
+    client.post(
+        "/api/query/semantic",
+        json={
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "dimensions": ["ORDERS.ORDER_DATE"], "metrics": ["ORDERS.TOTAL_REVENUE"],
+        },
+    )
+    cursor = conn.cursor_obj
+    assert cursor.bound[_select_index(cursor)] == []
+
+
+def test_a_hostile_filter_value_reaches_the_cursor_as_data(client, db):
+    """The route-level half of the injection round trip: the value must arrive
+    in the binding, not in the statement."""
+    conn = login(client, db)
+    hostile = "' OR 1=1 --"
+    r = client.post(
+        "/api/query/semantic",
+        json={
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "metrics": ["ORDERS.TOTAL_REVENUE"],
+            "filters": [{"id": "f1", "field": "CUSTOMERS.REGION", "op": "is",
+                         "values": [hostile]}],
+        },
+    )
+    assert r.status_code == 200
+    cursor = conn.cursor_obj
+    at = _select_index(cursor)
+    assert cursor.bound[at] == [hostile]
+    assert hostile not in cursor.executed[at]
+    # And it must not come back to the caller inside the echoed SQL either.
+    assert hostile not in r.json()["sql"]
+
+
+def test_an_unknown_filter_operator_is_422(client, db):
+    login(client, db)
+    r = client.post(
+        "/api/query/semantic",
+        json={
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "metrics": ["ORDERS.TOTAL_REVENUE"],
+            "filters": [{"id": "f1", "field": "CUSTOMERS.REGION", "op": "regex",
+                         "values": [".*"]}],
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_a_filter_on_an_unknown_field_is_400(client, db):
+    login(client, db)
+    r = client.post(
+        "/api/query/semantic",
+        json={
+            "database": "ANALYTICS", "schema": "PUBLIC", "view": "SALES",
+            "metrics": ["ORDERS.TOTAL_REVENUE"],
+            "filters": [{"id": "f1", "field": "CUSTOMERS.NOPE", "op": "is",
+                         "values": ["X"]}],
         },
     )
     assert r.status_code == 400

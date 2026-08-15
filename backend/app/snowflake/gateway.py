@@ -47,11 +47,20 @@ def _type_name(type_code: Any) -> str:
         return str(type_code)
 
 
-def run_query(conn: Any, sql: str, *, max_rows: int) -> QueryResult:
+def run_query(
+    conn: Any, sql: str, *, max_rows: int, params: list[Any] | None = None
+) -> QueryResult:
     cur = conn.cursor()
     try:
         try:
-            cur.execute(sql)
+            # Values are bound, never interpolated. `params` is positional and
+            # lines up with the placeholders build_semantic_sql emitted. The
+            # no-params case calls execute with one argument rather than an
+            # empty sequence -- those are different calls to the connector.
+            if params is not None:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
         except Exception as exc:
             raise map_snowflake_error(exc) from exc
         raw = cur.fetchmany(max_rows + 1)

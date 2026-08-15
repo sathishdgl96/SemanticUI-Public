@@ -10,6 +10,15 @@ from app.errors import ApiError
 _HOST_SUFFIX = ".snowflakecomputing.com"
 
 
+# Every connection binds with "?" placeholders (see app/semantic/predicates.py).
+# The connector's default is pyformat, under which "?" is not a placeholder at
+# all: cursor.execute(sql, params) then dies inside the connector with
+# "TypeError: not all arguments converted during string formatting", client
+# side, before Snowflake ever sees the statement. qmark is also the stronger
+# choice -- it binds server-side, where pyformat escapes and interpolates.
+PARAMSTYLE = "qmark"
+
+
 def normalize_account(value: str) -> str:
     """Reduce a pasted Snowflake host or console URL to an account identifier.
 
@@ -42,6 +51,7 @@ def connect_oauth(token: str) -> Any:
         authenticator="oauth",
         token=token,
         session_parameters=_session_parameters(),
+        paramstyle=PARAMSTYLE,
     )
 
 
@@ -74,6 +84,7 @@ def connect_keypair(*, account: str, user: str, private_key_der: bytes) -> Any:
         user=user,
         private_key=private_key_der,
         session_parameters=_session_parameters(),
+        paramstyle=PARAMSTYLE,
     )
 
 
@@ -99,6 +110,7 @@ def connect_dev(
         "account": account,
         "user": user,
         "session_parameters": _session_parameters(),
+        "paramstyle": PARAMSTYLE,
     }
     if authenticator == "password":
         kwargs["password"] = password

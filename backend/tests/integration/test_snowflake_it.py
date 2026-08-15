@@ -83,7 +83,7 @@ def test_semantic_query_roundtrip(conn, view_ref):
             "dimensions": dims, "metrics": mets, "limit": 5,
         }
     )
-    sql, limit = build_semantic_sql(detail, req, max_rows=10000)
-    result = run_query(conn, sql, max_rows=limit)
+    sql, _params, limit = build_semantic_sql(detail, req, max_rows=10000)
+    result = run_query(conn, sql, max_rows=limit, params=_params)
     assert result.columns
     assert len(result.rows) <= 5

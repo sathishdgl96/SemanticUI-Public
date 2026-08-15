@@ -50,10 +50,12 @@ def query_semantic(
     entry = cache.acquire(db, sess)
     with entry.lock:
         detail = cache.describe(entry, req.database, req.schema_, req.view)
-        sql, effective_limit = build_semantic_sql(
+        sql, params, effective_limit = build_semantic_sql(
             detail, req, max_rows=get_settings().row_cap
         )
-        result = gateway.run_query(entry.conn, sql, max_rows=effective_limit)
+        result = gateway.run_query(
+            entry.conn, sql, max_rows=effective_limit, params=params
+        )
     return {
         "columns": result.columns,
         "rows": result.rows,

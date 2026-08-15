@@ -15,9 +15,14 @@ class FakeCursor:
     sfqid: str = "q-1"
     error: Exception | None = None
     executed: list[str] = field(default_factory=list)
+    #: One entry per execute() call: the params it was given, or None. Kept
+    #: positionally aligned with `executed` so a test can assert that a given
+    #: statement carried a given binding.
+    bound: list[Any] = field(default_factory=list)
 
-    def execute(self, sql: str) -> "FakeCursor":
+    def execute(self, sql: str, params: Any = None) -> "FakeCursor":
         self.executed.append(sql)
+        self.bound.append(params)
         if self.error is not None:
             raise self.error
         return self

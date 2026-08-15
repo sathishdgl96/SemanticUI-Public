@@ -98,3 +98,17 @@ def test_map_unrelated_sqlstate_is_not_auth_expired():
     )
     assert err.code == "QUERY_ERROR"
     assert not isinstance(err, AuthExpiredError)
+
+
+def test_run_query_passes_params_to_the_cursor():
+    cur = FakeCursor(rows=[("EAST", 1.0)], description=[FakeCol("REGION"), FakeCol("T")])
+    run_query(FakeConnection(cur), "SELECT ... WHERE x = ?", max_rows=10, params=["EAST"])
+    assert cur.bound == [["EAST"]]
+
+
+def test_run_query_without_params_binds_nothing():
+    """Not `params=[]`: an empty sequence is a different call to the connector
+    than no binding at all."""
+    cur = FakeCursor(rows=[], description=[])
+    run_query(FakeConnection(cur), "SELECT 1", max_rows=10)
+    assert cur.bound == [None]

@@ -25,7 +25,7 @@ def make_request(**overrides):
 
 
 def test_builds_semantic_view_sql():
-    sql, limit = build_semantic_sql(DETAIL, make_request(), max_rows=10000)
+    sql, _params, limit = build_semantic_sql(DETAIL, make_request(), max_rows=10000)
     assert limit == 10000
     assert 'SEMANTIC_VIEW(' in sql
     assert '"ANALYTICS"."PUBLIC"."SALES"' in sql
@@ -35,7 +35,7 @@ def test_builds_semantic_view_sql():
 
 
 def test_field_refs_are_case_insensitive_but_canonicalized():
-    sql, _ = build_semantic_sql(
+    sql, _params, _ = build_semantic_sql(
         DETAIL, make_request(dimensions=["orders.order_date"]), max_rows=100
     )
     assert '"ORDERS"."ORDER_DATE"' in sql
@@ -60,7 +60,7 @@ def test_requires_at_least_one_field():
 
 def test_order_by_must_be_selected_and_limit_clamped():
     req = make_request(orderBy=[{"field": "TOTAL_REVENUE", "direction": "desc"}], limit=50)
-    sql, limit = build_semantic_sql(DETAIL, req, max_rows=10000)
+    sql, _params, limit = build_semantic_sql(DETAIL, req, max_rows=10000)
     assert 'ORDER BY "TOTAL_REVENUE" DESC' in sql
     assert limit == 50
     assert sql.rstrip().endswith("LIMIT 51")
@@ -70,7 +70,7 @@ def test_order_by_must_be_selected_and_limit_clamped():
         build_semantic_sql(DETAIL, bad, max_rows=10000)
 
     huge = make_request(limit=999999)
-    _, limit = build_semantic_sql(DETAIL, huge, max_rows=10000)
+    _, _params, limit = build_semantic_sql(DETAIL, huge, max_rows=10000)
     assert limit == 10000
 
 
@@ -104,7 +104,7 @@ def test_order_by_ambiguous_bare_name_rejected():
 
 def test_order_by_qualified_ref_disambiguates():
     req = make_dup_request(orderBy=[{"field": "CUSTOMERS.NAME", "direction": "desc"}])
-    sql, _ = build_semantic_sql(DETAIL_DUPLICATE_NAME, req, max_rows=10000)
+    sql, _params, _ = build_semantic_sql(DETAIL_DUPLICATE_NAME, req, max_rows=10000)
     assert 'ORDER BY "NAME" DESC' in sql
 
 
@@ -133,7 +133,7 @@ def test_field_with_null_parent_table_does_not_crash():
             "dimensions": ["ORDERS.ORDER_DATE"], "metrics": [],
         }
     )
-    sql, _ = build_semantic_sql(DETAIL_NULL_PARENT, req, max_rows=100)
+    sql, _params, _ = build_semantic_sql(DETAIL_NULL_PARENT, req, max_rows=100)
     assert '"ORDERS"."ORDER_DATE"' in sql
 
     bad = SemanticQueryRequest.model_validate(
@@ -144,3 +144,95 @@ def test_field_with_null_parent_table_does_not_crash():
     )
     with pytest.raises(ApiError):
         build_semantic_sql(DETAIL_NULL_PARENT, bad, max_rows=100)
+
+
+# --- filters ---------------------------------------------------------------
+
+
+def test_build_returns_a_three_tuple_with_empty_params_when_unfiltered():
+    sql, params, limit = build_semantic_sql(DETAIL, make_request(), max_rows=100)
+    assert params == []
+    assert limit == 100
+    assert "WHERE" not in sql
+
+
+def test_a_filter_adds_a_where_clause_inside_the_semantic_view_call():
+    """Inside the call, not after it: the predicate has to apply before
+    aggregation. Verified against a real account by the Task 1 spike."""
+    sql, params, _ = build_semantic_sql(
+        DETAIL,
+        make_request(filters=[
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]}
+        ]),
+        max_rows=100,
+    )
+    assert sql.index("WHERE") < sql.index("\n)"), "WHERE must sit INSIDE SEMANTIC_VIEW(...)"
+    assert params == ["EAST"]
+
+
+def test_several_filters_are_anded():
+    sql, params, _ = build_semantic_sql(
+        DETAIL,
+        make_request(filters=[
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]},
+            {"id": "f2", "field": "ORDERS.ORDER_DATE", "op": "between",
+             "from": "2026-01-01", "to": "2026-06-30"},
+        ]),
+        max_rows=100,
+    )
+    assert " AND " in sql
+    assert params == ["EAST", "2026-01-01", "2026-06-30"]
+
+
+def test_a_kpi_shaped_query_can_filter_on_an_unselected_dimension():
+    """The case the spike existed to prove: metrics only, filtered by a
+    dimension that is not among DIMENSIONS, still returning one aggregate."""
+    sql, params, _ = build_semantic_sql(
+        DETAIL,
+        make_request(dimensions=[], filters=[
+            {"id": "f1", "field": "CUSTOMERS.REGION", "op": "is", "values": ["EAST"]}
+        ]),
+        max_rows=100,
+    )
+    assert "DIMENSIONS" not in sql
+    assert '"CUSTOMERS"."REGION"' in sql
+    assert params == ["EAST"]
+
+
+def test_where_precedes_order_by_and_limit():
+    sql, _, _ = build_semantic_sql(
+        DETAIL,
+        make_request(
+            filters=[{"id": "f1", "field": "CUSTOMERS.REGION", "op": "is",
+                      "values": ["EAST"]}],
+            orderBy=[{"field": "TOTAL_REVENUE", "direction": "desc"}],
+        ),
+        max_rows=100,
+    )
+    assert sql.index("WHERE") < sql.index("ORDER BY") < sql.index("LIMIT")
+
+
+def test_relative_dates_resolve_against_the_injected_clock():
+    from datetime import date
+
+    _, params, _ = build_semantic_sql(
+        DETAIL,
+        make_request(filters=[
+            {"id": "f1", "field": "ORDERS.ORDER_DATE", "op": "relativeDate",
+             "unit": "day", "count": 7}
+        ]),
+        max_rows=100,
+        today=date(2026, 8, 15),
+    )
+    assert params == [date(2026, 8, 9), date(2026, 8, 15)]
+
+
+def test_a_filter_on_an_unknown_field_is_rejected():
+    with pytest.raises(ApiError):
+        build_semantic_sql(
+            DETAIL,
+            make_request(filters=[
+                {"id": "f1", "field": "CUSTOMERS.NOPE", "op": "is", "values": ["X"]}
+            ]),
+            max_rows=100,
+        )

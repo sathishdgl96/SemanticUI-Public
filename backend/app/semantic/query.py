@@ -1,9 +1,12 @@
-from typing import Literal
+from datetime import date
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.errors import ApiError
+from app.reports.filters import FilterList
 from app.semantic.discovery import quote_ident
+from app.semantic.predicates import build_filter_predicates
 
 
 class OrderBy(BaseModel):
@@ -19,6 +22,10 @@ class SemanticQueryRequest(BaseModel):
     view: str
     dimensions: list[str] = []
     metrics: list[str] = []
+    #: The effective, already-composed filter set for this query: report
+    #: filters AND the visual's own AND any active cross-filter. The client
+    #: composes them; the server validates and binds every one.
+    filters: FilterList = Field(default_factory=list)
     order_by: list[OrderBy] = Field(default_factory=list, alias="orderBy")
     limit: int | None = Field(default=None, ge=1)
 
@@ -41,8 +48,13 @@ def _resolve_fields(detail: dict, refs: list[str], kind: str) -> list[tuple[str,
 
 
 def build_semantic_sql(
-    detail: dict, req: SemanticQueryRequest, *, max_rows: int
-) -> tuple[str, int]:
+    detail: dict, req: SemanticQueryRequest, *, max_rows: int, today: date | None = None
+) -> tuple[str, list[Any], int]:
+    """Return (sql, params, effective_limit).
+
+    `params` is positional and must be handed to the cursor as-is: it holds
+    every filter VALUE, none of which appears anywhere in `sql`.
+    """
     dims = _resolve_fields(detail, req.dimensions, "dimensions")
     mets = _resolve_fields(detail, req.metrics, "metrics")
     if not dims and not mets:
@@ -57,6 +69,15 @@ def build_semantic_sql(
         parts.append(
             "METRICS " + ", ".join(f"{quote_ident(t)}.{quote_ident(n)}" for t, n in mets)
         )
+
+    # Inside SEMANTIC_VIEW(...), after METRICS and before the closing paren --
+    # not after the call. The predicate has to apply before aggregation, or a
+    # KPI card filtered by region would have no REGION column left to filter
+    # on. Verified against a real account; see
+    # docs/superpowers/specs/2026-08-15-filter-spike-findings.md.
+    predicates, params = build_filter_predicates(detail, req.filters, today=today)
+    if predicates:
+        parts.append("WHERE " + " AND ".join(predicates))
 
     selected = dims + mets
     by_bare_name: dict[str, list[tuple[str, str]]] = {}
@@ -102,4 +123,4 @@ def build_semantic_sql(
         + "\n  ".join(parts)
         + f"\n){order_sql} LIMIT {effective_limit + 1}"
     )
-    return sql, effective_limit
+    return sql, params, effective_limit
