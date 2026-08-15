@@ -23,6 +23,19 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/config")).resolves.toEqual({ authMode: "dev" });
   });
 
+  it("resolves instead of throwing on a 204 No Content response", async () => {
+    // DELETE /api/reports/{id} returns 204 with no body; response.json()
+    // would throw SyntaxError on the empty string, which would surface as
+    // a failed delete client-side even though the server deleted it.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    await expect(apiFetch("/api/reports/r1", { method: "DELETE" })).resolves.toBeUndefined();
+  });
+
+  it("still parses a normal JSON body alongside the 204 guard", async () => {
+    mockFetch(200, { reports: [] });
+    await expect(apiFetch("/api/reports")).resolves.toEqual({ reports: [] });
+  });
+
   it("sends JSON body with same-origin credentials", async () => {
     const fn = mockFetch(200, { ok: true });
     await apiFetch("/auth/dev-login", {

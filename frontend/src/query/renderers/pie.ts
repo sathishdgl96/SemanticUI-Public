@@ -1,8 +1,8 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
-import type { EChartsOptionLike } from "./categorical";
+import type { PieOptionLike } from "./categorical";
 
-export function pieOption(visual: Visual, result: QueryResponse): EChartsOptionLike | null {
+export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike | null {
   const legendRef = (visual.wells.legend ?? [])[0];
   const valueRef = (visual.wells.values ?? [])[0];
   const name = (ref: string) => ref.split(".", 2)[1] ?? ref;
@@ -22,11 +22,9 @@ export function pieOption(visual: Visual, result: QueryResponse): EChartsOptionL
     },
   }));
 
-  // Pie has no cartesian axes and its series carries no lineStyle, so this
-  // object doesn't structurally satisfy EChartsOptionLike's required
-  // xAxis/yAxis/lineStyle fields (see the comment on that type in
-  // categorical.ts) — asserted once here rather than padding the option
-  // with axis config a pie chart must never render.
+  // No xAxis/yAxis here — deliberately: a pie chart never renders cartesian
+  // axes, and PieOptionLike doesn't claim otherwise (see categorical.ts).
+  // This return needs no cast: it's already structurally a PieOptionLike.
   return {
     backgroundColor: "transparent",
     tooltip: { trigger: "item" },
@@ -38,5 +36,5 @@ export function pieOption(visual: Visual, result: QueryResponse): EChartsOptionL
       data,
       label: { color: CHART_INK.secondary },
     }],
-  } as unknown as EChartsOptionLike;
+  };
 }

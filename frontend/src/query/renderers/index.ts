@@ -1,6 +1,11 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import type { VisualType } from "../../reports/catalog";
-import { axisChrome, categoricalSeries, type EChartsOptionLike } from "./categorical";
+import {
+  axisChrome,
+  categoricalSeries,
+  type CategoricalOptionLike,
+  type EChartsOptionLike,
+} from "./categorical";
 import { pieOption } from "./pie";
 import { scatterOption } from "./scatter";
 
@@ -43,9 +48,13 @@ export function buildVisualOption(
   if (series.length === 0) return null;
   const stacked = type !== "line" && visual.options.stacked === true;
 
-  // Bar/line/area series carry plain numeric `data` (not pie's {name,
-  // itemStyle} slices) and bar has no lineStyle — see the type comment in
-  // categorical.ts for why EChartsOptionLike still requires both.
+  // The one remaining cast in this module (per the type comment in
+  // categorical.ts): CategoricalSeriesItemLike requires lineStyle so line's
+  // `.lineStyle.width` type-checks, but bar's branch of the ternary below
+  // never sets it — bar series simply ignore an unused lineStyle key, unlike
+  // pie's xAxis/yAxis, which ECharts renders as visible empty components if
+  // present at all. That asymmetry is why pie/scatter need no cast but this
+  // categorical branch still does.
   return {
     backgroundColor: "transparent",
     grid: axisChrome.grid(series.length > 1),
@@ -69,5 +78,5 @@ export function buildVisualOption(
         lineStyle: { width: 2 }, itemStyle: { color },
       };
     }),
-  } as unknown as EChartsOptionLike;
+  } as unknown as CategoricalOptionLike;
 }

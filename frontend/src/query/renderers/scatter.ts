@@ -1,8 +1,8 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
-import type { EChartsOptionLike } from "./categorical";
+import type { ScatterOptionLike } from "./categorical";
 
-export function scatterOption(visual: Visual, result: QueryResponse): EChartsOptionLike | null {
+export function scatterOption(visual: Visual, result: QueryResponse): ScatterOptionLike | null {
   const name = (ref: string) => ref.split(".", 2)[1] ?? ref;
   const idx = (n: string) =>
     result.columns.findIndex((c) => c.name.toUpperCase() === n.toUpperCase());
@@ -34,10 +34,7 @@ export function scatterOption(visual: Visual, result: QueryResponse): EChartsOpt
     },
   }));
 
-  // Scatter's data points are [x, y] tuples, not the {name, itemStyle} shape
-  // EChartsOptionLike's series[].data declares for pie's slices, and its
-  // series items carry no lineStyle — see the type comment in categorical.ts
-  // for why the shared type still requires both.
+  // This return needs no cast: it's already structurally a ScatterOptionLike.
   return {
     backgroundColor: "transparent",
     grid: { left: 56, right: 16, top: 16, bottom: series.length > 1 ? 48 : 28 },
@@ -58,5 +55,5 @@ export function scatterOption(visual: Visual, result: QueryResponse): EChartsOpt
       axisLabel: { color: CHART_INK.muted },
     },
     series,
-  } as unknown as EChartsOptionLike;
+  };
 }

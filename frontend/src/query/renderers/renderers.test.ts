@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QueryResponse, Visual } from "../../api/types";
 import { SERIES_COLORS } from "../palette";
+import type { CategoricalOptionLike, PieOptionLike, ScatterOptionLike } from "./categorical";
 import { buildVisualOption, visualTitle } from "./index";
 
 const categorical: QueryResponse = {
@@ -28,27 +29,32 @@ function visual(over: Partial<Visual>): Visual {
 
 describe("buildVisualOption", () => {
   it("builds a bar with the stable first series colour", () => {
-    const option = buildVisualOption(visual({}), categorical)!;
+    // buildVisualOption's return type is the union of what each visual
+    // family actually produces (see categorical.ts) — narrowed here to the
+    // member this bar visual is known to return, the same way a caller
+    // would narrow on visual.type before touching bar-specific fields.
+    const option = buildVisualOption(visual({}), categorical)! as CategoricalOptionLike;
     expect(option.series[0].type).toBe("bar");
     expect(option.series[0].itemStyle.color).toBe(SERIES_COLORS[0]);
     expect(option.series[0].itemStyle.borderRadius).toEqual([4, 4, 0, 0]);
   });
 
   it("stacks bars only when the option says so", () => {
-    expect(buildVisualOption(visual({}), categorical)!.series[0].stack).toBeUndefined();
+    const bar = buildVisualOption(visual({}), categorical)! as CategoricalOptionLike;
+    expect(bar.series[0].stack).toBeUndefined();
     const stacked = buildVisualOption(
       visual({ options: { stacked: true } }),
       categorical,
-    )!;
+    )! as CategoricalOptionLike;
     expect(stacked.series[0].stack).toBe("total");
   });
 
   it("builds a line at 2px and an area with a fill", () => {
-    const line = buildVisualOption(visual({ type: "line" }), categorical)!;
+    const line = buildVisualOption(visual({ type: "line" }), categorical)! as CategoricalOptionLike;
     expect(line.series[0].type).toBe("line");
     expect(line.series[0].lineStyle.width).toBe(2);
     expect(line.series[0].areaStyle).toBeUndefined();
-    const area = buildVisualOption(visual({ type: "area" }), categorical)!;
+    const area = buildVisualOption(visual({ type: "area" }), categorical)! as CategoricalOptionLike;
     expect(area.series[0].areaStyle).toBeDefined();
   });
 
@@ -56,9 +62,9 @@ describe("buildVisualOption", () => {
     const option = buildVisualOption(
       visual({ type: "pie", wells: { legend: ["C.REGION"], values: ["A.REVENUE"] } }),
       categorical,
-    )!;
+    )! as PieOptionLike;
     expect(option.series[0].type).toBe("pie");
-    expect(option.series[0].data.map((d: { name: string }) => d.name)).toEqual(["EAST", "WEST"]);
+    expect(option.series[0].data.map((d) => d.name)).toEqual(["EAST", "WEST"]);
     expect(option.series[0].data[1].itemStyle.color).toBe(SERIES_COLORS[1]);
     expect(option.series[0].radius).toEqual(["0%", "70%"]);
   });
@@ -71,7 +77,7 @@ describe("buildVisualOption", () => {
         options: { donut: true },
       }),
       categorical,
-    )!;
+    )! as PieOptionLike;
     expect(option.series[0].radius).toEqual(["45%", "70%"]);
   });
 
@@ -87,7 +93,7 @@ describe("buildVisualOption", () => {
     const option = buildVisualOption(
       visual({ type: "scatter", wells: { x: ["A.REVENUE"], y: ["A.QUANTITY"], detail: [] } }),
       scatterResult,
-    )!;
+    )! as ScatterOptionLike;
     expect(option.series[0].type).toBe("scatter");
     expect(option.xAxis.type).toBe("value");
     expect(option.yAxis.type).toBe("value");

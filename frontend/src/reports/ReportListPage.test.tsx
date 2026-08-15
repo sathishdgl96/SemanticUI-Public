@@ -10,6 +10,7 @@ vi.mock("../api/reports", () => ({
   createReport: vi.fn(),
 }));
 
+import { ApiError } from "../api/client";
 import { deleteReport, listReports } from "../api/reports";
 import ReportListPage from "./ReportListPage";
 
@@ -78,5 +79,29 @@ describe("ReportListPage", () => {
     listMock.mockRejectedValue(new Error("boom"));
     renderPage();
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
+
+  it("shows an error and keeps the confirm dialog open when delete fails", async () => {
+    listMock.mockResolvedValue({
+      reports: [
+        {
+          id: "r1",
+          name: "Sales overview",
+          view: { database: "A", schema: "B", name: "C" },
+          updatedAt: "2026-08-15T10:00:00+00:00",
+        },
+      ],
+    });
+    deleteMock.mockRejectedValue(new ApiError("REPORT_LOCKED", 409, "Report is locked"));
+    renderPage();
+    await screen.findByText("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /delete Sales overview/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/report is locked/i);
+    // Failure must not silently dismiss the dialog — the user needs to see
+    // why nothing happened and still has Cancel/retry available.
+    expect(screen.getByRole("dialog", { name: /confirm delete/i })).toBeInTheDocument();
   });
 });

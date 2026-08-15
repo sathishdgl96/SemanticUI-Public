@@ -19,6 +19,7 @@ export default function ReportListPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const reports = useQuery({ queryKey: ["reports"], queryFn: listReports });
 
@@ -26,7 +27,16 @@ export default function ReportListPage() {
     mutationFn: (id: string) => deleteReport(id),
     onSuccess: () => {
       setPendingDelete(null);
+      setDeleteError(null);
       queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+    // A failed delete must not leave the confirm dialog open with no
+    // feedback — the user needs to know it didn't happen and get a way to
+    // retry or back out, not just watch a "Delete" click silently do nothing.
+    onError: (error) => {
+      setDeleteError(
+        error instanceof ApiError ? error.message : "Could not delete this report.",
+      );
     },
   });
 
@@ -77,7 +87,10 @@ export default function ReportListPage() {
               <button
                 className="link"
                 aria-label={`Delete ${report.name}`}
-                onClick={() => setPendingDelete(report.id)}
+                onClick={() => {
+                  setPendingDelete(report.id);
+                  setDeleteError(null);
+                }}
               >
                 Delete
               </button>
@@ -89,8 +102,17 @@ export default function ReportListPage() {
       {pendingDelete && (
         <div className="confirm" role="dialog" aria-label="Confirm delete">
           <p>Delete this report? This cannot be undone.</p>
-          <button onClick={() => remove.mutate(pendingDelete)}>Delete</button>
-          <button className="secondary" onClick={() => setPendingDelete(null)}>
+          {deleteError && <p role="alert">{deleteError}</p>}
+          <button onClick={() => remove.mutate(pendingDelete)} disabled={remove.isPending}>
+            {remove.isPending ? "Deleting..." : "Delete"}
+          </button>
+          <button
+            className="secondary"
+            onClick={() => {
+              setPendingDelete(null);
+              setDeleteError(null);
+            }}
+          >
             Cancel
           </button>
         </div>

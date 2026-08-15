@@ -60,5 +60,15 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       body.detail,
     );
   }
-  return (await response.json()) as T;
+  // 204 No Content (DELETE /api/reports/{id}, for one) has no body for
+  // response.json() to parse — it throws "Unexpected end of JSON input" on
+  // the empty string, which would fail the request client-side even though
+  // the server completed it. Read as text first and treat any empty body
+  // (204 or otherwise) as "no payload" rather than a parse error, so every
+  // present and future no-content endpoint gets the same protection.
+  const text = await response.text();
+  if (response.status === 204 || text.length === 0) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
 }

@@ -39,7 +39,16 @@ function renderTile(v: Visual) {
   );
 }
 
-beforeEach(() => apiFetchMock.mockReset());
+beforeEach(() => {
+  // Block body is load-bearing, not style: an implicit-return arrow here
+  // would make this `beforeEach` return `mockReset()`'s result, and
+  // `mockReset()` returns the mock function itself (for chaining). Vitest
+  // treats any function a `beforeEach` returns as a per-test cleanup
+  // callback and invokes it after the test with no arguments — which would
+  // silently re-invoke `apiFetch` a second time post-test, surfacing as an
+  // unhandled rejection whenever that test's mocked behaviour rejects.
+  apiFetchMock.mockReset();
+});
 
 describe("VisualTile", () => {
   it("asks for fields instead of querying when the wells are incomplete", async () => {

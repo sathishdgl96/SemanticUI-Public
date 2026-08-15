@@ -8,51 +8,82 @@ export interface Series {
   data: (number | null)[];
 }
 
-// A deliberately loose ECharts option shape shared by every renderer in this
-// folder. buildChartOption.ts's ChartOptionBase is the established precedent
-// for this "index signature + a few named fields" pattern in this codebase,
-// but it hard-codes a bar/line-only xAxis/yAxis/series shape, so it can't
+// Deliberately loose ECharts option shapes for the renderers in this folder.
+// buildChartOption.ts's ChartOptionBase is the established precedent for
+// this "index signature + a few named fields" pattern in this codebase, but
+// it hard-codes a bar/line-only xAxis/yAxis/series shape, so it can't
 // describe pie (no axes) or scatter (value axes, grouped series) without
 // widening it into something that no longer matches its own two callers.
-// Visual.type is a plain `string` (not the VisualType literal union), so
-// buildVisualOption has no literal argument to dispatch bar/line/pie/scatter
-// overloads on the way buildChartOption("bar"|"line", ...) does — one shared
-// return type, structurally loose enough for every branch, is the option
-// left.
 //
-// The fields the renderer tests dot into (series[].itemStyle, .lineStyle,
-// .data, option.legend, .xAxis, .yAxis) are declared required rather than
-// optional: this project resolves optional-chain access strictly, so an
-// `xAxis?:` here would make `option.xAxis.type` fail to compile even in the
-// scatter branch that always sets it. Not every visual type actually
-// populates every one of these (pie has no axes; bar has no lineStyle) —
-// each builder bridges that gap with a single `as unknown as
-// EChartsOptionLike` at its own return statement, disclosed there, rather
-// than by lying to every caller with fields typed as always-present. Any
-// field a given visual type doesn't use, and that no test dots into, falls
-// through the index signature as `unknown` rather than being declared `any`.
+// Pie, scatter and categorical (bar/line/area) each get their OWN accurate
+// type below — accurate meaning a caller can trust every field the type
+// claims is actually there at runtime. In particular PieOptionLike has no
+// xAxis/yAxis: a pie chart never renders cartesian axes, so a type that
+// claimed otherwise would let `option.xAxis.type` type-check and then throw
+// on `undefined` at runtime for every pie. EChartsOptionLike is the union of
+// the three — the type pieOption/scatterOption/buildVisualOption actually
+// return, and what AutoChart's `option` prop accepts. A member of that
+// union (what pieOption/scatterOption already return) is assignable into it
+// with no cast; only buildVisualOption's categorical branch, which builds
+// its object inline from a bar/line ternary, still needs one — see the
+// comment at that return site.
+//
+// Fields a test dots two levels into (series[].itemStyle, .lineStyle,
+// .data, option.legend, .xAxis, .yAxis) are required rather than optional
+// on the type that's honest about having them: this project resolves
+// optional-chain access strictly, so an `xAxis?:` would make
+// `option.xAxis.type` fail to compile even where it's genuinely always
+// set. Any field a given visual type doesn't use, and that no test dots
+// into, falls through the index signature as `unknown` rather than being
+// declared `any`.
 export interface LooseRecord {
   [key: string]: unknown;
 }
 
-export interface DataPointLike extends LooseRecord {
+export interface PieDataPointLike extends LooseRecord {
   name: string;
   itemStyle: LooseRecord;
 }
 
-export interface SeriesItemLike extends LooseRecord {
+export interface PieSeriesItemLike extends LooseRecord {
   type: string;
-  data: DataPointLike[];
+  data: PieDataPointLike[];
+}
+
+export interface PieOptionLike extends LooseRecord {
+  legend: LooseRecord;
+  series: PieSeriesItemLike[];
+}
+
+export interface ScatterSeriesItemLike extends LooseRecord {
+  type: string;
+  data: [number, number][];
+  symbolSize: number;
+  itemStyle: LooseRecord;
+}
+
+export interface ScatterOptionLike extends LooseRecord {
+  legend: LooseRecord;
+  xAxis: LooseRecord;
+  yAxis: LooseRecord;
+  series: ScatterSeriesItemLike[];
+}
+
+export interface CategoricalSeriesItemLike extends LooseRecord {
+  type: string;
+  data: (number | null)[];
   itemStyle: LooseRecord;
   lineStyle: LooseRecord;
 }
 
-export interface EChartsOptionLike extends LooseRecord {
-  series: SeriesItemLike[];
+export interface CategoricalOptionLike extends LooseRecord {
   legend: LooseRecord;
   xAxis: LooseRecord;
   yAxis: LooseRecord;
+  series: CategoricalSeriesItemLike[];
 }
+
+export type EChartsOptionLike = PieOptionLike | ScatterOptionLike | CategoricalOptionLike;
 
 function fieldName(ref: string): string {
   return ref.split(".", 2)[1] ?? ref;
