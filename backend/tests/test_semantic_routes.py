@@ -211,3 +211,66 @@ def test_a_filter_on_an_unknown_field_is_400(client, db):
     )
     assert r.status_code == 400
     assert r.json()["code"] == "QUERY_ERROR"
+
+
+def test_distinct_values_for_a_dimension(client, db):
+    login(client, db)
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "ORDERS.ORDER_DATE"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["values"] == ["2026-01-01", "2026-01-02"]
+    assert body["truncated"] is False
+
+
+def test_distinct_values_dedupes_sorts_and_drops_nulls(client, db):
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [("WEST",), ("EAST",), ("WEST",), (None,)]
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION"},
+    )
+    assert r.json()["values"] == ["EAST", "WEST"]
+
+
+def test_distinct_values_validates_the_field_against_describe(client, db):
+    login(client, db)
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.NOPE"},
+    )
+    assert r.status_code == 400
+    assert r.json()["code"] == "QUERY_ERROR"
+
+
+def test_distinct_values_requires_auth(client):
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values", params={"field": "A.B"}
+    )
+    assert r.status_code == 401
+
+
+def test_distinct_values_reports_truncation_at_the_cap(client, db, monkeypatch):
+    from app.semantic import routes as semantic_routes
+
+    monkeypatch.setattr(semantic_routes, "VALUES_CAP", 2)
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [("A",), ("B",), ("C",)]
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION"},
+    )
+    body = r.json()
+    assert body["values"] == ["A", "B"]
+    assert body["truncated"] is True
+
+
+def test_distinct_values_does_not_shadow_the_describe_route(client, db):
+    """Both routes live under the same prefix; a view literally named
+    "values" must not be swallowed by the values endpoint."""
+    login(client, db)
+    r = client.get("/api/semantic-views/ANALYTICS/PUBLIC/SALES")
+    assert r.status_code == 200
+    assert r.json()["dimensions"][0]["name"] == "ORDER_DATE"
