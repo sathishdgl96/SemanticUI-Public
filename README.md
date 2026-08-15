@@ -278,6 +278,133 @@ Snowflake credentials and role the moment they open it - the same "Snowflake
 RBAC is the sole authority on data access" rule the explorer follows. Nothing
 about report data itself is ever written to SemanticUI's own database.
 
+## Filters, hierarchies and drill-down
+
+### Filters
+
+Filters live in the definition document at two scopes. **Report filters** sit
+at the top level and apply to every visual; **visual filters** sit on the
+visual they belong to. They compose by intersection - a visual's effective
+filter set is report filters AND its own AND its drill path AND any active
+cross-filter.
+
+Four operators, each mapping to one bound-parameter predicate:
+
+| `op` | Fields | Predicate |
+|---|---|---|
+| `is` | `values: string[]` | `field IN (?, ?)`; a single value emits `=` |
+| `isNot` | `values: string[]` | `field NOT IN (?, ?)`; a single value emits `<>` |
+| `between` | `from`, `to` | `field BETWEEN ? AND ?` |
+| `relativeDate` | `unit`+`count`, or `preset` | resolved server-side to `field BETWEEN ? AND ?` |
+
+**An unfinished filter means "not filtering yet", not "match nothing".** A
+filter with no values chosen, or a `between` with an empty endpoint, is saved
+in the document and skipped when building SQL (`is_active`, mirrored on both
+sides of the wire). `IN ()` is neither valid SQL nor a valid request body;
+before this rule existed, adding a filter and not immediately ticking a value
+422'd every tile on the report.
+
+### The security property
+
+Every SQL statement this product builds uses only *identifiers*, each
+validated against a live `DESCRIBE SEMANTIC VIEW` on the requesting user's own
+connection and quoted by `quote_ident`. **Filters are the first feature where
+user-supplied VALUES reach a query.**
+
+The rule, which no part of the implementation may relax: **values are bound
+parameters, never SQL text.** `backend/app/semantic/predicates.py` is the only
+module that turns a filter into SQL, so that rule is checkable by reading one
+file rather than auditing every call site. Values leave it in a `params` list;
+only a placeholder and a catalog-derived identifier reach the statement.
+
+Connections open with `paramstyle="qmark"` (`app/snowflake/connect.py`), which
+binds server-side. The connector's default, `pyformat`, escapes and
+interpolates client-side - it works, but it is strictly weaker than never
+putting the value in the statement at all.
+
+Related guarantees: operators come from a closed discriminated union, so an
+unknown one is a rejection rather than a passthrough; relative dates resolve
+server-side into bound `date` objects, so no date arithmetic is assembled from
+user text; at most 500 values per filter, each at most 255 characters; and
+cross-filter selections are subject to every rule above, being filters that
+happen to originate from a click.
+
+Proven two ways: a unit test asserts that `' OR 1=1 --` appears nowhere in the
+generated SQL, and an integration test runs that same value against real
+Snowflake and asserts it matches zero rows - which is only possible if it was
+bound rather than interpolated.
+
+### Filters are pushed *inside* `SEMANTIC_VIEW(...)`
+
+The `WHERE` clause goes inside the call, after `METRICS`, not after the
+closing paren. That is not a style choice: a KPI card showing total revenue
+filtered to one region has no `REGION` column in its result to filter on
+afterwards, so the predicate has to apply before aggregation.
+
+Verified against a real account before any of this was built - see
+`docs/superpowers/specs/2026-08-15-filter-spike-findings.md`, which also
+records that a filtered dimension does *not* silently join the grouping, so a
+filtered KPI stays a single number.
+
+### Hierarchies and drill-down
+
+A hierarchy is an ordered list of dimension references stored in the report:
+
+    "hierarchies": [
+      { "id": "h1", "name": "Geography",
+        "levels": ["CUSTOMERS.COUNTRY", "CUSTOMERS.STATE", "CUSTOMERS.CITY"] }
+    ]
+
+A dimension well may hold `"hierarchy:h1"` in place of a field. The visual
+renders the level it is currently on; clicking a mark drills - the clicked
+value becomes a filter and the axis advances one level. A breadcrumb shows the
+path, "Drill up" walks back, and Backspace on the focused tile does the same.
+At least two levels are required: a one-level hierarchy is a plain field.
+
+Import validates **every** level against the importer's own DESCRIBE, so a
+level their role cannot see fails the import rather than lying dormant until
+someone drills into it.
+
+**Model-first detection ships but finds nothing today.** `detect_hierarchies`
+reads hierarchy-shaped objects out of `DESCRIBE SEMANTIC VIEW` and returns
+`[]` on every account tested, which is why reports define their own. The
+detector exists so the model path activates by itself if an account ever
+exposes them. `GET /api/semantic-views/{db}/{schema}/{name}` reports the
+result as `modelHierarchies`, always present, empty when there are none.
+
+### Cross-filtering
+
+Clicking a mark on a non-drillable visual filters every *other* visual to that
+value; clicking the same mark again clears it. A labelled chip above the
+canvas says what is selected and offers a Clear control, so the state is never
+invisible.
+
+### Drill position and cross-filter selection are never persisted
+
+Both live in React state and reset with the report id. A saved report always
+opens at the top level with nothing selected, an export contains neither, and
+a stored drill path can never point at a value that has since disappeared from
+the view. `BuilderPage.test.tsx` asserts Save stays *disabled* after drilling
+and cross-filtering, which is the real statement that they are view state
+rather than document state.
+
+### Schema version 2
+
+Adding filters and hierarchies moved `SCHEMA_VERSION` to 2.
+`migrate_definition` runs *before* validation and upgrades a v1 document by
+adding the empty collections, so reports and exports saved before this change
+keep opening forever. Anything above the current version is still rejected.
+
+### Distinct values for the filter editor
+
+`GET /api/semantic-views/{db}/{schema}/{name}/values?field=TABLE.FIELD` runs a
+capped query on the caller's own connection through the same builder every
+other query uses, so a user is only ever offered values their Snowflake role
+can already read. Capped at 1000 with an explicit `truncated` flag; NULL is
+dropped, because `IN (?)` never matches it and offering it would build a
+filter that silently returns nothing.
+
+
 ## Tests
 
     cd backend && .venv\Scripts\python.exe -m pytest -v     # unit tests (no Snowflake needed)
@@ -296,10 +423,23 @@ real Snowflake account. To run them, set:
     SEMANTICUI_IT_ACCOUNT, SEMANTICUI_IT_USER, SEMANTICUI_IT_PASSWORD
     # optional: SEMANTICUI_IT_DATABASE, SEMANTICUI_IT_SCHEMA, SEMANTICUI_IT_VIEW
 
-then run `pytest -m integration -v`. With `SEMANTICUI_IT_ACCOUNT` unset, all
-five tests (four Snowflake-gateway tests plus the report round trip in
-`test_reports_it.py`) are cleanly **skipped** (not errored, not failed) via
-each module's own `skipif`.
+then run `pytest -m integration -v`. With `SEMANTICUI_IT_ACCOUNT` unset, every
+integration test is cleanly **skipped** (not errored, not failed) via each
+module's own `skipif`. A skipped integration suite is not a passed one - if
+you are relying on it to prove something, check that it actually ran.
+
+`backend/tests/integration/conftest.py` exports the `SEMANTICUI_IT_*` keys
+from `backend/.env` into the environment, since these modules read
+`os.environ` directly. Only those keys: a blanket `load_dotenv` would also
+push `SECRET_KEY` and `AUTH_MODE` into every *unit* test in the same session,
+because conftest module code runs at import.
+
+`test_filter_spike_it.py` is not a regression suite. It records the four
+Snowflake syntax questions sub-project 2b was built on - whether
+`SEMANTIC_VIEW()` takes a `WHERE`, whether binds work inside it, whether a
+filtered dimension may be unselected, and the clause order. Run it with `-s`;
+the printed output is the deliverable. Findings are written up in
+`docs/superpowers/specs/2026-08-15-filter-spike-findings.md`.
 
 `backend/tests/integration/test_reports_it.py` covers the report side: it
 signs in with the connector directly (same pattern as
@@ -314,7 +454,15 @@ that would catch a DESCRIBE-shape change silently breaking import.
 The automated suites above don't touch a real Snowflake account or a real
 browser. Before shipping a change that touches auth or the explorer, walk
 through this checklist by hand with backend + frontend running and Postgres
-up:
+up.
+
+**Drive it against the live API, not a stubbed one.** A browser pass with
+`/api/*` stubbed exercises component wiring, routing and rendering, but proves
+nothing about whether the request bodies the frontend sends are ones the real
+server accepts. That gap is not hypothetical: it is how the 2a "New report"
+bug reached a user past 266 green tests, and how sub-project 2b's unfinished-
+filter 422 survived 472 green tests until an unstubbed pass found it in
+minutes. Past passes are recorded in `docs/superpowers/manual-passes/`.
 
 1. Open http://localhost:5173 -> redirected to the login page.
 2. Dev-login with external browser -> browser pops once -> lands on the
@@ -358,27 +506,48 @@ up:
 
 Fix anything that fails before committing.
 
-> **Note on this checklist:** items 1-14 (auth/explorer) are written to be
-> followed by a human against a real Snowflake account and have not been
-> re-executed against a live account as part of this change (no Snowflake
-> account was available in this environment). Item 15 (report round trip)
-> *was* driven end-to-end in a real Chromium browser against the running
-> app, with only the network layer stubbed (Playwright `page.route()` faking
-> `/api/*` responses) since no Snowflake account was available. A pass like
-> this exercises component wiring, routing, and rendering for real - every
-> layout rule and interaction (click-to-place, drag, resize, type switching,
-> per-tile error isolation, save/export/import) ran against the actual UI
-> code. **It does not verify that the request bodies the frontend sends are
-> ones the real API would accept** - the stub answers whatever the test
-> script tells it to, regardless of what a real backend validator would do
-> with that same body, so a client/server contract mismatch (e.g. a payload
-> shape the catalog rejects) can pass this checklist item and still 400
-> against the real API. That pass caught and led to a fix for a real bug
-> that stubbing *could* catch: at the <960px stacked breakpoint, a chart
-> tile's height resolved to 0 (a `height: 100%` percentage chain through an
-> ancestor whose own `height` was `auto`), leaving every chart blank on
-> narrow screens even though the query underneath had succeeded;
-> `.tile-body`/`.auto-chart` now use flex sizing instead. Everything else in
-> this README - config keys, validator behavior, endpoint names,
-> component/interaction behavior - was verified directly against the source
-> in `backend/app` and `frontend/src`.
+16. Add a report-scope filter and tick two values -> every tile requeries and
+    narrows.
+17. Add a filter and *do not* choose a value -> tiles keep rendering, no 422.
+18. Add a visual-scope filter on one tile -> only that tile changes.
+19. Filter a **KPI card** by a dimension it does not display -> the number
+    changes and no error appears. (This is the spike's Q3 in the product.)
+20. Define a two-level hierarchy, place it on a bar's Axis, click a bar ->
+    the axis advances and a breadcrumb appears.
+21. Drill up with the control, then again with Backspace -> back to the top.
+22. Click a mark on a non-hierarchy visual -> siblings filter, the source does
+    not, and the "Filtered by" chip appears. Clear it -> everything returns.
+23. Save and reload -> filters and hierarchies persist; drill position and
+    cross-filter selection do **not**.
+24. Export, then import -> filters and hierarchies survive the round trip.
+25. Open a report saved *before* this branch -> it still opens (v1 migration).
+26. Resize to 1440 / 1280 / 1024 / 768 / 390px -> the Filters pane stays
+    usable and nothing overflows horizontally.
+
+> **Note on this checklist.** Items 1-14 (auth/explorer) are written to be
+> followed by a human and have not been re-executed against a live account as
+> part of the most recent change.
+>
+> Item 15 (report round trip, sub-project 2a) was driven in a real Chromium
+> browser but **with the network layer stubbed** (Playwright `page.route()`
+> faking `/api/*`). That kind of pass exercises component wiring, routing and
+> rendering for real, and it did catch a genuine layout bug - below 960px a
+> chart tile's height resolved to 0 through a `height: 100%` chain whose
+> ancestor was `auto`, leaving every chart blank on narrow screens even though
+> the query had succeeded (`.tile-body`/`.auto-chart` now use flex sizing).
+> **It does not verify that the request bodies the frontend sends are ones the
+> real API accepts**, because the stub answers whatever the script tells it to.
+>
+> Sub-project 2b (filters, hierarchies, drill-down) was driven **unstubbed**
+> against the real backend and real Snowflake - see
+> `docs/superpowers/manual-passes/2026-08-16-filters-drilldown.md`. That pass
+> immediately found a contract bug no stubbed test could: adding a filter and
+> not yet choosing a value sent `values: []`, which the request model rejected,
+> 422-ing every tile on the report and making it unsavable. 472 automated tests
+> passed over it, because every one of them stubbed the endpoint doing the
+> rejecting. It also records what it did *not* cover - clicking through a drill
+> and cross-filtering two tiles in the browser are covered by unit tests only.
+>
+> Everything else in this README - config keys, validator behaviour, endpoint
+> names, component and interaction behaviour - was verified directly against
+> the source in `backend/app` and `frontend/src`.
