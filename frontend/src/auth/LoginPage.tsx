@@ -100,7 +100,16 @@ export default function LoginPage() {
           <form onSubmit={submit}>
             <label>
               Account
-              <input value={account} onChange={(e) => setAccount(e.target.value)} required />
+              <input
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                placeholder="myorg-myaccount"
+                required
+              />
+              <small className="field-note">
+                Organization and account joined by a hyphen — the two path segments in
+                your Snowflake URL, not the full hostname.
+              </small>
             </label>
             <label>
               User
