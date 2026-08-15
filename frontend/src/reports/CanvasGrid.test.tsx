@@ -11,8 +11,8 @@ import type { Visual } from "../api/types";
 import CanvasGrid from "./CanvasGrid";
 
 const visuals: Visual[] = [
-  { id: "a", type: "bar", title: "", layout: { x: 0, y: 0, w: 6, h: 6 }, wells: {}, options: {} },
-  { id: "b", type: "kpi", title: "", layout: { x: 6, y: 0, w: 3, h: 3 }, wells: {}, options: {} },
+  { id: "a", type: "bar", title: "", layout: { x: 0, y: 0, w: 6, h: 6 }, wells: {}, options: {}, filters: [] },
+  { id: "b", type: "kpi", title: "", layout: { x: 6, y: 0, w: 3, h: 3 }, wells: {}, options: {}, filters: [] },
 ];
 
 describe("CanvasGrid", () => {

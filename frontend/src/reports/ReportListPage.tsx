@@ -8,11 +8,15 @@ import ImportPanel from "./ImportPanel";
 
 function blankDefinition(name: string): ReportDefinition {
   return {
-    schemaVersion: 1,
+    // Bumped with the backend. A v1 document would still be accepted --
+    // parse_definition migrates it -- but there is no reason to write one.
+    schemaVersion: 2,
     name,
     view: { database: "", schema: "", name: "" },
     canvas: { columns: 12, rowHeight: 40 },
     visuals: [],
+    filters: [],
+    hierarchies: [],
   };
 }
 

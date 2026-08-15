@@ -225,6 +225,8 @@ describe("ExplorerPage", () => {
         view: { database: "DB", schema: "SCH", name: "My View" },
         canvas: { columns: 12, rowHeight: 40 },
         visuals: [],
+        filters: [],
+        hierarchies: [],
       },
     });
     renderPage();

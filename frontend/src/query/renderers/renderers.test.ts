@@ -23,6 +23,7 @@ function visual(over: Partial<Visual>): Visual {
     layout: { x: 0, y: 0, w: 6, h: 6 },
     wells: { axis: ["C.REGION"], legend: [], values: ["A.REVENUE"] },
     options: {},
+    filters: [],
     ...over,
   };
 }

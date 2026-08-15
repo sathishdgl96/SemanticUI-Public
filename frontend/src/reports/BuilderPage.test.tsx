@@ -55,8 +55,11 @@ const detail = {
         layout: { x: 0, y: 0, w: 6, h: 6 },
         wells: { axis: ["C.REGION"], legend: [], values: ["A.REV"] },
         options: {},
+        filters: [],
       },
     ],
+    filters: [],
+    hierarchies: [],
   },
 };
 
@@ -74,6 +77,8 @@ const detail2 = {
     view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
     canvas: { columns: 12, rowHeight: 40 },
     visuals: [],
+    filters: [],
+    hierarchies: [],
   },
 };
 
@@ -143,6 +148,8 @@ describe("BuilderPage", () => {
         view: { database: "", schema: "", name: "" },
         canvas: { columns: 12, rowHeight: 40 },
         visuals: [],
+        filters: [],
+        hierarchies: [],
       },
     });
     vi.mocked(apiFetch).mockResolvedValue({ views: [] });

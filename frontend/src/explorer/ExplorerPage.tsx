@@ -132,8 +132,11 @@ export default function ExplorerPage() {
           layout: { x: 0, y: 0, w: 6, h: 6 },
           wells: { axis: wells.axis, legend: wells.legend, values: wells.values },
           options: {},
+          filters: [],
         },
       ],
+      filters: [],
+      hierarchies: [],
     };
     addToReport.mutate(definition);
   }

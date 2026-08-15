@@ -26,7 +26,7 @@ function visual(over: Partial<Visual> = {}): Visual {
     id: "v1", type: "bar", title: "",
     layout: { x: 0, y: 0, w: 6, h: 6 },
     wells: { axis: ["C.REGION"], legend: [], values: ["A.REVENUE"] },
-    options: {}, ...over,
+    options: {}, filters: [], ...over,
   };
 }
 

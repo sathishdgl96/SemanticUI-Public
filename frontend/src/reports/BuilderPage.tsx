@@ -280,6 +280,7 @@ export default function BuilderPage() {
       layout: { x: 0, y: nextY, w: 6, h: 6 },
       wells: emptyWellsFor(type),
       options: {},
+      filters: [],
     };
     setDefinition({ ...definition, visuals: [...definition.visuals, visual] });
     setSelectedId(visual.id);

@@ -9,6 +9,7 @@ const visual: Visual = {
   layout: { x: 0, y: 0, w: 6, h: 6 },
   wells: { axis: ["C.REGION"], legend: [], values: ["A.REV"] },
   options: { stacked: true },
+  filters: [],
 };
 
 describe("VisualPicker", () => {

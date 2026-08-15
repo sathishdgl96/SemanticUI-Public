@@ -28,6 +28,9 @@ export interface SemanticViewDetail {
   dimensions: FieldInfo[];
   metrics: FieldInfo[];
   facts: FieldInfo[];
+  /** Hierarchies the semantic model itself declares. Empty on every account
+   *  seen so far -- reports define their own; see detect_hierarchies. */
+  modelHierarchies?: Hierarchy[];
 }
 
 export interface ColumnInfo {
@@ -49,8 +52,47 @@ export interface SemanticQueryBody {
   view: string;
   dimensions: string[];
   metrics: string[];
+  filters?: Filter[];
   orderBy?: { field: string; direction?: "asc" | "desc" }[];
   limit?: number;
+}
+
+export interface IsFilter {
+  id: string;
+  field: string;
+  op: "is" | "isNot";
+  values: string[];
+}
+
+export interface BetweenFilter {
+  id: string;
+  field: string;
+  op: "between";
+  from: string | number;
+  to: string | number;
+}
+
+export interface RelativeDateFilter {
+  id: string;
+  field: string;
+  op: "relativeDate";
+  unit?: "day" | "month" | "year";
+  count?: number;
+  preset?: "monthToDate" | "yearToDate";
+}
+
+/** Mirrors the discriminated union in backend/app/reports/filters.py. */
+export type Filter = IsFilter | BetweenFilter | RelativeDateFilter;
+
+export interface Hierarchy {
+  id: string;
+  name: string;
+  levels: string[];
+}
+
+export interface FieldValuesResponse {
+  values: string[];
+  truncated: boolean;
 }
 
 export interface ViewRef {
@@ -73,6 +115,7 @@ export interface Visual {
   layout: VisualLayout;
   wells: Record<string, string[]>;
   options: Record<string, unknown>;
+  filters: Filter[];
 }
 
 export interface CanvasSettings {
@@ -86,6 +129,8 @@ export interface ReportDefinition {
   view: ViewRef;
   canvas: CanvasSettings;
   visuals: Visual[];
+  filters: Filter[];
+  hierarchies: Hierarchy[];
 }
 
 export interface ReportSummary {
