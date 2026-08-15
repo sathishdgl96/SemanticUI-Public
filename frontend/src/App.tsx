@@ -11,6 +11,7 @@ import { setOnAuthExpired } from "./api/client";
 import LoginPage from "./auth/LoginPage";
 import { useMe } from "./auth/useMe";
 import ExplorerPage from "./explorer/ExplorerPage";
+import BuilderPage from "./reports/BuilderPage";
 import ReportListPage from "./reports/ReportListPage";
 
 const queryClient = new QueryClient({
@@ -56,6 +57,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <ExplorerPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/reports/:id"
+            element={
+              <RequireAuth>
+                <BuilderPage />
               </RequireAuth>
             }
           />
