@@ -11,6 +11,11 @@ vi.mock("echarts", () => ({
     setOption: vi.fn(),
     resize: vi.fn(),
     dispose: vi.fn(),
+    // AutoChart registers a click handler on every chart, interactive or not
+    // — a mock missing `on` fails inside the effect and takes the whole panel
+    // down with it.
+    on: vi.fn(),
+    off: vi.fn(),
   })),
 }));
 

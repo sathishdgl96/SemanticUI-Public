@@ -6,6 +6,8 @@ import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import type {
   FieldInfo,
+  Filter,
+  Hierarchy,
   ReportDefinition,
   ReportDetail,
   SemanticViewDetail,
@@ -16,9 +18,18 @@ import type {
 } from "../api/types";
 import { useFieldSensors } from "../explorer/dndSensors";
 import ViewTree from "../explorer/ViewTree";
+import { visualTitle } from "../query/renderers";
 import { CATALOG, defaultWellFor, emptyWellsFor, type FieldKind, type VisualType } from "./catalog";
 import CanvasGrid from "./CanvasGrid";
 import ExportPanel from "./ExportPanel";
+import FilterPane, { REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
+import {
+  HIERARCHY_PREFIX,
+  newFilterId,
+  type CrossFilter,
+  type DrillState,
+} from "./filters";
+import HierarchyPane from "./HierarchyPane";
 import ImportPanel from "./ImportPanel";
 import VisualPicker, { changeVisualType } from "./VisualPicker";
 import VisualWells from "./VisualWells";
@@ -138,6 +149,40 @@ function BuilderFieldGroup({
   );
 }
 
+/** Hierarchies are placed exactly like dimensions -- click or drag -- but
+ *  carry a "hierarchy:<id>" reference instead of a field name. Without this
+ *  row there is no way to put one on an axis at all. */
+function BuilderHierarchyRow({
+  hierarchy,
+  onAdd,
+}: {
+  hierarchy: Hierarchy;
+  onAdd: (ref: string, kind: FieldKind) => void;
+}) {
+  const ref = `${HIERARCHY_PREFIX}${hierarchy.id}`;
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: ref,
+    data: { ref, kind: "dimension" as FieldKind },
+  });
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      className="field-row"
+      // Explicit, so the decorative glyph stays out of the accessible name
+      // and the level count is announced as a phrase rather than a fragment.
+      aria-label={`${hierarchy.name} hierarchy, ${hierarchy.levels.length} levels`}
+      onClick={() => onAdd(ref, "dimension")}
+      {...listeners}
+      {...attributes}
+    >
+      <span className="field-glyph">⛭</span>
+      <span className="field-ref">{hierarchy.name}</span>
+      <small>{hierarchy.levels.length} levels</small>
+    </button>
+  );
+}
+
 export default function BuilderPage() {
   const { id } = useParams<{ id: string }>();
   const reportId = id ?? "";
@@ -157,6 +202,11 @@ export default function BuilderPage() {
   const [selectedType, setSelectedType] = useState<VisualType>("bar");
   const [notice, setNotice] = useState<string | null>(null);
   const [panel, setPanel] = useState<"export" | "import" | null>(null);
+  // Ephemeral by design: never written to the definition, so a saved report
+  // always opens at the top level with nothing selected, and can never point
+  // at a value that has since disappeared from the view.
+  const [drill, setDrill] = useState<Record<string, DrillState>>({});
+  const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
 
   // The route element isn't keyed in App.tsx, so navigating from one report
   // to another (e.g. BuilderPage's own Import flow, which navigates to the
@@ -182,6 +232,8 @@ export default function BuilderPage() {
     setSelectedId(null);
     setNotice(null);
     setPanel(null);
+    setDrill({});
+    setCrossFilter(null);
     save.reset();
     refreshFields.reset();
     // `save`/`refreshFields` deliberately left out of the dependency array:
@@ -262,6 +314,21 @@ export default function BuilderPage() {
     });
   };
 
+  const addFilterAt = (scope: "report" | "visual", ref: string) => {
+    const current =
+      scope === "report" ? (definition.filters ?? []) : (selected?.filters ?? []);
+    // Already filtered at this scope: a second filter on the same field would
+    // AND two conditions on one column, which is almost never what dropping
+    // it again meant.
+    if (current.some((f) => f.field === ref)) return;
+    const next: Filter[] = [
+      ...current,
+      { id: newFilterId(), field: ref, op: "is", values: [] },
+    ];
+    if (scope === "report") setDefinition({ ...definition, filters: next });
+    else if (selected) replaceVisual({ ...selected, filters: next });
+  };
+
   const selectVisual = (visualId: string) => {
     setSelectedId(visualId);
     const visual = definition.visuals.find((v) => v.id === visualId);
@@ -310,6 +377,12 @@ export default function BuilderPage() {
     const visual = definition.visuals.find((v) => v.id === selectedId);
     const overId = String(event.over?.id ?? "");
     const data = event.active.data.current as { ref: string; kind: FieldKind } | undefined;
+    // Filter scopes first: the well branch below returns early for any id it
+    // does not recognise, so it would swallow these.
+    if (data && (overId === REPORT_DROP_ID || overId === VISUAL_DROP_ID)) {
+      addFilterAt(overId === REPORT_DROP_ID ? "report" : "visual", data.ref);
+      return;
+    }
     if (!visual || !data || !overId.startsWith("well:")) return;
     const key = overId.slice("well:".length);
     const spec = CATALOG[visual.type as VisualType].wells.find((w) => w.key === key);
@@ -354,6 +427,14 @@ export default function BuilderPage() {
 
   const dimensions = viewDetail.data?.dimensions ?? [];
   const metrics = viewDetail.data?.metrics ?? [];
+  // Model-declared hierarchies (none on today's accounts -- see
+  // detect_hierarchies) plus the report's own. Ids are namespaced, so the two
+  // sources can never collide.
+  const hierarchies: Hierarchy[] = [
+    ...(viewDetail.data?.modelHierarchies ?? []),
+    ...(definition.hierarchies ?? []),
+  ];
+
 
   return (
     <div className="builder">
@@ -395,6 +476,16 @@ export default function BuilderPage() {
         <BindViewPanel reason={view.name ? viewMissingReason(view) : null} onBind={bindView} />
       ) : (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+          {crossFilter && (
+            // role="status" rather than a bare div: a filter applied by
+            // clicking somewhere else has to be announced, not just drawn.
+            <p className="cross-filter-chip" role="status">
+              Filtered by {crossFilter.field} = {crossFilter.value}
+              <button type="button" className="link" onClick={() => setCrossFilter(null)}>
+                Clear cross-filter
+              </button>
+            </p>
+          )}
           <div className="builder-body">
             <CanvasGrid
               visuals={definition.visuals}
@@ -403,6 +494,20 @@ export default function BuilderPage() {
               selectedId={selectedId}
               onSelect={selectVisual}
               onLayoutChange={onLayoutChange}
+              reportFilters={definition.filters ?? []}
+              hierarchies={hierarchies}
+              drill={drill}
+              onDrill={(visualId, next) =>
+                setDrill((current) => {
+                  if (!next) {
+                    const { [visualId]: _dropped, ...rest } = current;
+                    return rest;
+                  }
+                  return { ...current, [visualId]: next };
+                })
+              }
+              crossFilter={crossFilter}
+              onCrossFilter={setCrossFilter}
             />
             <aside className="builder-panes">
               <section>
@@ -449,6 +554,18 @@ export default function BuilderPage() {
                   fields={dimensions}
                   onAdd={addFieldToSelected}
                 />
+                {hierarchies.length > 0 && (
+                  <section className="field-group">
+                    <h4 className="field-group-title">Hierarchies</h4>
+                    {hierarchies.map((h) => (
+                      <BuilderHierarchyRow
+                        key={h.id}
+                        hierarchy={h}
+                        onAdd={addFieldToSelected}
+                      />
+                    ))}
+                  </section>
+                )}
                 <BuilderFieldGroup
                   title="Metrics"
                   kind="metric"
@@ -456,6 +573,28 @@ export default function BuilderPage() {
                   onAdd={addFieldToSelected}
                 />
               </section>
+              <FilterPane
+                view={view}
+                fields={[...dimensions, ...metrics]}
+                reportFilters={definition.filters ?? []}
+                visualFilters={selected ? (selected.filters ?? []) : null}
+                selectedVisualTitle={selected ? visualTitle(selected) : null}
+                onChangeReport={(filters) => setDefinition({ ...definition, filters })}
+                onChangeVisual={(filters) => {
+                  if (selected) replaceVisual({ ...selected, filters });
+                }}
+              />
+              <HierarchyPane
+                hierarchies={hierarchies}
+                dimensions={dimensions}
+                onChange={(next) =>
+                  setDefinition({
+                    ...definition,
+                    // Model-declared hierarchies are not the report's to store.
+                    hierarchies: next.filter((h) => !h.id.startsWith("model:")),
+                  })
+                }
+              />
             </aside>
           </div>
         </DndContext>

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/client", () => ({
@@ -12,10 +13,35 @@ vi.mock("../api/client", () => ({
     }
   },
 }));
-vi.mock("./AutoChartAdapter", () => ({ default: () => <div data-testid="chart" /> }));
+// A clickable stand-in rather than an inert div: drill-down and
+// cross-filtering are both "the user clicked a mark", and a div that swallows
+// clicks would let those tests pass without the wiring existing.
+vi.mock("./AutoChartAdapter", () => ({
+  default: ({
+    title,
+    categories = [],
+    onMarkClick,
+  }: {
+    title: string;
+    categories?: string[];
+    onMarkClick?: (c: string) => void;
+  }) =>
+    onMarkClick ? (
+      <button
+        type="button"
+        aria-label={title}
+        onClick={() => onMarkClick(categories[0] ?? "EAST")}
+      >
+        chart
+      </button>
+    ) : (
+      <div data-testid="chart" role="img" aria-label={title} />
+    ),
+}));
 
 import { apiFetch, ApiError } from "../api/client";
-import type { ViewRef, Visual } from "../api/types";
+import type { Hierarchy, ViewRef, Visual } from "../api/types";
+import type { CrossFilter, DrillState } from "./filters";
 import VisualTile from "./VisualTile";
 
 const apiFetchMock = vi.mocked(apiFetch);
@@ -30,11 +56,19 @@ function visual(over: Partial<Visual> = {}): Visual {
   };
 }
 
-function renderTile(v: Visual) {
+interface TileOpts {
+  hierarchies?: Hierarchy[];
+  drill?: DrillState;
+  onDrill?: (next: DrillState | undefined) => void;
+  crossFilter?: CrossFilter | null;
+  onCrossFilter?: (next: CrossFilter | null) => void;
+}
+
+function renderTile(v: Visual, opts: TileOpts = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <VisualTile visual={v} view={view} selected={false} onSelect={() => {}} />
+      <VisualTile visual={v} view={view} selected={false} onSelect={() => {}} {...opts} />
     </QueryClientProvider>,
   );
 }
@@ -88,5 +122,188 @@ describe("VisualTile", () => {
     });
     renderTile(visual({ type: "kpi", wells: { value: ["A.REVENUE"] } }));
     expect(await screen.findByTestId("kpi-value")).toHaveTextContent("1,234,567");
+  });
+});
+
+// --- hierarchies, drill-down and cross-filtering ---------------------------
+
+const GEO: Hierarchy = {
+  id: "h1",
+  name: "Geography",
+  levels: ["C.COUNTRY", "C.STATE", "C.CITY"],
+};
+
+function hierarchyVisual(): Visual {
+  return visual({
+    title: "By geography",
+    wells: { axis: ["hierarchy:h1"], legend: [], values: ["A.REVENUE"] },
+  });
+}
+
+/** The dimension column must match the well the visual is currently showing,
+ *  or buildVisualOption returns null and the tile renders "nothing to chart"
+ *  instead of a chart -- which reads as a missing click handler. */
+function stubRows(dimension = "COUNTRY", value = "US") {
+  apiFetchMock.mockResolvedValue({
+    columns: [
+      { name: dimension, type: "TEXT" },
+      { name: "REVENUE", type: "FIXED" },
+    ],
+    rows: [[value, 10]],
+    truncated: false,
+    sfqid: null,
+    sql: "",
+  });
+}
+
+describe("VisualTile hierarchies", () => {
+  it("names the current level in an untitled tile rather than the reference", async () => {
+    stubRows();
+    renderTile(
+      visual({ wells: { axis: ["hierarchy:h1"], legend: [], values: ["A.REVENUE"] } }),
+      { hierarchies: [GEO] },
+    );
+    expect(await screen.findByText("REVENUE by COUNTRY")).toBeInTheDocument();
+  });
+
+  it("shows no breadcrumb when undrilled", async () => {
+    stubRows();
+    renderTile(hierarchyVisual(), { hierarchies: [GEO], onDrill: () => {} });
+    await screen.findByRole("button", { name: /by geography/i });
+    expect(screen.queryByRole("navigation", { name: /drill path/i })).toBeNull();
+  });
+
+  it("drilling a mark advances the level and records the path", async () => {
+    stubRows();
+    const onDrill = vi.fn();
+    renderTile(hierarchyVisual(), { hierarchies: [GEO], onDrill });
+    await userEvent.click(await screen.findByRole("button", { name: /by geography/i }));
+    expect(onDrill).toHaveBeenCalledWith({
+      hierarchyId: "h1",
+      path: [{ field: "C.COUNTRY", value: "US" }],
+    });
+  });
+
+  it("shows a breadcrumb and an up control once drilled", async () => {
+    stubRows();
+    renderTile(hierarchyVisual(), {
+      hierarchies: [GEO],
+      onDrill: () => {},
+      drill: { hierarchyId: "h1", path: [{ field: "C.COUNTRY", value: "US" }] },
+    });
+    const nav = await screen.findByRole("navigation", { name: /drill path/i });
+    expect(nav).toHaveTextContent("US");
+    expect(screen.getByRole("button", { name: /drill up/i })).toBeInTheDocument();
+  });
+
+  it("drill up pops one level", async () => {
+    stubRows();
+    const onDrill = vi.fn();
+    renderTile(hierarchyVisual(), {
+      hierarchies: [GEO],
+      onDrill,
+      drill: {
+        hierarchyId: "h1",
+        path: [
+          { field: "C.COUNTRY", value: "US" },
+          { field: "C.STATE", value: "CA" },
+        ],
+      },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: /drill up/i }));
+    expect(onDrill).toHaveBeenCalledWith({
+      hierarchyId: "h1",
+      path: [{ field: "C.COUNTRY", value: "US" }],
+    });
+  });
+
+  it("drilling up from the first level clears the drill state entirely", async () => {
+    stubRows();
+    const onDrill = vi.fn();
+    renderTile(hierarchyVisual(), {
+      hierarchies: [GEO],
+      onDrill,
+      drill: { hierarchyId: "h1", path: [{ field: "C.COUNTRY", value: "US" }] },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: /drill up/i }));
+    expect(onDrill).toHaveBeenCalledWith(undefined);
+  });
+
+  it("stops offering a drill at the last level", async () => {
+    stubRows("CITY", "SF");
+    const onDrill = vi.fn();
+    renderTile(hierarchyVisual(), {
+      hierarchies: [GEO],
+      onDrill,
+      drill: {
+        hierarchyId: "h1",
+        path: [
+          { field: "C.COUNTRY", value: "US" },
+          { field: "C.STATE", value: "CA" },
+        ],
+      },
+    });
+    // No cross-filter handler either, so the chart must not be interactive at
+    // all -- it falls back to the inert stand-in.
+    expect(await screen.findByTestId("chart")).toBeInTheDocument();
+    expect(onDrill).not.toHaveBeenCalled();
+  });
+
+  it("Backspace drills up", async () => {
+    stubRows();
+    const onDrill = vi.fn();
+    renderTile(hierarchyVisual(), {
+      hierarchies: [GEO],
+      onDrill,
+      drill: { hierarchyId: "h1", path: [{ field: "C.COUNTRY", value: "US" }] },
+    });
+    const tile = await screen.findByRole("region", { name: /by geography/i });
+    tile.focus();
+    await userEvent.type(tile, "{Backspace}");
+    expect(onDrill).toHaveBeenCalledWith(undefined);
+  });
+
+  it("reports a hierarchy that has vanished without blanking the tile", async () => {
+    stubRows();
+    renderTile(hierarchyVisual(), { hierarchies: [] });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /hierarchy this visual uses is no longer defined/i,
+    );
+    expect(screen.getByText("By geography")).toBeInTheDocument();
+  });
+});
+
+describe("VisualTile cross-filtering", () => {
+  it("reports a clicked mark as a selection from this visual", async () => {
+    stubRows("REGION", "EAST");
+    const onCrossFilter = vi.fn();
+    renderTile(visual({ title: "Revenue" }), { onCrossFilter });
+    await userEvent.click(await screen.findByRole("button", { name: "Revenue" }));
+    expect(onCrossFilter).toHaveBeenCalledWith({
+      sourceVisualId: "v1",
+      field: "C.REGION",
+      value: "EAST",
+    });
+  });
+
+  it("clicking the same mark again clears the selection", async () => {
+    stubRows("REGION", "EAST");
+    const onCrossFilter = vi.fn();
+    renderTile(visual({ title: "Revenue" }), {
+      onCrossFilter,
+      crossFilter: { sourceVisualId: "v1", field: "C.REGION", value: "EAST" },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Revenue" }));
+    expect(onCrossFilter).toHaveBeenCalledWith(null);
+  });
+
+  it("prefers drilling over cross-filtering when both are possible", async () => {
+    stubRows();
+    const onDrill = vi.fn();
+    const onCrossFilter = vi.fn();
+    renderTile(hierarchyVisual(), { hierarchies: [GEO], onDrill, onCrossFilter });
+    await userEvent.click(await screen.findByRole("button", { name: /by geography/i }));
+    expect(onDrill).toHaveBeenCalled();
+    expect(onCrossFilter).not.toHaveBeenCalled();
   });
 });

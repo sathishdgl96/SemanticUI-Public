@@ -35,6 +35,11 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
     problems,
     ready,
     filters,
+    /** The wells with hierarchy references already resolved to the level this
+     *  visual is currently showing. Callers that need to name that field —
+     *  the tile's heading, a cross-filter selection — use this rather than
+     *  resolving a second time and risking drift. */
+    wells,
     query: useQuery({
       // Everything that changes the RESULT is in the key. Leave any of it out
       // and a filtered tile serves the unfiltered result it cached moments

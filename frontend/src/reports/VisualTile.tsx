@@ -1,9 +1,23 @@
 import { useMemo } from "react";
 import { ApiError } from "../api/client";
-import type { QueryResponse, ViewRef, Visual } from "../api/types";
+import type {
+  Filter,
+  Hierarchy,
+  QueryResponse,
+  ViewRef,
+  Visual,
+} from "../api/types";
 import ResultsTable from "../query/ResultsTable";
 import { buildVisualOption, visualTitle } from "../query/renderers";
 import AutoChartAdapter from "./AutoChartAdapter";
+import {
+  canDrillDown,
+  currentLevel,
+  hierarchyById,
+  hierarchyIdOf,
+  type CrossFilter,
+  type DrillState,
+} from "./filters";
 import { useVisualQuery } from "./useVisualQuery";
 
 interface Props {
@@ -11,6 +25,12 @@ interface Props {
   view: ViewRef;
   selected: boolean;
   onSelect: (id: string) => void;
+  reportFilters?: Filter[];
+  hierarchies?: Hierarchy[];
+  drill?: DrillState;
+  onDrill?: (next: DrillState | undefined) => void;
+  crossFilter?: CrossFilter | null;
+  onCrossFilter?: (next: CrossFilter | null) => void;
 }
 
 function kpiText(result: QueryResponse, format: unknown): string {
@@ -26,16 +46,86 @@ function kpiText(result: QueryResponse, format: unknown): string {
     : new Intl.NumberFormat("en-US").format(value);
 }
 
-export default function VisualTile({ visual, view, selected, onSelect }: Props) {
-  const { problems, ready, query } = useVisualQuery(view, visual);
-  const title = visualTitle(visual);
+export default function VisualTile({
+  visual,
+  view,
+  selected,
+  onSelect,
+  reportFilters = [],
+  hierarchies = [],
+  drill,
+  onDrill,
+  crossFilter = null,
+  onCrossFilter,
+}: Props) {
+  const { problems, ready, wells, query } = useVisualQuery(view, visual, {
+    reportFilters,
+    hierarchies,
+    drill,
+    crossFilter,
+  });
+
+  // The heading names the level currently on screen, not "hierarchy:h1".
+  const title = visualTitle({ ...visual, wells });
+
+  const axisRef = (visual.wells.axis ?? [])[0] ?? "";
+  const hierarchyId = hierarchyIdOf(axisRef);
+  const hierarchy = hierarchyId ? hierarchyById(hierarchies, hierarchyId) : undefined;
+  const depth = drill?.hierarchyId === hierarchyId ? drill.path.length : 0;
+  const drillable = Boolean(hierarchy && onDrill && canDrillDown(hierarchy, depth));
+
   const option = useMemo(
-    () => (query.data ? buildVisualOption(visual, query.data) : null),
-    [visual, query.data],
+    () => (query.data ? buildVisualOption({ ...visual, wells }, query.data) : null),
+    // `wells` is rebuilt each render but is value-stable for a given drill
+    // position; keying on the resolved axis ref is what actually matters.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [visual, query.data, (wells.axis ?? [])[0]],
   );
 
+  const drillUp = () => {
+    if (!drill) return;
+    const path = drill.path.slice(0, -1);
+    // An empty path clears the state rather than being kept as an empty one,
+    // so "am I drilled?" stays a single null check everywhere.
+    onDrill?.(path.length ? { ...drill, path } : undefined);
+  };
+
+  const onMark = (category: string) => {
+    if (drillable && hierarchy) {
+      onDrill?.({
+        hierarchyId: hierarchy.id,
+        path: [
+          ...(drill?.hierarchyId === hierarchy.id ? drill.path : []),
+          { field: currentLevel(hierarchy, depth), value: category },
+        ],
+      });
+      return;
+    }
+    // Not drillable: the click is a cross-filter selection instead. Clicking
+    // the same mark again clears it, so a selection is always reversible
+    // without hunting for the Clear control.
+    const field = (wells.axis ?? [])[0] ?? (wells.legend ?? [])[0];
+    if (!field || !onCrossFilter) return;
+    const same =
+      crossFilter?.sourceVisualId === visual.id &&
+      crossFilter.field === field &&
+      crossFilter.value === category;
+    onCrossFilter(same ? null : { sourceVisualId: visual.id, field, value: category });
+  };
+
+  const interactive = drillable || Boolean(onCrossFilter);
+
   let body: React.ReactNode;
-  if (!ready) {
+  if (hierarchyId && !hierarchy) {
+    // Reported on the tile rather than blanking the canvas: the report is
+    // still openable and the Axis well is still editable.
+    body = (
+      <p role="alert" className="tile-error">
+        The hierarchy this visual uses is no longer defined on this report. Edit its
+        Axis well to pick a field or another hierarchy.
+      </p>
+    );
+  } else if (!ready) {
     body = <p className="tile-hint">This visual needs fields — {problems[0]}</p>;
   } else if (query.isLoading) {
     body = <p className="tile-hint">Loading…</p>;
@@ -55,7 +145,15 @@ export default function VisualTile({ visual, view, selected, onSelect }: Props) 
     } else if (visual.type === "table") {
       body = <ResultsTable result={query.data} />;
     } else if (option) {
-      body = <AutoChartAdapter kind="bar" title={title} option={option} />;
+      body = (
+        <AutoChartAdapter
+          kind="bar"
+          title={title}
+          option={option}
+          categories={query.data.rows.map((r) => String(r[0]))}
+          onMarkClick={interactive ? onMark : undefined}
+        />
+      );
     } else {
       body = <p className="tile-hint">Nothing to chart for this field combination.</p>;
     }
@@ -65,10 +163,28 @@ export default function VisualTile({ visual, view, selected, onSelect }: Props) 
     <section
       className={selected ? "tile selected" : "tile"}
       aria-label={title || "Untitled visual"}
+      // Focusable so Backspace can reach it. The chart itself is focusable
+      // only while it is interactive, and drilling *up* has to work from the
+      // last level, where it is not.
+      tabIndex={onDrill ? 0 : undefined}
       onMouseDown={() => onSelect(visual.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Backspace" && drill) {
+          e.preventDefault();
+          drillUp();
+        }
+      }}
     >
       <header className="tile-head">
         <h3>{title || "Untitled visual"}</h3>
+        {drill && drill.path.length > 0 && (
+          <nav className="drill-path" aria-label="Drill path">
+            <button type="button" className="link" onClick={drillUp}>
+              Drill up
+            </button>
+            <span>{drill.path.map((s) => s.value).join(" › ")}</span>
+          </nav>
+        )}
       </header>
       <div className="tile-body">{body}</div>
     </section>

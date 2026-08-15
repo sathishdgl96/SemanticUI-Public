@@ -2,7 +2,15 @@ import GridLayout, { type Layout } from "react-grid-layout";
 import { useEffect, useRef, useState } from "react";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
-import type { CanvasSettings, ViewRef, Visual, VisualLayout } from "../api/types";
+import type {
+  CanvasSettings,
+  Filter,
+  Hierarchy,
+  ViewRef,
+  Visual,
+  VisualLayout,
+} from "../api/types";
+import type { CrossFilter, DrillState } from "./filters";
 import VisualTile from "./VisualTile";
 
 interface Props {
@@ -13,6 +21,13 @@ interface Props {
   onSelect: (id: string) => void;
   onLayoutChange: (next: Record<string, VisualLayout>) => void;
   readOnly?: boolean;
+  reportFilters?: Filter[];
+  hierarchies?: Hierarchy[];
+  /** Drill position per visual id. Ephemeral -- see DrillState. */
+  drill?: Record<string, DrillState>;
+  onDrill?: (visualId: string, next: DrillState | undefined) => void;
+  crossFilter?: CrossFilter | null;
+  onCrossFilter?: (next: CrossFilter | null) => void;
 }
 
 /** Width is measured rather than assumed so the grid tracks the pane it sits in. */
@@ -31,6 +46,8 @@ function useMeasuredWidth() {
 
 export default function CanvasGrid({
   visuals, canvas, view, selectedId, onSelect, onLayoutChange, readOnly = false,
+  reportFilters = [], hierarchies = [], drill = {}, onDrill,
+  crossFilter = null, onCrossFilter,
 }: Props) {
   const { ref, width } = useMeasuredWidth();
 
@@ -74,6 +91,12 @@ export default function CanvasGrid({
               view={view}
               selected={selectedId === visual.id}
               onSelect={onSelect}
+              reportFilters={reportFilters}
+              hierarchies={hierarchies}
+              drill={drill[visual.id]}
+              onDrill={onDrill ? (next) => onDrill(visual.id, next) : undefined}
+              crossFilter={crossFilter}
+              onCrossFilter={onCrossFilter}
             />
           </div>
         ))}

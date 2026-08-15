@@ -23,10 +23,37 @@ vi.mock("../api/client", () => ({
   },
 }));
 vi.mock("./CanvasGrid", () => ({
-  default: ({ visuals, onSelect }: { visuals: { id: string }[]; onSelect: (id: string) => void }) => (
+  default: ({
+    visuals,
+    onSelect,
+    onDrill,
+    onCrossFilter,
+  }: {
+    visuals: { id: string }[];
+    onSelect: (id: string) => void;
+    onDrill?: (id: string, next: unknown) => void;
+    onCrossFilter?: (next: unknown) => void;
+  }) => (
     <div>
       {visuals.map((v) => (
-        <button key={v.id} onClick={() => onSelect(v.id)}>{`select ${v.id}`}</button>
+        <div key={v.id}>
+          <button onClick={() => onSelect(v.id)}>{`select ${v.id}`}</button>
+          {/* Stand-ins for clicking a mark. The real canvas raises these from
+              VisualTile; the builder only has to route and hold them. */}
+          <button
+            onClick={() =>
+              onCrossFilter?.({ sourceVisualId: v.id, field: "C.REGION", value: "EAST" })
+            }
+          >{`cross-filter ${v.id}`}</button>
+          <button
+            onClick={() =>
+              onDrill?.(v.id, {
+                hierarchyId: "h1",
+                path: [{ field: "C.COUNTRY", value: "US" }],
+              })
+            }
+          >{`drill ${v.id}`}</button>
+        </div>
       ))}
     </div>
   ),
@@ -36,6 +63,7 @@ import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import BuilderPage from "./BuilderPage";
 
+const apiFetchMock = vi.mocked(apiFetch);
 const getMock = vi.mocked(getReport);
 const updateMock = vi.mocked(updateReport);
 
@@ -301,5 +329,208 @@ describe("BuilderPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /go to r2/i }));
     expect(await screen.findByDisplayValue("Marketing overview")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+// --- filters, hierarchies, drill and cross-filtering ----------------------
+
+/** The default apiFetch mock answers every URL with an empty query result,
+ *  which leaves the Fields and Filters panes with nothing to offer. Route by
+ *  URL so DESCRIBE returns a real catalog. */
+function stubApi() {
+  apiFetchMock.mockImplementation((path: string) => {
+    if (path.startsWith("/api/semantic-views/") && path.includes("/values")) {
+      return Promise.resolve({ values: ["EAST", "WEST"], truncated: false });
+    }
+    if (path.startsWith("/api/semantic-views/")) {
+      return Promise.resolve({
+        tables: [{ name: "C" }, { name: "A" }],
+        relationships: [],
+        dimensions: [
+          { table: "C", name: "REGION", dataType: "TEXT" },
+          { table: "C", name: "COUNTRY", dataType: "TEXT" },
+        ],
+        metrics: [{ table: "A", name: "REV", dataType: "NUMBER(38,2)" }],
+        facts: [],
+        modelHierarchies: [],
+      });
+    }
+    return Promise.resolve({
+      columns: [],
+      rows: [],
+      truncated: false,
+      sfqid: null,
+      sql: "",
+    });
+  });
+}
+
+describe("BuilderPage filters", () => {
+  beforeEach(() => stubApi());
+
+  it("offers both filter scopes once a visual is selected", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(
+      await screen.findByLabelText(/add a filter on this report/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/add a filter on this visual/i)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+    expect(
+      await screen.findByLabelText(/add a filter on this visual/i),
+    ).toBeInTheDocument();
+  });
+
+  it("adding a report filter marks the report dirty and saves it", async () => {
+    updateMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a filter on this report/i),
+      "C.REGION",
+    );
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls[0];
+    expect(saved.filters).toEqual([
+      expect.objectContaining({ field: "C.REGION", op: "is", values: [] }),
+    ]);
+  });
+
+  it("does not offer a hierarchy until one is defined, then lists it", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(await screen.findByText(/no hierarchies yet/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /new hierarchy/i }));
+    expect(
+      await screen.findByLabelText(/hierarchy name for New hierarchy/i),
+    ).toBeInTheDocument();
+  });
+
+  it("saves a hierarchy but never a model-declared one", async () => {
+    updateMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(await screen.findByRole("button", { name: /new hierarchy/i }));
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a level to New hierarchy/i),
+      "C.REGION",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.hierarchies).toEqual([
+      expect.objectContaining({ name: "New hierarchy", levels: ["C.REGION"] }),
+    ]);
+    expect(JSON.stringify(saved)).not.toContain("model:");
+  });
+});
+
+describe("BuilderPage cross-filtering", () => {
+  beforeEach(() => stubApi());
+
+  it("shows a labelled chip while a selection is active, and clears it", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    // Queried by text, not by role="status": DndContext renders its own
+    // live region with that role, so the role query is ambiguous here.
+    expect(screen.queryByText(/filtered by/i)).toBeNull();
+
+    await userEvent.click(await screen.findByRole("button", { name: "cross-filter v1" }));
+    const chip = await screen.findByText(/filtered by/i);
+    expect(chip).toHaveTextContent("C.REGION");
+    expect(chip).toHaveTextContent("EAST");
+    // Still announced: the chip itself carries role="status".
+    expect(chip).toHaveAttribute("role", "status");
+
+    await userEvent.click(screen.getByRole("button", { name: /clear cross-filter/i }));
+    expect(screen.queryByText(/filtered by/i)).toBeNull();
+  });
+
+  it("keeps the selection and the drill position out of the saved definition", async () => {
+    updateMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(await screen.findByRole("button", { name: "cross-filter v1" }));
+    await userEvent.click(screen.getByRole("button", { name: "drill v1" }));
+
+    // Neither is a change to the document, so Save is still disabled --
+    // which is itself the assertion that they are view state.
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+
+    // Force a real change, then check what actually goes over the wire.
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a filter on this report/i),
+      "C.REGION",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    const json = JSON.stringify(saved);
+    expect(json).not.toContain("sourceVisualId");
+    expect(json).not.toContain("drillPath");
+    expect(json).not.toContain("hierarchyId");
+  });
+});
+
+describe("BuilderPage hierarchy placement", () => {
+  beforeEach(() => stubApi());
+
+  it("offers a defined hierarchy as a placeable field", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    // Nothing to place before one exists.
+    expect(screen.queryByRole("heading", { name: /^hierarchies$/i, level: 4 })).toBeNull();
+
+    await userEvent.click(await screen.findByRole("button", { name: /new hierarchy/i }));
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a level to New hierarchy/i),
+      "C.REGION",
+    );
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a level to New hierarchy/i),
+      "C.COUNTRY",
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /New hierarchy hierarchy, 2 levels/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("places a hierarchy on the selected visual's axis", async () => {
+    updateMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(await screen.findByRole("button", { name: /new hierarchy/i }));
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a level to New hierarchy/i),
+      "C.REGION",
+    );
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a level to New hierarchy/i),
+      "C.COUNTRY",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+    // The axis already holds C.REGION; clear it so the hierarchy can land
+    // there. Scoped to the Axis well: the hierarchy pane also offers a
+    // "Remove C.REGION" for its own level list.
+    const axis = await screen.findByRole("region", { name: "Axis" });
+    await userEvent.click(within(axis).getByRole("button", { name: /remove C\.REGION/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /New hierarchy hierarchy, 2 levels/i }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.visuals[0].wells.axis[0]).toMatch(/^hierarchy:/);
   });
 });
