@@ -107,3 +107,20 @@ def test_config_reports_direct_login_methods(client):
     body = client.get("/api/config").json()
     assert body["authMode"] == "dev"
     assert "keypair" in body["directLoginMethods"]
+
+
+def test_oversized_pem_validation_error_does_not_echo_key_material(client):
+    marker = "MARKER-SECRET-KEY-MATERIAL-" + ("X" * 20000)
+    r = client.post(
+        "/auth/dev-login",
+        json={
+            "account": "acct",
+            "user": "alice",
+            "authenticator": "keypair",
+            "private_key_pem": marker,
+            "private_key_passphrase": None,
+        },
+    )
+    assert r.status_code == 422
+    assert marker not in r.text
+    assert "PRIVATE KEY" not in r.text

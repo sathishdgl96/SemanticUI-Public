@@ -59,7 +59,16 @@ export default function LoginPage() {
       await queryClient.invalidateQueries({ queryKey: ["me"] });
       navigate("/");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Login failed");
+      const message = err instanceof ApiError ? err.message : "Login failed";
+      setError(
+        authenticator === "keypair"
+          ? `${message} Re-paste your private key to try again.`
+          : message,
+      );
+      // Never leave key material sitting in an unmasked textarea after a
+      // failed login attempt.
+      setPrivateKeyPem("");
+      setPrivateKeyPassphrase("");
     } finally {
       setBusy(false);
     }
@@ -116,6 +125,9 @@ export default function LoginPage() {
                   <textarea
                     value={privateKeyPem}
                     onChange={(e) => setPrivateKeyPem(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    autoCorrect="off"
                     required
                   />
                 </label>

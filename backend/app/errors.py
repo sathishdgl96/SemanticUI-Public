@@ -28,12 +28,20 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     def _handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # Never echo the submitted value back to the caller. Each error
+        # dict from FastAPI/pydantic includes the raw `input` for the
+        # failing field, which would leak any sensitive field (e.g. a
+        # private key) that fails validation straight into the response
+        # body. Strip it before rendering.
+        safe_errors = [
+            {k: v for k, v in error.items() if k != "input"} for error in exc.errors()
+        ]
         return JSONResponse(
             status_code=422,
             content={
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed",
-                "detail": str(exc.errors()),
+                "detail": str(safe_errors),
             },
         )
 

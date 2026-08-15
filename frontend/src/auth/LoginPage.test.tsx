@@ -7,10 +7,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api/client", () => ({
   apiFetch: vi.fn(),
   setOnAuthExpired: vi.fn(),
-  ApiError: class extends Error {},
+  ApiError: class extends Error {
+    code: string;
+    status: number;
+    detail?: string | null;
+    constructor(code: string, status: number, message: string, detail?: string | null) {
+      super(message);
+      this.code = code;
+      this.status = status;
+      this.detail = detail;
+    }
+  },
 }));
 
-import { apiFetch } from "../api/client";
+import { apiFetch, ApiError } from "../api/client";
 import LoginPage from "./LoginPage";
 
 const apiFetchMock = vi.mocked(apiFetch);
@@ -84,5 +94,31 @@ describe("LoginPage", () => {
       expect(body.authenticator).toBe("keypair");
       expect(body.private_key_pem).toBe("PEMDATA");
     });
+  });
+
+  it("clears the PEM from state after a rejected keypair login", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      authMode: "dev",
+      directLoginMethods: ["externalbrowser", "keypair"],
+    });
+    renderPage();
+    await screen.findByLabelText(/account/i);
+    await userEvent.selectOptions(screen.getByLabelText(/authenticator/i), "keypair");
+    await userEvent.type(screen.getByLabelText(/account/i), "acct");
+    await userEvent.type(screen.getByLabelText(/^user/i), "alice");
+    const textarea = screen.getByLabelText(/private key/i);
+    await userEvent.type(textarea, "PEMDATA");
+    apiFetchMock.mockRejectedValueOnce(
+      new ApiError(
+        "AUTH_FAILED",
+        401,
+        "Could not read the private key. Check the PEM and passphrase.",
+      ),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/re-paste your private key/i);
+    });
+    expect(textarea).toHaveValue("");
   });
 });
