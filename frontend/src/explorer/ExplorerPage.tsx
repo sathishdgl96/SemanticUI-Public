@@ -1,3 +1,11 @@
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -10,14 +18,23 @@ import type {
 } from "../api/types";
 import { useMe } from "../auth/useMe";
 import QueryPanel from "../query/QueryPanel";
-import FieldPanel, { type Selection } from "./FieldPanel";
+import FieldPanel from "./FieldPanel";
 import ViewTree from "./ViewTree";
+import WellPanel from "./WellPanel";
+import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
   const me = useMe();
   const [selectedView, setSelectedView] = useState<SemanticViewSummary | null>(null);
-  const [selection, setSelection] = useState<Selection>({ dimensions: [], metrics: [] });
+  const [wells, setWells] = useState<Wells>(emptyWells());
+  // `distance: 8` keeps PointerSensor from hijacking a plain click on a
+  // field row (mousedown+mouseup with no movement) as a drag start, so
+  // click-to-add stays a real, independent path from dragging.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor),
+  );
 
   const views = useQuery({
     queryKey: ["semantic-views"],
@@ -46,27 +63,35 @@ export default function ExplorerPage() {
 
   function selectView(view: SemanticViewSummary) {
     setSelectedView(view);
-    setSelection({ dimensions: [], metrics: [] });
+    setWells(emptyWells());
     run.reset();
   }
 
-  function toggle(kind: "dimensions" | "metrics", ref: string) {
-    setSelection((prev) => ({
-      ...prev,
-      [kind]: prev[kind].includes(ref)
-        ? prev[kind].filter((r) => r !== ref)
-        : [...prev[kind], ref],
-    }));
+  function addField(wellId: WellId, ref: string, kind: DragData["kind"]) {
+    setWells((prev) => addToWell(prev, wellId, ref, kind));
+  }
+
+  function removeField(wellId: WellId, ref: string) {
+    setWells((prev) => removeFromWell(prev, wellId, ref));
+  }
+
+  function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+    const data = active.data.current as DragData | undefined;
+    if (!data) return;
+    setWells((prev) => addToWell(prev, over.id as WellId, data.ref, data.kind));
   }
 
   function runQuery() {
     if (!selectedView) return;
+    const { dimensions, metrics } = wellsToQuery(wells);
     run.mutate({
       database: selectedView.database,
       schema: selectedView.schema,
       view: selectedView.name,
-      dimensions: selection.dimensions,
-      metrics: selection.metrics,
+      dimensions,
+      metrics,
     });
   }
 
@@ -86,52 +111,56 @@ export default function ExplorerPage() {
           </button>
         </span>
       </header>
-      <div className="columns">
-        <div className="left">
-          {views.isLoading && <p>Loading views...</p>}
-          {views.isError && <p role="alert">Failed to load semantic views.</p>}
-          {views.data && (
-            <ViewTree
-              views={views.data.views}
-              selected={selectedView}
-              onSelect={selectView}
-            />
-          )}
-        </div>
-        <div className="middle">
-          {selectedView && detail.data && (
-            <FieldPanel
-              detail={detail.data}
-              selection={selection}
-              onToggle={toggle}
-              onRun={runQuery}
-              running={run.isPending}
-            />
-          )}
-          {selectedView && detail.isLoading && <p>Describing view...</p>}
-          {selectedView && detail.isError && (
-            <div role="alert">
-              <p>
-                {detail.error instanceof ApiError
-                  ? detail.error.message
-                  : "Failed to describe view."}
+      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <div className="columns">
+          <div className="left">
+            {views.isLoading && <p>Loading views...</p>}
+            {views.isError && <p role="alert">Failed to load semantic views.</p>}
+            {views.data && (
+              <ViewTree
+                views={views.data.views}
+                selected={selectedView}
+                onSelect={selectView}
+              />
+            )}
+          </div>
+          <div className="middle">
+            {selectedView && detail.data && (
+              <>
+                <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />
+                <WellPanel
+                  wells={wells}
+                  onRemove={removeField}
+                  onRun={runQuery}
+                  running={run.isPending}
+                />
+              </>
+            )}
+            {selectedView && detail.isLoading && <p>Describing view...</p>}
+            {selectedView && detail.isError && (
+              <div role="alert">
+                <p>
+                  {detail.error instanceof ApiError
+                    ? detail.error.message
+                    : "Failed to describe view."}
+                </p>
+                <button onClick={() => detail.refetch()}>Retry</button>
+              </div>
+            )}
+            {!selectedView && <p>Select a semantic view to begin.</p>}
+          </div>
+          <div className="main">
+            {run.isError && (
+              <p role="alert">
+                {run.error instanceof ApiError ? run.error.message : "Query failed"}
               </p>
-              <button onClick={() => detail.refetch()}>Retry</button>
-            </div>
-          )}
-          {!selectedView && <p>Select a semantic view to begin.</p>}
+            )}
+            {run.data && detail.data && (
+              <QueryPanel result={run.data} detail={detail.data} wells={wells} />
+            )}
+          </div>
         </div>
-        <div className="main">
-          {run.isError && (
-            <p role="alert">
-              {run.error instanceof ApiError ? run.error.message : "Query failed"}
-            </p>
-          )}
-          {run.data && detail.data && (
-            <QueryPanel result={run.data} detail={detail.data} selection={selection} />
-          )}
-        </div>
-      </div>
+      </DndContext>
     </div>
   );
 }

@@ -1,68 +1,78 @@
+import { useDraggable } from "@dnd-kit/core";
 import type { FieldInfo, SemanticViewDetail } from "../api/types";
-
-export interface Selection {
-  dimensions: string[];
-  metrics: string[];
-}
+import { defaultWellFor, type DragData, type FieldKind, type WellId, type Wells } from "./wells";
 
 interface Props {
   detail: SemanticViewDetail;
-  selection: Selection;
-  onToggle: (kind: "dimensions" | "metrics", ref: string) => void;
-  onRun: () => void;
-  running: boolean;
+  wells: Wells;
+  onAdd: (wellId: WellId, ref: string, kind: FieldKind) => void;
 }
 
 function refOf(field: FieldInfo): string {
   return `${field.table}.${field.name}`;
 }
 
+function FieldRow({ field, kind, wells, onAdd }: {
+  field: FieldInfo;
+  kind: FieldKind;
+  wells: Wells;
+  onAdd: Props["onAdd"];
+}) {
+  const ref = refOf(field);
+  const data: DragData = { ref, kind };
+  // `attributes` already includes an `aria-pressed` that reflects
+  // `isDragging` (dnd-kit's own drag-state signal), so it isn't repeated
+  // here as a separate prop.
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: ref,
+    data,
+  });
+  return (
+    <button
+      type="button"
+      ref={setNodeRef}
+      className="field-row"
+      onClick={() => onAdd(defaultWellFor(kind, wells), ref, kind)}
+      {...listeners}
+      {...attributes}
+    >
+      <span className="field-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
+      <span>{ref}</span>
+      {field.dataType && <small>{field.dataType}</small>}
+    </button>
+  );
+}
+
 function FieldGroup({
-  title, kind, fields, selection, onToggle,
+  title, kind, fields, wells, onAdd,
 }: {
   title: string;
-  kind: "dimensions" | "metrics";
+  kind: FieldKind;
   fields: FieldInfo[];
-  selection: Selection;
-  onToggle: Props["onToggle"];
+  wells: Wells;
+  onAdd: Props["onAdd"];
 }) {
   return (
     <section>
       <h4>{title}</h4>
-      {fields.map((field) => {
-        const ref = refOf(field);
-        return (
-          <label key={ref} className="field-row">
-            <input
-              type="checkbox"
-              checked={selection[kind].includes(ref)}
-              onChange={() => onToggle(kind, ref)}
-              aria-label={ref}
-            />
-            <span>{ref}</span>
-            {field.dataType && <small>{field.dataType}</small>}
-          </label>
-        );
-      })}
+      {fields.map((field) => (
+        <FieldRow key={refOf(field)} field={field} kind={kind} wells={wells} onAdd={onAdd} />
+      ))}
     </section>
   );
 }
 
-export default function FieldPanel({ detail, selection, onToggle, onRun, running }: Props) {
-  const canRun = selection.dimensions.length + selection.metrics.length > 0;
+export default function FieldPanel({ detail, wells, onAdd }: Props) {
   return (
     <aside className="field-panel">
       <FieldGroup
-        title="Dimensions" kind="dimensions" fields={detail.dimensions}
-        selection={selection} onToggle={onToggle}
+        title="Dimensions" kind="dimension" fields={detail.dimensions}
+        wells={wells} onAdd={onAdd}
       />
       <FieldGroup
-        title="Metrics" kind="metrics" fields={detail.metrics}
-        selection={selection} onToggle={onToggle}
+        title="Metrics" kind="metric" fields={detail.metrics}
+        wells={wells} onAdd={onAdd}
       />
-      <button onClick={onRun} disabled={!canRun || running}>
-        {running ? "Running..." : "Run"}
-      </button>
     </aside>
   );
 }
