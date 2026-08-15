@@ -23,15 +23,11 @@ import ImportPanel from "./ImportPanel";
 import VisualPicker, { changeVisualType } from "./VisualPicker";
 import VisualWells from "./VisualWells";
 
-/** The describe call throws a real `ApiError` in production, but tests may
- *  reject with a plain `Error` carrying `code`/`status` (see
- *  BuilderPage.test.tsx's "offers to rebind" case) — so this checks shape
- *  rather than `instanceof ApiError`, which would miss that case. */
+/** `apiFetch` only ever throws real `ApiError` instances, so `instanceof`
+ *  is sound here — no need to duck-type `status`/`code` off an `unknown`. */
 function isMissingView(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const status = (error as { status?: unknown }).status;
-  const code = (error as { code?: unknown }).code;
-  return status === 404 || code === "SNOWFLAKE_FORBIDDEN" || code === "QUERY_ERROR";
+  if (!(error instanceof ApiError)) return false;
+  return error.status === 404 || error.code === "SNOWFLAKE_FORBIDDEN" || error.code === "QUERY_ERROR";
 }
 
 function viewMissingReason(view: ViewRef): string {
@@ -162,6 +158,19 @@ export default function BuilderPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [panel, setPanel] = useState<"export" | "import" | null>(null);
 
+  // The route element isn't keyed in App.tsx, so navigating from one report
+  // to another (e.g. BuilderPage's own Import flow, which navigates to the
+  // freshly-imported report's id) reuses this same component instance
+  // rather than remounting it. Without this reset, the populate effect below
+  // (guarded by `definition === null`) would never fire again once
+  // `definition` already holds the PREVIOUS report's data — leaving the old
+  // definition on screen, editable, with Save posting it to the new id.
+  useEffect(() => {
+    setDefinition(null);
+    setSavedJson(null);
+    setSelectedId(null);
+  }, [reportId]);
+
   useEffect(() => {
     if (report.data && definition === null) {
       setDefinition(report.data.definition);
@@ -196,15 +205,19 @@ export default function BuilderPage() {
     },
   });
 
-  if (report.isLoading || definition === null) {
-    return <p>Loading report…</p>;
-  }
+  // Error must be checked first: `definition` only ever leaves `null` when
+  // `report.data` arrives, so on a failed fetch it stays `null` forever —
+  // if the loading guard ran first, a failed load would trap every render
+  // in "Loading report…" rather than ever reaching this branch.
   if (report.isError) {
     return (
       <p role="alert">
         {report.error instanceof ApiError ? report.error.message : "Could not load this report."}
       </p>
     );
+  }
+  if (report.isLoading || definition === null) {
+    return <p>Loading report…</p>;
   }
 
   const dirty = JSON.stringify(definition) !== savedJson;
@@ -252,6 +265,11 @@ export default function BuilderPage() {
   const addFieldToSelected = (ref: string, kind: FieldKind) => {
     const visual = definition.visuals.find((v) => v.id === selectedId);
     if (!visual) return;
+    // Same cross-well dedupe `onDragEnd` applies: a ref already sitting in
+    // ANY well of this visual is a no-op, not another append — otherwise
+    // clicking the same field row repeatedly kept stacking duplicates into
+    // an unbounded well (e.g. Values).
+    if (Object.values(visual.wells).some((refs) => refs.includes(ref))) return;
     const wellKey = defaultWellFor(visual.type as VisualType, kind, visual.wells);
     if (!wellKey) {
       setNotice(`Every ${kind} well on this visual is full.`);
@@ -342,6 +360,11 @@ export default function BuilderPage() {
           </button>
         </div>
       </header>
+      {save.isError && (
+        <p role="alert">
+          {save.error instanceof ApiError ? save.error.message : "Could not save this report."}
+        </p>
+      )}
       {notice && <p className="notice">{notice}</p>}
       {needsBind ? (
         <BindViewPanel reason={view.name ? viewMissingReason(view) : null} onBind={bindView} />
@@ -381,6 +404,13 @@ export default function BuilderPage() {
                     {refreshFields.isPending ? "Refreshing…" : "Refresh fields"}
                   </button>
                 </div>
+                {refreshFields.isError && (
+                  <p role="alert">
+                    {refreshFields.error instanceof ApiError
+                      ? refreshFields.error.message
+                      : "Could not refresh fields."}
+                  </p>
+                )}
                 {viewDetail.isError && !isMissingView(viewDetail.error) && (
                   <p role="alert">
                     {viewDetail.error instanceof ApiError
