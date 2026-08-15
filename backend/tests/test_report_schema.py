@@ -106,3 +106,15 @@ def test_export_document_is_deterministic_and_sorted():
     # No identity, timestamps or ids leak into the portable document.
     assert "owner" not in a and "createdAt" not in a and "updatedAt" not in a
     assert a.endswith("\n")
+
+
+def test_validation_errors_do_not_echo_the_submitted_value():
+    marker = "SENSITIVE-MARKER-VALUE"
+    doc = valid_doc()
+    doc["visuals"][0]["layout"] = {"x": marker, "y": 0, "w": 6, "h": 6}
+    with pytest.raises(ApiError) as exc:
+        parse_definition(doc)
+    assert marker not in str(exc.value.detail or "")
+    assert marker not in exc.value.message
+    # The path and reason must survive — the point is redaction, not silence.
+    assert "layout" in str(exc.value.detail)

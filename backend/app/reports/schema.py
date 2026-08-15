@@ -10,7 +10,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from app.errors import ApiError
+from app.errors import ApiError, safe_error_details
 from app.reports.catalog import CATALOG, validate_wells
 
 SCHEMA_VERSION = 1
@@ -81,8 +81,13 @@ def parse_definition(raw: dict) -> ReportDefinition:
         definition = ReportDefinition.model_validate(raw)
     except ValidationError as exc:
         # Pydantic's own text names the offending path, which is what the user
-        # needs; it contains only their own submitted structure.
-        raise _invalid("The report definition is not valid", detail=str(exc.errors()))
+        # needs. Strip the raw `input` value first -- it would otherwise echo
+        # whatever the caller submitted (including anything sensitive) back
+        # into the response body.
+        raise _invalid(
+            "The report definition is not valid",
+            detail=str(safe_error_details(exc.errors())),
+        )
 
     seen_ids: set[str] = set()
     for visual in definition.visuals:

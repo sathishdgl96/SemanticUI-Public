@@ -18,6 +18,16 @@ class AuthExpiredError(ApiError):
         super().__init__("AUTH_EXPIRED", 401, message)
 
 
+def safe_error_details(errors: list[dict]) -> list[dict]:
+    """Strip pydantic's raw `input` value from validation error dicts.
+
+    `.errors()` embeds the submitted value, so serialising it verbatim echoes
+    whatever the caller sent back to them in the response body. Callers only
+    need the path, the message and the type.
+    """
+    return [{k: v for k, v in error.items() if k != "input"} for error in errors]
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
@@ -33,9 +43,7 @@ def register_error_handlers(app: FastAPI) -> None:
         # failing field, which would leak any sensitive field (e.g. a
         # private key) that fails validation straight into the response
         # body. Strip it before rendering.
-        safe_errors = [
-            {k: v for k, v in error.items() if k != "input"} for error in exc.errors()
-        ]
+        safe_errors = safe_error_details(exc.errors())
         return JSONResponse(
             status_code=422,
             content={
