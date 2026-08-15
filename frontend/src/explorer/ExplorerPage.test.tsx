@@ -21,13 +21,27 @@ vi.mock("../api/client", () => ({
   },
 }));
 
+vi.mock("../api/reports", () => ({
+  createReport: vi.fn(),
+}));
+
 import { apiFetch, ApiError } from "../api/client";
+import { createReport } from "../api/reports";
+import type { SemanticViewDetail } from "../api/types";
 import ExplorerPage from "./ExplorerPage";
 
 const apiFetchMock = vi.mocked(apiFetch);
+const createReportMock = vi.mocked(createReport);
 
 const ME = { snowflakeUser: "ALICE", snowflakeAccount: "ACME", mode: "dev" };
 const VIEW = { name: "My View", database: "DB", schema: "SCH", comment: null };
+const DETAIL: SemanticViewDetail = {
+  tables: [{ name: "T" }],
+  relationships: [],
+  dimensions: [{ table: "T", name: "REGION", dataType: "TEXT" }],
+  metrics: [{ table: "T", name: "REVENUE", dataType: "NUMBER" }],
+  facts: [],
+};
 
 function mockRoutes(detailResult: () => Promise<unknown>) {
   apiFetchMock.mockImplementation((...args: unknown[]) => {
@@ -48,6 +62,7 @@ function renderPage(qc = new QueryClient({ defaultOptions: { queries: { retry: f
           <Routes>
             <Route path="/" element={<ExplorerPage />} />
             <Route path="/login" element={<p>Login page</p>} />
+            <Route path="/reports/:id" element={<p>Builder page</p>} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -57,6 +72,7 @@ function renderPage(qc = new QueryClient({ defaultOptions: { queries: { retry: f
 
 beforeEach(() => {
   apiFetchMock.mockReset();
+  createReportMock.mockReset();
 });
 
 describe("ExplorerPage", () => {
@@ -151,5 +167,53 @@ describe("ExplorerPage", () => {
     // stale cache.
     await screen.findByText("Login page");
     expect(qc.getQueryData(["semantic-views"])).toBeUndefined();
+  });
+
+  it("disables Add to report until a view is selected and a field is placed", async () => {
+    mockRoutes(() => Promise.resolve(DETAIL));
+    renderPage();
+
+    expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
+
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await screen.findByRole("button", { name: /REGION/ });
+    expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
+  });
+
+  it("creates a report from the current view and wells, then navigates to its builder", async () => {
+    mockRoutes(() => Promise.resolve(DETAIL));
+    createReportMock.mockResolvedValue({
+      id: "r1",
+      name: "My View",
+      view: { database: "DB", schema: "SCH", name: "My View" },
+      updatedAt: "2026-08-15T00:00:00Z",
+      definition: {
+        schemaVersion: 1,
+        name: "My View",
+        view: { database: "DB", schema: "SCH", name: "My View" },
+        canvas: { columns: 12, rowHeight: 40 },
+        visuals: [],
+      },
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+
+    const addButton = screen.getByRole("button", { name: /add to report/i });
+    expect(addButton).toBeEnabled();
+    await userEvent.click(addButton);
+
+    await waitFor(() => expect(createReportMock).toHaveBeenCalledTimes(1));
+    const [definition] = createReportMock.mock.calls[0];
+    expect(definition.view).toEqual({ database: "DB", schema: "SCH", name: "My View" });
+    expect(definition.visuals).toHaveLength(1);
+    expect(definition.visuals[0]).toMatchObject({
+      type: "bar",
+      layout: { x: 0, y: 0, w: 6, h: 6 },
+      wells: { axis: ["T.REGION"], legend: [], values: [] },
+    });
+
+    await screen.findByText("Builder page");
   });
 });

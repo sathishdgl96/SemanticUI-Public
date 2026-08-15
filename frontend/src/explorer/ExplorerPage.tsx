@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
+import { createReport } from "../api/reports";
 import type {
   QueryResponse,
+  ReportDefinition,
   SemanticQueryBody,
   SemanticViewDetail,
   SemanticViewSummary,
@@ -87,6 +89,43 @@ export default function ExplorerPage() {
       }),
   });
 
+  // The explorer's wells (Axis/Legend/Values) are exactly the well keys a
+  // "bar" visual takes (see reports/catalog.ts's CATEGORICAL wells), so the
+  // current selection hands off to the builder unchanged as that visual's
+  // one well set — no remapping needed.
+  const addToReport = useMutation({
+    mutationFn: (definition: ReportDefinition) => createReport(definition),
+    onSuccess: (report) => navigate(`/reports/${report.id}`),
+  });
+
+  const hasPlacedField = wells.axis.length > 0 || wells.legend.length > 0 || wells.values.length > 0;
+  const canAddToReport = selectedView !== null && hasPlacedField;
+
+  function handleAddToReport() {
+    if (!selectedView) return;
+    const definition: ReportDefinition = {
+      schemaVersion: 1,
+      name: selectedView.name,
+      view: {
+        database: selectedView.database,
+        schema: selectedView.schema,
+        name: selectedView.name,
+      },
+      canvas: { columns: 12, rowHeight: 40 },
+      visuals: [
+        {
+          id: `v${crypto.randomUUID().slice(0, 8)}`,
+          type: "bar",
+          title: "",
+          layout: { x: 0, y: 0, w: 6, h: 6 },
+          wells: { axis: wells.axis, legend: wells.legend, values: wells.values },
+          options: {},
+        },
+      ],
+    };
+    addToReport.mutate(definition);
+  }
+
   function selectView(view: SemanticViewSummary) {
     setSelectedView(view);
     setWells(emptyWells());
@@ -144,6 +183,21 @@ export default function ExplorerPage() {
       <header className="topbar">
         <strong>SemanticUI</strong>
         <span className="identity-row">
+          <button
+            type="button"
+            className="add-to-report"
+            onClick={handleAddToReport}
+            disabled={!canAddToReport || addToReport.isPending}
+          >
+            {addToReport.isPending ? "Adding…" : "Add to report"}
+          </button>
+          {addToReport.isError && (
+            <span role="alert">
+              {addToReport.error instanceof ApiError
+                ? addToReport.error.message
+                : "Could not create report."}
+            </span>
+          )}
           <span className="identity">
             {me.data ? `${me.data.snowflakeUser} @ ${me.data.snowflakeAccount}` : ""}
           </span>

@@ -206,6 +206,76 @@ DATE/TIMESTAMP; otherwise bar with rounded tops; no chart unless exactly one
 Axis dimension and at least one metric are selected), a results table, and a
 "SQL sent" preview of the exact `SEMANTIC_VIEW(...)` SQL that ran.
 
+## Reports
+
+`/reports` lists the signed-in user's own saved reports (owned per user -
+nobody sees anyone else's). **New report** creates a blank, unbound report
+and opens it in the builder at `/reports/{id}`; the explorer's **Add to
+report** button (top bar, enabled once a view is selected and at least one
+field is placed in a well) does the same but seeds it with a single Bar
+visual holding the wells you already built - a one-click hand-off from ad
+hoc exploration to a saved report.
+
+**Binding a view.** A fresh or orphaned report (its bound view renamed,
+dropped, or no longer visible to your role) shows the same semantic-view
+tree as the explorer; pick a view to bind the report to it. Only fields that
+view exposes to your Snowflake role can be placed on a visual.
+
+**Adding visuals and choosing a type.** The builder's right-hand
+"Visualizations" pane picks a type and adds a visual to the canvas at a
+default 6x6 layout. The type picker can also switch an existing selected
+visual's type in place; fields that don't fit the new type's wells are
+dropped and named in a one-line notice. Fields are placed either by
+**clicking** a field in the "Fields" pane (adds to the first well of the
+matching kind with room) or by **dragging** it onto a specific well - drag is
+never the only way to place a field.
+
+**The seven visual types and what each well takes:**
+
+| Type | Wells |
+| --- | --- |
+| Bar | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
+| Line | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
+| Area | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
+| Pie | Legend (1 dimension), Values (1 metric) |
+| Scatter | X axis (1 metric), Y axis (1 metric), Detail (0-1 dimension) |
+| Table | Dimensions (0+), Metrics (0+) - at least one field total |
+| KPI card | Value (1 metric) |
+
+Bar and Area also take a **stacked** option; Pie takes **donut**; KPI takes a
+number **format** (plain or compact, e.g. "1,234,567" vs. "1.2M"). A field
+may only occupy one well on a visual at a time.
+
+**Canvas.** Tiles drag to reposition and resize on a 12-column grid; each
+tile queries independently, so one tile's fields being invalid or its query
+failing (e.g. a field your role can no longer see) shows that tile's own
+error without affecting its neighbours, which keep rendering their own data.
+
+**Saving.** The **Save** button is disabled until the report has unsaved
+changes (a diff against the last loaded/saved definition) and re-disables
+immediately after a successful save.
+
+**Export and import.** **Export** shows the report's portable JSON
+definition in a read-only, selectable/copyable text box (`GET
+/api/reports/{id}/export`) - stable key order and formatting, so two exports
+of an unchanged report are byte-identical. **Import** accepts that JSON back
+(`POST /api/reports/import`) and always creates a **new** report, never
+overwriting one that exists; an optional database/schema/view override lets
+you retarget the imported report at a different semantic view (e.g. moving a
+definition from a dev view to a prod one) before it's validated. Either way,
+import re-validates **every field reference** in the definition against a
+live DESCRIBE of the target view run on the importing user's own Snowflake
+connection - a field the importer's role can't see, or that no longer
+exists, is rejected with the offending reference named in the error, not
+silently dropped.
+
+**Report definitions are stored; query results never are.** Only the
+JSON definition (view binding, visuals, wells, layout, options) is persisted
+in Postgres. A shared or imported report always runs on the *viewer's own*
+Snowflake credentials and role the moment they open it - the same "Snowflake
+RBAC is the sole authority on data access" rule the explorer follows. Nothing
+about report data itself is ever written to SemanticUI's own database.
+
 ## Tests
 
     cd backend && .venv\Scripts\python.exe -m pytest -v     # unit tests (no Snowflake needed)
@@ -225,8 +295,17 @@ real Snowflake account. To run them, set:
     # optional: SEMANTICUI_IT_DATABASE, SEMANTICUI_IT_SCHEMA, SEMANTICUI_IT_VIEW
 
 then run `pytest -m integration -v`. With `SEMANTICUI_IT_ACCOUNT` unset, all
-four tests are cleanly **skipped** (not errored, not failed) via a
-module-level `skipif`.
+five tests (four Snowflake-gateway tests plus the report round trip in
+`test_reports_it.py`) are cleanly **skipped** (not errored, not failed) via
+each module's own `skipif`.
+
+`backend/tests/integration/test_reports_it.py` covers the report side: it
+signs in with the connector directly (same pattern as
+`test_snowflake_it.py`), builds a definition from a real view's own first
+dimension and metric, runs it through `import_report` - which re-validates
+every field against a live DESCRIBE - and asserts the stored definition
+round-trips byte-for-byte through `to_export_document`. This is the test
+that would catch a DESCRIBE-shape change silently breaking import.
 
 ## Manual smoke test checklist
 
@@ -264,12 +343,33 @@ up:
     call to list semantic views now 401s (no cached connection to resume a
     dev-mode session from, key-pair included) and you're bounced to the
     login page -> log in again.
+15. **Report round trip.** From `/reports`, click **New report** -> lands in
+    the builder -> bind it to a semantic view. Add two visuals of different
+    types (e.g. Bar and Table) and place fields on each by clicking (not just
+    dragging). Drag one tile to a new grid position. Click **Save** (enabled
+    only once something changed) -> reload the page -> the report reopens
+    with both visuals, their fields, and the dragged tile's new position
+    intact. Click **Export**, select and copy the JSON shown. From `/reports`,
+    click **Import**, paste that JSON, and submit with no view override ->
+    a second report is created -> open it and confirm it renders identically
+    to the original (same visuals, same fields, same layout).
 
 Fix anything that fails before committing.
 
-> **Note on this checklist:** it is written to be followed by a human
-> against a real Snowflake account and browser; it has not been executed as
-> part of this change (no Snowflake account or Docker was available in this
-> environment). Everything else in this README - config keys, validator
-> behavior, endpoint names, component/interaction behavior - was verified
-> directly against the source in `backend/app` and `frontend/src`.
+> **Note on this checklist:** items 1-14 (auth/explorer) are written to be
+> followed by a human against a real Snowflake account and have not been
+> re-executed against a live account as part of this change (no Snowflake
+> account was available in this environment). Item 15 (report round trip)
+> *was* driven end-to-end in a real Chromium browser against the running
+> app, with only the network layer stubbed (Playwright `page.route()` faking
+> `/api/*` responses) since no Snowflake account was available - every
+> component, layout rule, and interaction (click-to-place, drag, resize,
+> type switching, per-tile error isolation, save/export/import) was
+> exercised for real. That pass caught and led to a fix for a real bug: at
+> the <960px stacked breakpoint, a chart tile's height resolved to 0 (a
+> `height: 100%` percentage chain through an ancestor whose own `height` was
+> `auto`), leaving every chart blank on narrow screens even though the query
+> underneath had succeeded; `.tile-body`/`.auto-chart` now use flex sizing
+> instead. Everything else in this README - config keys, validator behavior,
+> endpoint names, component/interaction behavior - was verified directly
+> against the source in `backend/app` and `frontend/src`.

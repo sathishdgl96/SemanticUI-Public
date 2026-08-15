@@ -290,7 +290,8 @@ button:disabled {
 /* Log out must never shrink or wrap onto a second line -- it's the one
    control in the topbar that has to stay operable at any width, so the
    identity text is what gives way (truncating) instead. */
-.topbar .identity-row .link {
+.topbar .identity-row .link,
+.topbar .identity-row .add-to-report {
   flex: 0 0 auto;
   white-space: nowrap;
 }
@@ -1039,10 +1040,23 @@ button.secondary,
   min-height: 0;
   overflow: auto;
   padding: 8px;
+  /* A flex column, not block layout: `.tile`'s own height is only ever
+     "definite" via `min-height` at the <960px stacked tier (its ancestor
+     `.react-grid-item` is `height: auto` there — see below), and a plain
+     block child's `height: 100%` does not reliably resolve against a
+     containing block whose own `height` CSS property is `auto` even when
+     that block's *painted* size is non-zero (min-height sets the painted
+     size, not a definite `height`). Chart libraries hit this constantly;
+     the standard fix is to make the chart's container a flex item instead
+     of a percentage-height block child, since a flex item's main size is
+     always definite by construction. */
+  display: flex;
+  flex-direction: column;
 }
 
 .tile-body .auto-chart {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   margin: 0;
   border: none;
 }
