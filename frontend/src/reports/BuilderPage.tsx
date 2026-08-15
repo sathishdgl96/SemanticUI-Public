@@ -1,12 +1,13 @@
 import { DndContext, useDraggable, type DragEndEvent } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import type {
   FieldInfo,
   ReportDefinition,
+  ReportDetail,
   SemanticViewDetail,
   SemanticViewSummary,
   ViewRef,
@@ -17,6 +18,8 @@ import { useFieldSensors } from "../explorer/dndSensors";
 import ViewTree from "../explorer/ViewTree";
 import { CATALOG, defaultWellFor, emptyWellsFor, type FieldKind, type VisualType } from "./catalog";
 import CanvasGrid from "./CanvasGrid";
+import ExportPanel from "./ExportPanel";
+import ImportPanel from "./ImportPanel";
 import VisualPicker, { changeVisualType } from "./VisualPicker";
 import VisualWells from "./VisualWells";
 
@@ -142,6 +145,7 @@ function BuilderFieldGroup({
 export default function BuilderPage() {
   const { id } = useParams<{ id: string }>();
   const reportId = id ?? "";
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const sensors = useFieldSensors();
 
@@ -297,6 +301,14 @@ export default function BuilderPage() {
     });
   };
 
+  // Import always creates a *new* report (see `POST /api/reports/import`),
+  // so landing here mid-edit hands off to that new report's own builder
+  // route rather than trying to merge it into the one currently open.
+  const onImported = (imported: ReportDetail) => {
+    setPanel(null);
+    navigate(`/reports/${imported.id}`);
+  };
+
   const dimensions = viewDetail.data?.dimensions ?? [];
   const metrics = viewDetail.data?.metrics ?? [];
 
@@ -392,6 +404,16 @@ export default function BuilderPage() {
             </aside>
           </div>
         </DndContext>
+      )}
+      {panel === "export" && (
+        <div className="panel-overlay">
+          <ExportPanel reportId={reportId} onClose={() => setPanel(null)} />
+        </div>
+      )}
+      {panel === "import" && (
+        <div className="panel-overlay">
+          <ImportPanel onImported={onImported} onClose={() => setPanel(null)} />
+        </div>
       )}
     </div>
   );

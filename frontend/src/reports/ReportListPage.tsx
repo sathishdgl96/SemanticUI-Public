@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createReport, deleteReport, listReports } from "../api/reports";
-import type { ReportDefinition } from "../api/types";
+import type { ReportDefinition, ReportDetail } from "../api/types";
+import ImportPanel from "./ImportPanel";
 
 function blankDefinition(name: string): ReportDefinition {
   return {
@@ -20,6 +21,7 @@ export default function ReportListPage() {
   const navigate = useNavigate();
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   const reports = useQuery({ queryKey: ["reports"], queryFn: listReports });
 
@@ -45,6 +47,11 @@ export default function ReportListPage() {
     onSuccess: (report) => navigate(`/reports/${report.id}`),
   });
 
+  function onImported(report: ReportDetail) {
+    setShowImport(false);
+    navigate(`/reports/${report.id}`);
+  }
+
   return (
     <main className="reports">
       <header className="reports-head">
@@ -53,6 +60,9 @@ export default function ReportListPage() {
           <Link className="button secondary" to="/explore">
             Explore
           </Link>
+          <button className="secondary" onClick={() => setShowImport(true)}>
+            Import
+          </button>
           <button onClick={() => create.mutate()} disabled={create.isPending}>
             {create.isPending ? "Creating..." : "New report"}
           </button>
@@ -115,6 +125,12 @@ export default function ReportListPage() {
           >
             Cancel
           </button>
+        </div>
+      )}
+
+      {showImport && (
+        <div className="panel-overlay">
+          <ImportPanel onImported={onImported} onClose={() => setShowImport(false)} />
         </div>
       )}
     </main>
