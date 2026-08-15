@@ -165,10 +165,34 @@ export default function BuilderPage() {
   // (guarded by `definition === null`) would never fire again once
   // `definition` already holds the PREVIOUS report's data — leaving the old
   // definition on screen, editable, with Save posting it to the new id.
+  // Everything else scoped to "the report currently being edited" is reset
+  // here too: a stale `notice` (e.g. a dropped-wells message) from the old
+  // report would otherwise keep rendering under the new one; an open
+  // Export/Import `panel` should not silently carry over rather than being
+  // cleared defensively (it happened to work before only because
+  // `onImported` itself called `setPanel(null)`); and `save`/`refreshFields`
+  // are `useMutation` objects that keep their `isError`/`error` until the
+  // next `.mutate()` or an explicit `.reset()` — without resetting them
+  // here, failing a Save on report A and then navigating to report B would
+  // show report A's failure alert attributed to a report the user never
+  // touched.
   useEffect(() => {
     setDefinition(null);
     setSavedJson(null);
     setSelectedId(null);
+    setNotice(null);
+    setPanel(null);
+    save.reset();
+    refreshFields.reset();
+    // `save`/`refreshFields` deliberately left out of the dependency array:
+    // react-query hands back a new mutation result object on every render
+    // (its `isPending`/`isError`/etc. all live on that object), so listing
+    // them here would re-run this effect — and re-clear `definition` — on
+    // every render, not just when `reportId` actually changes. This effect
+    // only needs to run on a report-identity change; the `.reset` calls
+    // above always see the current render's mutation objects regardless of
+    // whether those objects are declared as dependencies.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId]);
 
   useEffect(() => {

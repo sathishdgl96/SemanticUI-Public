@@ -231,4 +231,46 @@ describe("BuilderPage", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/describe failed/i);
   });
+
+  it("clears a stale save-failure alert when navigating to a different report", async () => {
+    // Same shape as "resets the working copy when navigating to a different
+    // report": fail a Save on r1 so its alert appears, then navigate to r2
+    // (same mounted instance) and assert r1's failure isn't still attributed
+    // to r2.
+    getMock.mockReset();
+    getMock.mockImplementation((requestedId: string) =>
+      Promise.resolve(requestedId === "r2" ? detail2 : detail),
+    );
+    updateMock.mockRejectedValue(new ApiError("REPORT_LOCKED", 409, "Report is locked"));
+
+    function Nav() {
+      const navigate = useNavigate();
+      return (
+        <button onClick={() => navigate("/reports/r2")}>go to r2</button>
+      );
+    }
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/reports/r1"]}>
+          <Nav />
+          <Routes>
+            <Route path="/reports/:id" element={<BuilderPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByDisplayValue("Sales overview")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+    await userEvent.click(screen.getByRole("button", { name: /remove C\.REGION/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/report is locked/i);
+
+    await userEvent.click(screen.getByRole("button", { name: /go to r2/i }));
+    expect(await screen.findByDisplayValue("Marketing overview")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
