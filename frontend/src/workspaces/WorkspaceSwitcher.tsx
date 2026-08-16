@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ApiError } from "../api/client";
 import { createWorkspace } from "../api/workspaces";
 import { useWorkspaces } from "./useWorkspaces";
@@ -18,6 +18,12 @@ export default function WorkspaceSwitcher({
   onManageMembers,
 }: Props) {
   const workspaces = useWorkspaces();
+  // An explicit id rather than a wrapping <label>. Wrapping a <select> folds
+  // its option text into the accessible name -- the control reads as
+  // "WorkspaceMy reportsTeam" to a real browser, and only Testing Library's
+  // more forgiving label matching hides it.
+  const selectId = useId();
+  const nameId = useId();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
@@ -37,16 +43,14 @@ export default function WorkspaceSwitcher({
 
   return (
     <div className="workspace-switcher">
-      <label>
-        Workspace
-        <select value={value} onChange={(e) => onChange(e.target.value)}>
-          {rows.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <label htmlFor={selectId}>Workspace</label>
+      <select id={selectId} value={value} onChange={(e) => onChange(e.target.value)}>
+        {rows.map((w) => (
+          <option key={w.id} value={w.id}>
+            {w.name}
+          </option>
+        ))}
+      </select>
 
       {selected && (
         <span className="workspace-role">
@@ -76,10 +80,13 @@ export default function WorkspaceSwitcher({
             if (name.trim()) create.mutate();
           }}
         >
-          <label>
-            Workspace name
-            <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </label>
+          <label htmlFor={nameId}>Workspace name</label>
+          <input
+            id={nameId}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
           <button type="submit" disabled={!name.trim() || create.isPending}>
             Create
           </button>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ApiError } from "../api/client";
 import type { Role } from "../api/types";
 import { addMember, listMembers, removeMember, setMemberRole } from "../api/workspaces";
@@ -20,6 +20,11 @@ export default function MembersPanel({ workspaceId, myRole, onClose }: Props) {
   });
   const [username, setUsername] = useState("");
   const [newRole, setNewRole] = useState<Role>("viewer");
+  // Explicit ids, not wrapping labels: a <label> around a <select> folds the
+  // option text into the control's accessible name, so it reads as
+  // "Role for BOBviewereditoradmin" in a real browser.
+  const usernameId = useId();
+  const newRoleId = useId();
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["workspace-members", workspaceId] });
@@ -77,25 +82,26 @@ export default function MembersPanel({ workspaceId, myRole, onClose }: Props) {
               </span>
               {canManage ? (
                 <>
-                  <label>
+                  <label htmlFor={`role-${member.userId}`}>
                     Role for {member.snowflakeUser}
-                    <select
-                      value={member.role}
-                      disabled={isLastAdmin}
-                      onChange={(e) =>
-                        changeRole.mutate({
-                          userId: member.userId,
-                          role: e.target.value as Role,
-                        })
-                      }
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
                   </label>
+                  <select
+                    id={`role-${member.userId}`}
+                    value={member.role}
+                    disabled={isLastAdmin}
+                    onChange={(e) =>
+                      changeRole.mutate({
+                        userId: member.userId,
+                        role: e.target.value as Role,
+                      })
+                    }
+                  >
+                    {ROLE_OPTIONS.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     className="link"
@@ -127,23 +133,24 @@ export default function MembersPanel({ workspaceId, myRole, onClose }: Props) {
             if (username.trim()) add.mutate();
           }}
         >
-          <label>
-            Snowflake username
-            <input value={username} onChange={(e) => setUsername(e.target.value)} />
-          </label>
-          <label>
-            Role for the new member
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value as Role)}
-            >
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
-          </label>
+          <label htmlFor={usernameId}>Snowflake username</label>
+          <input
+            id={usernameId}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <label htmlFor={newRoleId}>Role for the new member</label>
+          <select
+            id={newRoleId}
+            value={newRole}
+            onChange={(e) => setNewRole(e.target.value as Role)}
+          >
+            {ROLE_OPTIONS.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
           <button type="submit" disabled={!username.trim() || add.isPending}>
             Add
           </button>

@@ -405,6 +405,95 @@ dropped, because `IN (?)` never matches it and offering it would build a
 filter that silently returns nothing.
 
 
+## Workspaces and sharing
+
+**Workspaces are the only unit of sharing.** A report lives in exactly one
+workspace, and membership of that workspace is the only thing that grants
+anyone access to it. There is no second, unfiled access path, so "why can this
+person see this?" has exactly one answer.
+
+Every user gets a **personal workspace** on first login, called "My reports".
+It refuses members, renames and deletion - that is what makes it personal, and
+it is enforced server-side rather than by hiding a button.
+
+### Roles
+
+| Role | May |
+|---|---|
+| `viewer` | Open and export reports |
+| `editor` | Also create, edit, delete and move them |
+| `admin` | Also manage membership, rename and delete the workspace |
+
+These control who may change a report *definition*. They have nothing to do
+with who may see *data* - that is Snowflake's business, below.
+
+The ladder lives in one place (`app/workspaces/roles.py`) and fails closed: an
+unrecognised role ranks below everything, rather than sorting above `admin` the
+way a naive string comparison would.
+
+### Sharing shares definitions. It never shares data.
+
+This is the property the whole feature exists to preserve, and it is worth
+being blunt about.
+
+Every query runs on `entry.conn` - the connection belonging to the *requesting*
+session, from that user's own Snowflake login. There is no service account, no
+stored result set, and the per-session describe cache lives inside each
+session's `CacheEntry` rather than in a process global.
+
+So a viewer opening a shared report runs its queries **as themselves**. If
+their Snowflake role cannot read the underlying view, the tiles fail with
+`SNOWFLAKE_FORBIDDEN` and they see the report's shape and none of its numbers.
+That is the correct outcome, not a bug to work around: adding someone to a
+workspace grants them a definition, never a row.
+
+`backend/tests/test_sharing_uses_viewer_credentials.py` asserts it directly -
+two members, one workspace, one connection stubbed to refuse SELECT - and
+asserts the *positive* case in the same fixture, so "no data" cannot be
+mistaken for "nothing works".
+
+### 404 versus 403
+
+A **non-member** gets **404**, so they cannot tell "does not exist" from
+"exists and is not yours". A **member with too low a role** gets **403**,
+because they already know it exists and a 404 there would be a lie that helps
+nobody. Both decisions are made in one function, `require_access` in
+`app/workspaces/access.py`, which is the only place authorization is decided.
+
+### Guard rails
+
+Each is a server-side rule, not a UI affordance:
+
+1. **The last admin cannot be removed or demoted**, including by themselves.
+   A workspace with no admin can never have its membership changed again.
+2. **A personal workspace refuses members, renames and deletion.**
+3. **Membership is confined to one Snowflake account.** Adding a user from
+   another account is rejected: their credentials could never resolve the
+   workspace's views, so the grant would be an illusion of access.
+4. **Moving a report needs editor on both source and destination.** Either
+   half alone is a hole.
+5. **Deleting a workspace deletes its reports**, explicitly rather than by
+   `ondelete=CASCADE`, because SQLite does not enforce foreign keys by default
+   and the Postgres cascade would leave orphans in dev.
+
+### Adding a member
+
+By Snowflake username, within your own account. Their `users` row is created
+on demand - requiring a colleague to log in before you may share with them
+makes sharing useless for onboarding. Listing members needs only `viewer`:
+knowing who your work is visible to is not a privileged question.
+
+### Migration to schema 0003
+
+`alembic upgrade head` creates `workspaces` and `workspace_members`, adds
+`reports.workspace_id`, and moves every existing report into its owner's new
+personal workspace with that owner as admin. `owner_user_id` remains as
+provenance - who created a report - and is never consulted for access.
+
+Users who own no reports get their personal workspace lazily on next login,
+so the migration does not manufacture one for someone who may never sign in.
+
+
 ## Tests
 
     cd backend && .venv\Scripts\python.exe -m pytest -v     # unit tests (no Snowflake needed)

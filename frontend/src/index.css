@@ -912,6 +912,10 @@ th {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  /* Wraps because the header now carries the workspace switcher as well as
+     the actions. Without this the row overflows below ~400px, which the
+     390px breakpoint check caught. */
+  flex-wrap: wrap;
 }
 
 .reports-head h1 {
@@ -923,6 +927,7 @@ th {
 .reports-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 button.secondary,
