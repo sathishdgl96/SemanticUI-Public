@@ -2603,3 +2603,19 @@ body {
     flex: 0 0 auto;
   }
 }
+
+/* The aggregation picker on a well chip. Only raw FACT fields get one --
+   a view-defined metric already knows how it is measured. */
+.chip-aggregation {
+  border: none;
+  background: none;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  padding: 0 2px;
+  max-width: 96px;
+  cursor: pointer;
+}
+.chip-aggregation:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}

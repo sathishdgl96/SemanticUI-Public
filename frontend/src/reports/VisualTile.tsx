@@ -39,6 +39,9 @@ interface Props {
   /** Ticked slicer values, keyed by field ref. Ephemeral, like drill. */
   slicerSelections?: Record<string, string[]>;
   onSlicerChange?: (field: string, values: string[]) => void;
+  /** Refs the view exposes as raw FACTS, so a measure well can tell an
+   *  ad-hoc aggregation from a governed metric. */
+  factRefs?: string[];
 }
 
 function kpiText(result: QueryResponse, format: unknown): string {
@@ -68,6 +71,7 @@ export default function VisualTile({
   onCrossFilter,
   slicerSelections = {},
   onSlicerChange,
+  factRefs = [],
 }: Props) {
   const isSlicer = visual.type === "slicer";
   const ownField = isSlicer ? ((visual.wells.field ?? [])[0] ?? "") : "";
@@ -82,6 +86,7 @@ export default function VisualTile({
     hierarchies,
     drill,
     crossFilter,
+    factRefs,
     // A slicer draws its own distinct values from the field-values endpoint;
     // it has no measure, so running the semantic query would be a round trip
     // whose result nothing reads.

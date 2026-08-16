@@ -148,3 +148,18 @@ def test_an_unknown_hierarchy_reference_is_dropped_rather_than_emitted_raw():
         "bar", {"axis": ["hierarchy:h9"], "values": ["ORDERS.TOTAL"]}, hierarchies={}
     )
     assert dims == []
+
+
+def test_every_type_accepts_an_aggregations_option():
+    """Any type with a measure well can hold a fact, so the option that says
+    how to aggregate it belongs to all of them."""
+    for name, spec in CATALOG.items():
+        assert "aggregations" in spec.options, name
+
+
+def test_a_types_own_options_are_still_its_own():
+    # The shared option must not quietly widen what each type declares.
+    assert "stacked" in CATALOG["bar"].options
+    assert "stacked" not in CATALOG["pie"].options
+    assert "donut" in CATALOG["pie"].options
+    assert "donut" not in CATALOG["bar"].options

@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../api/client";
 import type { Filter, Hierarchy, QueryResponse, ViewRef, Visual } from "../api/types";
-import { validateWells, wellsToQuery, type VisualType } from "./catalog";
+import {
+  DEFAULT_AGGREGATION,
+  validateWells,
+  wellsToQuery,
+  type VisualType,
+} from "./catalog";
 import {
   effectiveFilters,
   resolveWells,
@@ -20,6 +25,33 @@ interface Options {
   crossFilter?: CrossFilter | null;
   /** Set false for visual types that draw without a semantic query. */
   enabled?: boolean;
+  /** Refs the view exposes as raw FACTS. A measure-well entry that names one
+   *  is aggregated ad hoc rather than sent as a governed metric. */
+  factRefs?: string[];
+}
+
+/** Split the measure-well refs into the view's own metrics and the raw facts
+ *  that need an aggregation applied.
+ *
+ *  A fact and a metric are measured at different grains, so the query API
+ *  refuses to take both at once -- the partition here is what keeps a visual
+ *  from asking for that combination in the first place. */
+export function splitMeasures(
+  measures: string[],
+  factRefs: string[],
+  aggregations: Record<string, string> | undefined,
+): { metrics: string[]; aggregations: { field: string; fn: string }[] } {
+  const facts = new Set(factRefs.map((r) => r.toUpperCase()));
+  const metrics: string[] = [];
+  const aggregated: { field: string; fn: string }[] = [];
+  for (const ref of measures) {
+    if (facts.has(ref.toUpperCase())) {
+      aggregated.push({ field: ref, fn: aggregations?.[ref] ?? DEFAULT_AGGREGATION });
+    } else {
+      metrics.push(ref);
+    }
+  }
+  return { metrics, aggregations: aggregated };
 }
 
 /** One query per visual, so tiles render progressively and one slow visual
@@ -33,6 +65,7 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
     drill,
     crossFilter = null,
     enabled = true,
+    factRefs = [],
   } = options;
   const type = visual.type as VisualType;
 
@@ -42,7 +75,12 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
   const wells = resolveWells(visual.wells, hierarchies, drill);
   const problems = validateWells(type, wells);
   const ready = enabled && problems.length === 0 && Boolean(view.name);
-  const { dimensions, metrics } = wellsToQuery(type, wells);
+  const { dimensions, metrics: measures } = wellsToQuery(type, wells);
+  const { metrics, aggregations } = splitMeasures(
+    measures,
+    factRefs,
+    visual.options.aggregations as Record<string, string> | undefined,
+  );
   const filters = effectiveFilters({
     reportFilters,
     pageFilters,
@@ -68,7 +106,10 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
       //
       // `wells` (resolved) rather than `visual.wells`, and `visual.type`
       // rather than the whole visual: renaming a tile must not refetch it.
-      queryKey: ["visual-query", view, visual.type, wells, filters],
+      // `aggregations` is in the key: changing Sum to Average changes the
+      // RESULT, and leaving it out would serve the previous function's
+      // numbers under the new label.
+      queryKey: ["visual-query", view, visual.type, wells, filters, aggregations],
       enabled: ready,
       queryFn: () =>
         apiFetch<QueryResponse>("/api/query/semantic", {
@@ -79,6 +120,7 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
             view: view.name,
             dimensions,
             metrics,
+            aggregations,
             filters,
           }),
         }),

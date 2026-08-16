@@ -38,8 +38,38 @@ export interface VisualSpec {
   label: string;
   glyph: string;
   wells: WellSpec[];
+  /** Option keys this type declares. `optionsFor` adds the shared ones. */
   options: string[];
 }
+
+/** Options every visual type understands, whatever else it declares.
+ *
+ *  "aggregations" maps a FACT reference to the function applied to it
+ *  ({"ORDERS.QUANTITY": "sum"}). It belongs to every type because any type
+ *  with a measure well can hold a fact. Mirrors COMMON_OPTIONS in
+ *  backend/app/reports/catalog.py. */
+export const COMMON_OPTIONS = ["aggregations"];
+
+/** Every option key this type accepts, its own plus the shared ones. */
+export function optionsFor(type: VisualType): string[] {
+  return [...CATALOG[type].options, ...COMMON_OPTIONS];
+}
+
+/** The aggregation functions offered for a raw fact, in the order PowerBI
+ *  lists them. Mirrors AGGREGATE_SQL in backend/app/semantic/query.py. */
+export const AGGREGATIONS = [
+  { fn: "sum", label: "Sum" },
+  { fn: "avg", label: "Average" },
+  { fn: "min", label: "Minimum" },
+  { fn: "max", label: "Maximum" },
+  { fn: "count", label: "Count" },
+  { fn: "countDistinct", label: "Count (distinct)" },
+] as const;
+
+export type AggregationFn = (typeof AGGREGATIONS)[number]["fn"];
+
+/** What an unaggregated fact defaults to when first placed. */
+export const DEFAULT_AGGREGATION: AggregationFn = "sum";
 
 const CATEGORICAL: WellSpec[] = [
   { key: "axis", label: "Axis", kind: "dimension", min: 1, max: 1 },

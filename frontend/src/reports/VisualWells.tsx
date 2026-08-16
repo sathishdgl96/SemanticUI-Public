@@ -1,15 +1,31 @@
 import { useDroppable } from "@dnd-kit/core";
 import type { Visual } from "../api/types";
-import { CATALOG, type FieldKind, type VisualType, type WellSpec } from "./catalog";
+import {
+  AGGREGATIONS,
+  CATALOG,
+  DEFAULT_AGGREGATION,
+  type FieldKind,
+  type VisualType,
+  type WellSpec,
+} from "./catalog";
 
 interface Props {
   visual: Visual;
   onChange: (next: Visual) => void;
+  /** Refs the view exposes as raw FACTS; those get an aggregation picker. */
+  factRefs?: string[];
 }
 
 function Well({
-  spec, refs, onRemove,
-}: { spec: WellSpec; refs: string[]; onRemove: (ref: string) => void }) {
+  spec, refs, onRemove, factRefs, aggregations, onAggregationChange,
+}: {
+  spec: WellSpec;
+  refs: string[];
+  onRemove: (ref: string) => void;
+  factRefs: Set<string>;
+  aggregations: Record<string, string>;
+  onAggregationChange: (ref: string, fn: string) => void;
+}) {
   const { setNodeRef, isOver, active } = useDroppable({ id: `well:${spec.key}` });
   const draggedKind = active?.data.current?.kind as FieldKind | undefined;
   const accepts = draggedKind === undefined || draggedKind === spec.kind;
@@ -28,23 +44,47 @@ function Well({
       {refs.length === 0 ? (
         <p className="well-hint">Add data fields here</p>
       ) : (
-        refs.map((ref) => (
-          <span className="chip" key={ref} data-kind={spec.kind}>
-            <span className="chip-glyph">{spec.kind === "metric" ? "Σ" : "⬦"}</span>
-            <span className="chip-label">{ref}</span>
-            <button type="button" className="chip-remove"
-                    aria-label={`Remove ${ref}`} onClick={() => onRemove(ref)}>
-              &times;
-            </button>
-          </span>
-        ))
+        refs.map((ref) => {
+          // A raw fact carries no aggregation of its own, so the visual has to
+          // say which one to apply -- exactly the choice PowerBI puts on the
+          // field's own menu. A view-defined metric already knows, and offering
+          // the choice there would imply it could be overridden.
+          const isFact = factRefs.has(ref.toUpperCase());
+          return (
+            <span className="chip" key={ref} data-kind={spec.kind}>
+              <span className="chip-glyph">{spec.kind === "metric" ? "Σ" : "⬦"}</span>
+              <span className="chip-label">{ref}</span>
+              {isFact && (
+                <select
+                  className="chip-aggregation"
+                  aria-label={`Aggregation for ${ref}`}
+                  value={aggregations[ref] ?? DEFAULT_AGGREGATION}
+                  onChange={(e) => onAggregationChange(ref, e.target.value)}
+                >
+                  {AGGREGATIONS.map((a) => (
+                    <option key={a.fn} value={a.fn}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button type="button" className="chip-remove"
+                      aria-label={`Remove ${ref}`} onClick={() => onRemove(ref)}>
+                &times;
+              </button>
+            </span>
+          );
+        })
       )}
     </section>
   );
 }
 
-export default function VisualWells({ visual, onChange }: Props) {
+export default function VisualWells({ visual, onChange, factRefs = [] }: Props) {
   const spec = CATALOG[visual.type as VisualType];
+  const facts = new Set(factRefs.map((r) => r.toUpperCase()));
+  const aggregations = (visual.options.aggregations ?? {}) as Record<string, string>;
+
   return (
     <div className="visual-wells">
       {spec.wells.map((well) => (
@@ -52,15 +92,28 @@ export default function VisualWells({ visual, onChange }: Props) {
           key={well.key}
           spec={well}
           refs={visual.wells[well.key] ?? []}
-          onRemove={(ref) =>
+          factRefs={facts}
+          aggregations={aggregations}
+          onAggregationChange={(ref, fn) =>
+            onChange({
+              ...visual,
+              options: { ...visual.options, aggregations: { ...aggregations, [ref]: fn } },
+            })
+          }
+          onRemove={(ref) => {
+            // The aggregation goes with the field. Leaving it behind would
+            // put a setting in the saved document for a field the visual no
+            // longer holds, and quietly restore it if the field came back.
+            const { [ref]: _dropped, ...remaining } = aggregations;
             onChange({
               ...visual,
               wells: {
                 ...visual.wells,
                 [well.key]: (visual.wells[well.key] ?? []).filter((r) => r !== ref),
               },
-            })
-          }
+              options: { ...visual.options, aggregations: remaining },
+            });
+          }}
         />
       ))}
     </div>

@@ -747,7 +747,13 @@ export default function BuilderPage() {
   };
 
   const dimensions = viewDetail.data?.dimensions ?? [];
-  const metrics = viewDetail.data?.metrics ?? [];
+  const viewMetrics = viewDetail.data?.metrics ?? [];
+  // Raw FACT columns are measure-like too: a PowerBI author expects to drop
+  // any numeric field into Values and pick Sum or Average. They are offered
+  // alongside the view's own metrics and carry an aggregation choice.
+  const facts = viewDetail.data?.facts ?? [];
+  const metrics = [...viewMetrics, ...facts];
+  const factRefs = facts.map((f) => `${f.table}.${f.name}`);
   // Model-declared hierarchies (none on today's accounts -- see
   // detect_hierarchies) plus the report's own. Ids are namespaced, so the two
   // sources can never collide.
@@ -935,7 +941,11 @@ export default function BuilderPage() {
                   Add visual
                 </button>
                 {selected ? (
-                  <VisualWells visual={selected} onChange={replaceVisual} />
+                  <VisualWells
+                    visual={selected}
+                    onChange={replaceVisual}
+                    factRefs={factRefs}
+                  />
                 ) : (
                   <p className="tile-hint">Select a visual on the canvas to edit its fields.</p>
                 )}

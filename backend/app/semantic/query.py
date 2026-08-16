@@ -14,6 +14,31 @@ class OrderBy(BaseModel):
     direction: Literal["asc", "desc"] = "asc"
 
 
+#: SQL for each aggregation function. A fixed map, not a format string built
+#: from the request: the function name is never taken from user input.
+AGGREGATE_SQL: dict[str, str] = {
+    "sum": "SUM({col})",
+    "avg": "AVG({col})",
+    "min": "MIN({col})",
+    "max": "MAX({col})",
+    "count": "COUNT({col})",
+    "countDistinct": "COUNT(DISTINCT {col})",
+}
+
+
+class Aggregation(BaseModel):
+    """An aggregation applied to a raw FACT column.
+
+    This is PowerBI's habit -- drop any numeric field into Values and pick
+    Sum/Average/Count -- expressed over a semantic view. The view's own
+    METRICS stay first-class and are still the governed way to measure;
+    this is the escape hatch for a question the model does not answer yet.
+    """
+
+    field: str
+    fn: Literal["sum", "avg", "min", "max", "count", "countDistinct"]
+
+
 class SemanticQueryRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -22,6 +47,9 @@ class SemanticQueryRequest(BaseModel):
     view: str
     dimensions: list[str] = []
     metrics: list[str] = []
+    #: Ad-hoc aggregations over FACT columns. Mutually exclusive with
+    #: `metrics` -- see build_semantic_sql for why.
+    aggregations: list[Aggregation] = Field(default_factory=list)
     #: The effective, already-composed filter set for this query: report
     #: filters AND the visual's own AND any active cross-filter. The client
     #: composes them; the server validates and binds every one.
@@ -57,7 +85,21 @@ def build_semantic_sql(
     """
     dims = _resolve_fields(detail, req.dimensions, "dimensions")
     mets = _resolve_fields(detail, req.metrics, "metrics")
-    if not dims and not mets:
+    facts = _resolve_fields(detail, [a.field for a in req.aggregations], "facts")
+
+    if mets and req.aggregations:
+        # A metric is already aggregated by the semantic model; a fact is
+        # row-level. Selecting both puts two granularities in one result set,
+        # where the metric would be silently repeated down every raw row --
+        # a wrong number that looks like a right one.
+        raise ApiError(
+            "QUERY_ERROR",
+            400,
+            "A visual can use the view's own metrics or its own aggregations "
+            "over raw fields, but not both at once: they are measured at "
+            "different grains.",
+        )
+    if not dims and not mets and not facts:
         raise ApiError("QUERY_ERROR", 400, "Select at least one dimension or metric")
 
     parts = [f"{quote_ident(req.database)}.{quote_ident(req.schema_)}.{quote_ident(req.view)}"]
@@ -69,6 +111,13 @@ def build_semantic_sql(
         parts.append(
             "METRICS " + ", ".join(f"{quote_ident(t)}.{quote_ident(n)}" for t, n in mets)
         )
+    if facts:
+        # FACTS is its own clause -- verified against a real account. Facts
+        # come back row-level here; the outer SELECT below is what aggregates
+        # them.
+        parts.append(
+            "FACTS " + ", ".join(f"{quote_ident(t)}.{quote_ident(n)}" for t, n in facts)
+        )
 
     # Inside SEMANTIC_VIEW(...), after METRICS and before the closing paren --
     # not after the call. The predicate has to apply before aggregation, or a
@@ -79,7 +128,7 @@ def build_semantic_sql(
     if predicates:
         parts.append("WHERE " + " AND ".join(predicates))
 
-    selected = dims + mets
+    selected = dims + mets + facts
     by_bare_name: dict[str, list[tuple[str, str]]] = {}
     for table, name in selected:
         by_bare_name.setdefault(name.upper(), []).append((table, name))
@@ -118,9 +167,31 @@ def build_semantic_sql(
         order_sql = " ORDER BY " + ", ".join(clauses)
 
     effective_limit = min(req.limit, max_rows) if req.limit else max_rows
+
+    # The projection. Without aggregations this stays "SELECT *", byte for
+    # byte what it always was -- an aggregation-free query must not change
+    # shape just because the feature exists.
+    if req.aggregations:
+        projected = [quote_ident(name) for _, name in dims]
+        for aggregation, (_, name) in zip(req.aggregations, facts):
+            template = AGGREGATE_SQL[aggregation.fn]
+            #: Aliased back to the field's own bare name, so a caller reads
+            #: the column exactly as it reads any other field's -- and every
+            #: renderer keeps working without knowing an aggregation happened.
+            projected.append(
+                f"{template.format(col=quote_ident(name))} AS {quote_ident(name)}"
+            )
+        select_sql = ", ".join(projected)
+        group_sql = (
+            " GROUP BY " + ", ".join(quote_ident(name) for _, name in dims) if dims else ""
+        )
+    else:
+        select_sql = "*"
+        group_sql = ""
+
     sql = (
-        "SELECT * FROM SEMANTIC_VIEW(\n  "
+        f"SELECT {select_sql} FROM SEMANTIC_VIEW(\n  "
         + "\n  ".join(parts)
-        + f"\n){order_sql} LIMIT {effective_limit + 1}"
+        + f"\n){group_sql}{order_sql} LIMIT {effective_limit + 1}"
     )
     return sql, params, effective_limit

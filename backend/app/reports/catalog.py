@@ -28,13 +28,27 @@ class WellSpec:
     max: int | None  # None = unbounded
 
 
+#: Options every visual type understands, whatever else it declares.
+#:
+#: "aggregations" maps a FACT reference to the function applied to it
+#: ({"ORDERS.QUANTITY": "sum"}). It belongs to every type because any type
+#: with a measure well can hold a fact. The function names are validated
+#: where they turn into SQL -- app/semantic/query.py -- rather than here, so
+#: there is exactly one list of them.
+COMMON_OPTIONS = frozenset({"aggregations"})
+
+
 @dataclass(frozen=True)
 class VisualSpec:
     type: str
     label: str
     wells: tuple[WellSpec, ...]
     #: Option keys this type understands; anything else is rejected on import.
-    options: frozenset[str]
+    own_options: frozenset[str]
+
+    @property
+    def options(self) -> frozenset[str]:
+        return self.own_options | COMMON_OPTIONS
 
     def well(self, key: str) -> WellSpec | None:
         return next((w for w in self.wells if w.key == key), None)

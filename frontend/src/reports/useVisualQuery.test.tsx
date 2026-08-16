@@ -3,7 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hierarchy, ViewRef, Visual } from "../api/types";
-import { useVisualQuery } from "./useVisualQuery";
+import { splitMeasures, useVisualQuery } from "./useVisualQuery";
 
 const VIEW: ViewRef = { database: "D", schema: "S", name: "V" };
 
@@ -192,5 +192,38 @@ describe("useVisualQuery", () => {
     );
     expect(result.current.ready).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("splitMeasures", () => {
+  it("sends a governed metric as a metric and a raw fact as an aggregation", () => {
+    const out = splitMeasures(
+      ["ORDERS.REVENUE", "ORDERS.QUANTITY"],
+      ["ORDERS.QUANTITY"],
+      undefined,
+    );
+    expect(out.metrics).toEqual(["ORDERS.REVENUE"]);
+    expect(out.aggregations).toEqual([{ field: "ORDERS.QUANTITY", fn: "sum" }]);
+  });
+
+  it("uses the visual's chosen function when it has one", () => {
+    const out = splitMeasures(
+      ["ORDERS.QUANTITY"],
+      ["ORDERS.QUANTITY"],
+      { "ORDERS.QUANTITY": "avg" },
+    );
+    expect(out.aggregations).toEqual([{ field: "ORDERS.QUANTITY", fn: "avg" }]);
+  });
+
+  it("matches fact refs case-insensitively, as Snowflake identifiers are", () => {
+    const out = splitMeasures(["orders.quantity"], ["ORDERS.QUANTITY"], undefined);
+    expect(out.metrics).toEqual([]);
+    expect(out.aggregations).toHaveLength(1);
+  });
+
+  it("leaves everything a metric when the view exposes no facts", () => {
+    const out = splitMeasures(["ORDERS.REVENUE"], [], undefined);
+    expect(out.metrics).toEqual(["ORDERS.REVENUE"]);
+    expect(out.aggregations).toEqual([]);
   });
 });

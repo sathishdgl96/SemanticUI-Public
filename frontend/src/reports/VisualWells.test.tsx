@@ -50,3 +50,75 @@ describe("VisualWells", () => {
     expect(screen.getAllByText(/add data fields here/i).length).toBe(3);
   });
 });
+
+describe("ad-hoc aggregation", () => {
+  const withFact = (options = {}): Visual => ({
+    id: "v1",
+    type: "bar",
+    title: "",
+    layout: { x: 0, y: 0, w: 6, h: 6 },
+    wells: { axis: ["C.REGION"], legend: [], values: ["O.QUANTITY", "O.REVENUE"] },
+    options,
+    filters: [],
+  });
+
+  it("offers an aggregation on a raw fact but not on a governed metric", () => {
+    render(
+      <DndContext>
+        <VisualWells visual={withFact()} onChange={() => {}} factRefs={["O.QUANTITY"]} />
+      </DndContext>,
+    );
+    // The view's own metric already knows how it is measured; offering a
+    // choice there would imply it could be overridden.
+    expect(
+      screen.getByLabelText("Aggregation for O.QUANTITY"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Aggregation for O.REVENUE")).toBeNull();
+  });
+
+  it("defaults a fresh fact to Sum", () => {
+    render(
+      <DndContext>
+        <VisualWells visual={withFact()} onChange={() => {}} factRefs={["O.QUANTITY"]} />
+      </DndContext>,
+    );
+    expect(screen.getByLabelText("Aggregation for O.QUANTITY")).toHaveValue("sum");
+  });
+
+  it("records a chosen function against the field", async () => {
+    const onChange = vi.fn();
+    render(
+      <DndContext>
+        <VisualWells visual={withFact()} onChange={onChange} factRefs={["O.QUANTITY"]} />
+      </DndContext>,
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Aggregation for O.QUANTITY"),
+      "avg",
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ aggregations: { "O.QUANTITY": "avg" } }),
+      }),
+    );
+  });
+
+  it("drops the aggregation when the field leaves the well", async () => {
+    const onChange = vi.fn();
+    render(
+      <DndContext>
+        <VisualWells
+          visual={withFact({ aggregations: { "O.QUANTITY": "avg" } })}
+          onChange={onChange}
+          factRefs={["O.QUANTITY"]}
+        />
+      </DndContext>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remove O.QUANTITY" }));
+    const next = onChange.mock.calls.at(-1)![0];
+    // A setting left behind for a field the visual no longer holds would
+    // quietly come back if the field did.
+    expect(next.options.aggregations).toEqual({});
+    expect(next.wells.values).toEqual(["O.REVENUE"]);
+  });
+});
