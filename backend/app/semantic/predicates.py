@@ -93,6 +93,14 @@ def resolve_field(detail: dict, ref: str) -> tuple[str, str]:
 #      looks like a right one.
 #
 # The value is still BOUND: these take a placeholder like any other operator.
+#
+# All four are CASE-INSENSITIVE, which these functions are not by default --
+# `CONTAINS(segment, 'mach')` matches nothing in a column of 'MACHINERY'.
+# Both sides are upper-cased instead: the column by SQL, the value in Python.
+# Every comparable product (PowerBI, Looker) matches text case-insensitively,
+# and someone typing a search term is asking what it looks like they are
+# asking. `CONTAINS(UPPER(col), ?)` was confirmed to parse inside
+# SEMANTIC_VIEW(), where a good deal of ordinary SQL does not.
 TEXT_FUNCTION = {
     "contains": "CONTAINS",
     "notContains": "CONTAINS",
@@ -165,9 +173,12 @@ def build_filter_predicates(
                 fragments.append(f"{column} {'NOT IN' if negated else 'IN'} ({holders})")
             params.extend(f.values)
         elif isinstance(f, TextFilter):
-            call = f"{TEXT_FUNCTION[f.op]}({column}, {PLACEHOLDER})"
+            call = f"{TEXT_FUNCTION[f.op]}(UPPER({column}), {PLACEHOLDER})"
             fragments.append(f"NOT {call}" if f.op == "notContains" else call)
-            params.append(f.value)
+            # Upper-cased to match the UPPER() around the column. A lower-case
+            # needle against an upper-cased haystack matches nothing, which
+            # would read as "no such rows" rather than as a bug.
+            params.append(f.value.upper())
         elif isinstance(f, CompareFilter):
             operator = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[f.op]
             fragments.append(f"{column} {operator} {PLACEHOLDER}")

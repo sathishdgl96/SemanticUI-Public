@@ -273,6 +273,73 @@ def test_distinct_values_reports_truncation_at_the_cap(client, db, monkeypatch):
     assert body["truncated"] is True
 
 
+def test_distinct_values_defaults_to_one_screenful(client, db):
+    """Ten, not a thousand. A picker is not a place to read a column; the
+    search box below is how you reach the eleventh value."""
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [(f"V{i:03}",) for i in range(50)]
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION"},
+    )
+    body = r.json()
+    assert len(body["values"]) == 10
+    assert body["truncated"] is True
+
+
+def test_distinct_values_search_is_bound_not_interpolated(client, db):
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [("EAST",)]
+    hostile = "'; DROP TABLE customers; --"
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION", "search": hostile},
+    )
+    assert r.status_code == 200
+    sql = conn.cursor_obj.executed[-1]
+    # The needle reaches Snowflake as a bound parameter and never as text --
+    # the same rule every other filter value obeys, which is why search goes
+    # through the ordinary filter path rather than a bespoke one.
+    assert hostile not in sql
+    assert "CONTAINS(UPPER(" in sql
+    assert conn.cursor_obj.bound[-1] == [hostile.upper()]
+
+
+def test_distinct_values_search_narrows_inside_the_view(client, db):
+    """Inside, not after. A column of 150 000 names cannot be searched by
+    fetching a page and filtering it: the name wanted is not in the page."""
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [("EAST",)]
+    client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION", "search": "eas"},
+    )
+    sql = conn.cursor_obj.executed[-1]
+    inside = sql[sql.index("SEMANTIC_VIEW(") : sql.rindex(")")]
+    assert "WHERE CONTAINS(UPPER(" in inside
+
+
+def test_distinct_values_blank_search_adds_no_predicate(client, db):
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [("EAST",)]
+    client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION", "search": "   "},
+    )
+    assert "CONTAINS" not in conn.cursor_obj.executed[-1]
+
+
+def test_distinct_values_limit_is_capped(client, db):
+    """A caller asking for the whole column gets the backstop, not the column."""
+    conn = login(client, db)
+    conn.cursor_obj.value_rows = [(f"V{i:04}",) for i in range(2000)]
+    r = client.get(
+        "/api/semantic-views/ANALYTICS/PUBLIC/SALES/values",
+        params={"field": "CUSTOMERS.REGION", "limit": 999999},
+    )
+    assert len(r.json()["values"]) == 1000
+
+
 def test_distinct_values_does_not_shadow_the_describe_route(client, db):
     """Both routes live under the same prefix; a view literally named
     "values" must not be swallowed by the values endpoint."""

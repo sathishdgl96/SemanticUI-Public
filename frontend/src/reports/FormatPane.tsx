@@ -1,6 +1,7 @@
 import type { FieldInfo, Visual } from "../api/types";
 import {
   CATALOG,
+  FONT_SIZES,
   LEGEND_POSITIONS,
   wellsToQuery,
   type VisualType,
@@ -25,6 +26,39 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h4>{title}</h4>
       {children}
     </section>
+  );
+}
+
+/** A text-size chooser. A fixed list rather than a number box: every value on
+ *  it is legible at tile size, which free entry cannot promise. */
+function SizeField({
+  id, label, value, fallback, disabled, onChange,
+}: {
+  id: string;
+  label: string;
+  value: unknown;
+  fallback: number;
+  disabled?: boolean;
+  onChange: (size: number) => void;
+}) {
+  return (
+    <>
+      <label className="format-field" htmlFor={id}>
+        {label}
+      </label>
+      <select
+        id={id}
+        value={typeof value === "number" ? value : fallback}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+      >
+        {FONT_SIZES.map((size) => (
+          <option key={size} value={size}>
+            {size}px
+          </option>
+        ))}
+      </select>
+    </>
   );
 }
 
@@ -54,6 +88,12 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
 
   const isChart = !["table", "matrix", "kpi", "multiCard", "slicer"].includes(type);
 
+  // A legend distinguishes series. A split-by dimension makes one per value,
+  // so any legend well means "several"; otherwise it is one per measure.
+  const hasSeriesToDistinguish =
+    (visual.wells.legend ?? []).length > 0 ||
+    (visual.wells.values ?? []).length + (visual.wells.lineValues ?? []).length > 1;
+
   return (
     <div className="format-pane">
       <Section title="Title">
@@ -73,6 +113,14 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
           value={visual.title}
           placeholder="Named from the fields"
           onChange={(e) => onChange({ ...visual, title: e.target.value })}
+        />
+        <SizeField
+          id={`title-size-${visual.id}`}
+          label="Title text size"
+          value={visual.options.titleFontSize}
+          fallback={13}
+          disabled={!flag(visual, "showTitle", true)}
+          onChange={(size) => set("titleFontSize", size)}
         />
       </Section>
 
@@ -101,11 +149,52 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
               </option>
             ))}
           </select>
+          <label className="format-field" htmlFor={`legend-title-${visual.id}`}>
+            Legend title
+          </label>
+          <input
+            id={`legend-title-${visual.id}`}
+            value={(visual.options.legendTitle as string) ?? ""}
+            placeholder="No title"
+            disabled={!flag(visual, "showLegend", true)}
+            onChange={(e) => set("legendTitle", e.target.value || undefined)}
+          />
+          <SizeField
+            id={`legend-size-${visual.id}`}
+            label="Legend text size"
+            value={visual.options.legendFontSize}
+            fallback={11}
+            disabled={!flag(visual, "showLegend", true)}
+            onChange={(size) => set("legendFontSize", size)}
+          />
+          {!hasSeriesToDistinguish && (
+            // Said here rather than left to be discovered: with one series the
+            // renderer draws no legend however this box is ticked, because a
+            // legend of one entry only repeats the title.
+            <p className="tile-hint">
+              One series, so no legend is drawn. Add a measure, or split by a
+              field, to give it something to tell apart.
+            </p>
+          )}
         </Section>
       )}
 
       {isChart && (
-        <Section title="Data">
+        <Section title="Values">
+          <label className="format-field" htmlFor={`numfmt-${visual.id}`}>
+            Number format
+          </label>
+          {/* Drives the axis labels as well as the data labels: two different
+              renderings of the same measure on one chart would be a reason to
+              distrust both. */}
+          <select
+            id={`numfmt-${visual.id}`}
+            value={(visual.options.format as string) ?? "full"}
+            onChange={(e) => set("format", e.target.value)}
+          >
+            <option value="full">1,234,567</option>
+            <option value="compact">1.2M</option>
+          </select>
           <label className="format-check">
             <input
               type="checkbox"
@@ -114,6 +203,19 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
             />
             Show data labels
           </label>
+          <SizeField
+            id={`label-size-${visual.id}`}
+            label="Label text size"
+            value={visual.options.dataLabelFontSize}
+            fallback={11}
+            disabled={!flag(visual, "showDataLabels", false)}
+            onChange={(size) => set("dataLabelFontSize", size)}
+          />
+        </Section>
+      )}
+
+      {isChart && (
+        <Section title="Axes">
           <label className="format-check">
             <input
               type="checkbox"
@@ -122,6 +224,31 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
             />
             Show gridlines
           </label>
+          <label className="format-field" htmlFor={`xtitle-${visual.id}`}>
+            X axis title
+          </label>
+          <input
+            id={`xtitle-${visual.id}`}
+            value={(visual.options.xAxisTitle as string) ?? ""}
+            placeholder="No title"
+            onChange={(e) => set("xAxisTitle", e.target.value || undefined)}
+          />
+          <label className="format-field" htmlFor={`ytitle-${visual.id}`}>
+            Y axis title
+          </label>
+          <input
+            id={`ytitle-${visual.id}`}
+            value={(visual.options.yAxisTitle as string) ?? ""}
+            placeholder="No title"
+            onChange={(e) => set("yAxisTitle", e.target.value || undefined)}
+          />
+          <SizeField
+            id={`axis-size-${visual.id}`}
+            label="Axis text size"
+            value={visual.options.axisFontSize}
+            fallback={11}
+            onChange={(size) => set("axisFontSize", size)}
+          />
         </Section>
       )}
 

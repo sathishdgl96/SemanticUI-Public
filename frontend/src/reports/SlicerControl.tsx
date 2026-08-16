@@ -1,5 +1,5 @@
 import type { ViewRef, Visual } from "../api/types";
-import { useFieldValues } from "./useFieldValues";
+import ValuePicker from "./ValuePicker";
 
 interface Props {
   visual: Visual;
@@ -22,30 +22,9 @@ function fieldName(ref: string): string {
  *  to the definition would be a control they are forbidden to touch. */
 export default function SlicerControl({ visual, view, selected, onChange }: Props) {
   const ref = (visual.wells.field ?? [])[0];
-  const values = useFieldValues(view, ref ?? null);
   const multi = visual.options.multiSelect !== false;
 
   if (!ref) return <p className="tile-hint">Add a field to slice by.</p>;
-  if (values.isLoading) return <p className="tile-hint">Loading values…</p>;
-  if (values.isError) {
-    return (
-      <p role="alert" className="tile-error">
-        Could not load values for {fieldName(ref)}.
-      </p>
-    );
-  }
-
-  const options = values.data?.values ?? [];
-  const toggle = (value: string, checked: boolean) => {
-    if (!multi) {
-      onChange(ref, checked ? [value] : []);
-      return;
-    }
-    onChange(
-      ref,
-      checked ? [...selected, value] : selected.filter((v) => v !== value),
-    );
-  };
 
   return (
     <div className="slicer">
@@ -61,24 +40,17 @@ export default function SlicerControl({ visual, view, selected, onChange }: Prop
           </button>
         )}
       </div>
-      <ul className="slicer-values">
-        {options.map((value) => (
-          <li key={value}>
-            <label>
-              <input
-                type={multi ? "checkbox" : "radio"}
-                name={`slicer-${visual.id}`}
-                checked={selected.includes(value)}
-                onChange={(e) => toggle(value, e.target.checked)}
-              />
-              <span>{value}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      {values.data?.truncated && (
-        <p className="tile-hint">Showing the first {options.length} values.</p>
-      )}
+      {/* The same picker the filter pane uses. A slicer listing a thousand
+          values was a tile you could not see past; it now shows ten and
+          searches for the rest. */}
+      <ValuePicker
+        view={view}
+        field={ref}
+        selected={selected}
+        onChange={(next) => onChange(ref, next)}
+        multi={multi}
+        groupName={`slicer-${visual.id}`}
+      />
     </div>
   );
 }

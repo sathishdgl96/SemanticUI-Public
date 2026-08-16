@@ -51,9 +51,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("FilterPane", () => {
-  it("says the page has no filters yet", () => {
+  it("says an empty scope is empty, in as few words as that takes", () => {
     wrap(<FilterPane {...props} />);
-    expect(screen.getByText(/no filters on this page/i)).toBeInTheDocument();
+    // "None", not a sentence. The sentence explaining what a page filter IS
+    // now lives behind the scope's info button, where it is read once rather
+    // than occupying the pane forever.
+    expect(screen.getAllByText("None").length).toBeGreaterThan(0);
+  });
+
+  it("explains a scope on request rather than permanently", async () => {
+    wrap(<FilterPane {...props} />);
+    const about = screen.getByRole("button", { name: /about this page/i });
+    expect(screen.queryByRole("note")).toBeNull();
+
+    await userEvent.click(about);
+    expect(screen.getByRole("note")).toHaveTextContent(
+      /every visual on this page/i,
+    );
+
+    await userEvent.click(about);
+    expect(screen.queryByRole("note")).toBeNull();
   });
 
   it("adds a page-scope filter for a chosen field", async () => {
@@ -90,11 +107,7 @@ describe("FilterPane", () => {
     );
     expect(
       screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent),
-    ).toEqual([
-      'Filters on "Revenue by region"',
-      "Filters on this page",
-      "Filters on all pages",
-    ]);
+    ).toEqual(["Revenue by region", "This page", "All pages"]);
   });
 
   it("exposes the page scope as its own drop target", () => {
@@ -113,11 +126,9 @@ describe("FilterPane", () => {
         selectedVisualTitle="Revenue by region"
       />,
     );
+    expect(screen.getByRole("heading", { name: "This page" })).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: /filters on this page/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: /filters on "Revenue by region"/i }),
+      screen.getByRole("heading", { name: "Revenue by region" }),
     ).toBeInTheDocument();
   });
 

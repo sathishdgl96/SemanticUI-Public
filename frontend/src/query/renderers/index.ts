@@ -3,11 +3,13 @@ import type { VisualType } from "../../reports/catalog";
 import {
   axisChrome,
   categoricalSeries,
+  formatNumber,
   formatOptionsOf,
   type CategoricalOptionLike,
   type EChartsOptionLike,
   type Series,
 } from "./categorical";
+import { CHART_INK } from "../palette";
 import { pieOption } from "./pie";
 import { funnelOption, gaugeOption, treemapOption } from "./proportional";
 import { scatterOption } from "./scatter";
@@ -103,15 +105,17 @@ export function buildVisualOption(
   const drawn = stacked100 ? toPercentages(series) : series;
 
   const format = formatOptionsOf(visual.options);
-  const categoryAxis = axisChrome.categoryAxis(categories);
-  const baseValueAxis = axisChrome.valueAxis(format.showGridlines);
+  const legend = axisChrome.legend(drawn.length, format);
+  const categoryAxis = axisChrome.categoryAxis(categories, format);
+  const baseValueAxis = axisChrome.valueAxis(format.showGridlines, format);
   const valueAxis = stacked100
-    ? { ...baseValueAxis, max: 100, axisLabel: { formatter: "{value}%" } }
+    ? { ...baseValueAxis, max: 100, axisLabel: { ...baseValueAxis.axisLabel, formatter: "{value}%" } }
     : baseValueAxis;
 
   return {
     backgroundColor: "transparent",
-    grid: axisChrome.grid(drawn.length > 1),
+    title: axisChrome.legendTitle(format, legend.show),
+    grid: axisChrome.grid(legend.show, format),
     tooltip: {
       trigger: "axis",
       axisPointer: { type: type === "line" ? "line" : "shadow" },
@@ -120,7 +124,7 @@ export function buildVisualOption(
       // as truncated data ("ustomer#0001" instead of "Customer#0001").
       confine: true,
     },
-    legend: axisChrome.legend(drawn.length, format),
+    legend,
     // A horizontal bar is the same chart with its axes exchanged: the
     // categories run down the y axis and the measure along the x.
     xAxis: horizontal ? valueAxis : categoryAxis,
@@ -131,13 +135,28 @@ export function buildVisualOption(
       // Labels sit outside a column and above a line, which is where each
       // reads without covering the mark it belongs to.
       const label = format.showDataLabels
-        ? { show: true, position: asColumn && horizontal ? "right" : "top" }
+        ? {
+            show: true,
+            position: asColumn && horizontal ? "right" : "top",
+            fontSize: format.dataLabelFontSize,
+            color: CHART_INK.secondary,
+            // 100% stacking has already turned the values into shares, so the
+            // label says so rather than reprinting a number that is no longer
+            // the measure.
+            formatter: stacked100
+              ? (p: { value: number }) => `${Math.round(p.value)}%`
+              : (p: { value: number }) => formatNumber(p.value, format.numberFormat),
+          }
         : { show: false };
+      // A label that will not fit is dropped, not drawn over its neighbour.
+      // At 16px on a narrow tile the numbers ran together into one unreadable
+      // string -- five overlapping labels say less than three legible ones.
+      const labelLayout = { hideOverlap: true };
       if (asColumn) {
         return {
           name: s.name, type: "bar", data: s.data, barGap: "10%",
           ...(stacked ? { stack: "total" } : {}),
-          label,
+          label, labelLayout,
           itemStyle: {
             color,
             borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0],
@@ -148,7 +167,7 @@ export function buildVisualOption(
         name: s.name, type: "line", data: s.data, showSymbol: false,
         ...(stacked ? { stack: "total" } : {}),
         ...(type === "area" ? { areaStyle: { color, opacity: 0.18 } } : {}),
-        label,
+        label, labelLayout,
         lineStyle: { width: 2 }, itemStyle: { color },
       };
     }),

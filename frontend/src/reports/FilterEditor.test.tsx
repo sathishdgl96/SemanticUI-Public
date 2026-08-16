@@ -298,7 +298,7 @@ describe("FilterEditor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("says so when the value list was capped", async () => {
+  it("says so when more values match than are shown", async () => {
     stubValues(["A"], true);
     const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "is", values: [] };
     wrap(
@@ -310,7 +310,9 @@ describe("FilterEditor", () => {
         onRemove={noop}
       />,
     );
-    expect(await screen.findByText(/showing the first/i)).toBeInTheDocument();
+    // A prompt to keep typing, not an apology for an unusable list: the
+    // picker now shows ten and the search reaches the rest.
+    expect(await screen.findByText(/more values match/i)).toBeInTheDocument();
   });
 
   it("removes itself", async () => {
@@ -379,54 +381,27 @@ describe("collapsing", () => {
   });
 });
 
-describe("searching a long value list", () => {
+describe("value picking", () => {
   const noop = () => {};
-  const many = Array.from({ length: 40 }, (_, i) => `Customer#${String(i).padStart(4, "0")}`);
 
-  it("offers a search box once the list is long", async () => {
-    stubValues(many);
-    const filter: Filter = { id: "f1", field: "CUSTOMERS.NAME", op: "is", values: [] };
-    wrap(
-      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
-    );
-    const box = await screen.findByLabelText(/search values/i);
-    expect(box).toHaveAttribute("placeholder", "Search 40 values");
-  });
-
-  it("narrows the drawn values without re-querying", async () => {
-    stubValues(many);
-    const filter: Filter = { id: "f1", field: "CUSTOMERS.NAME", op: "is", values: [] };
-    wrap(
-      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
-    );
-    await screen.findByLabelText(/search values/i);
-    const before = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    await userEvent.type(screen.getByLabelText(/search values/i), "0007");
-    expect(screen.getByText("Customer#0007")).toBeInTheDocument();
-    expect(screen.queryByText("Customer#0008")).toBeNull();
-    // The values are already here; narrowing must not cost a Snowflake query.
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before);
-  });
-
-  it("says so when nothing matches", async () => {
-    stubValues(many);
-    const filter: Filter = { id: "f1", field: "CUSTOMERS.NAME", op: "is", values: [] };
-    wrap(
-      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
-    );
-    await screen.findByLabelText(/search values/i);
-    await userEvent.type(screen.getByLabelText(/search values/i), "zzzz");
-    expect(screen.getByText(/no values match/i)).toBeInTheDocument();
-  });
-
-  it("does not clutter a short list with a search box", async () => {
-    // Four regions do not need finding.
+  it("delegates to the one value picker, search box and all", async () => {
+    // The editor no longer draws its own list. Searching a column of 150 000
+    // names has to happen on the server, and having that in two places is how
+    // "search" starts meaning two things -- see ValuePicker.test.tsx for the
+    // behaviour itself.
     const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "is", values: [] };
     wrap(
       <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
     );
     await screen.findByText("EAST");
+    expect(screen.getByLabelText(/search values for CUSTOMERS\.REGION/i)).toBeInTheDocument();
+  });
+
+  it("shows no picker for an operator that takes no values", async () => {
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "isBlank" };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
     expect(screen.queryByLabelText(/search values/i)).toBeNull();
   });
 });

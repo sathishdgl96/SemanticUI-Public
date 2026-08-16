@@ -26,10 +26,72 @@ function visual(overrides: Partial<Visual> = {}): Visual {
   };
 }
 
+/** The visual as the pane last rewrote it. A helper rather than
+ *  `calls.at(-1)[0]` at each site, which does not type-check: `.at` may
+ *  return undefined and the compiler is right to insist. */
+function lastVisual(onChange: ReturnType<typeof vi.fn>): Visual {
+  const calls = onChange.mock.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  return calls[calls.length - 1][0] as Visual;
+}
+
 function renderPane(v = visual(), onChange = vi.fn()) {
   render(<FormatPane visual={v} onChange={onChange} fields={FIELDS} />);
   return onChange;
 }
+
+describe("text and axis formatting", () => {
+  it("offers a text size for the title, legend, labels and axes", () => {
+    renderPane();
+    // Four, because each is set independently: a legible legend and a legible
+    // axis are not the same size on a small tile.
+    expect(screen.getAllByLabelText(/text size/i)).toHaveLength(4);
+  });
+
+  it("writes a chosen size as a number, not the string the select carries", () => {
+    const onChange = renderPane();
+    return userEvent
+      .selectOptions(screen.getByLabelText(/^legend text size$/i), "16")
+      .then(() => {
+        const next = lastVisual(onChange);
+        expect(next.options.legendFontSize).toBe(16);
+      });
+  });
+
+  it("records a legend title", async () => {
+    const onChange = renderPane();
+    await userEvent.type(screen.getByLabelText(/legend title/i), "M");
+    expect(lastVisual(onChange).options.legendTitle).toBe("M");
+  });
+
+  it("clears an axis title back to absent rather than empty", async () => {
+    // Absent, not "": an empty string is a title the renderer would still
+    // reserve a line of the chart's grid for.
+    const onChange = renderPane(visual({ options: { xAxisTitle: "Segment" } }));
+    await userEvent.clear(screen.getByLabelText(/x axis title/i));
+    expect(lastVisual(onChange).options.xAxisTitle).toBeUndefined();
+  });
+
+  it("says why a single-series chart draws no legend", () => {
+    // The box is ticked and nothing appears, because a legend of one entry
+    // only repeats the title. Explaining beats letting it be discovered.
+    renderPane();
+    expect(screen.getByText(/one series, so no legend is drawn/i)).toBeInTheDocument();
+  });
+
+  it("stays quiet once there is something to tell apart", () => {
+    renderPane(
+      visual({
+        wells: {
+          axis: ["CUSTOMERS.REGION"],
+          legend: [],
+          values: ["ORDERS.REVENUE", "ORDERS.COST"],
+        },
+      }),
+    );
+    expect(screen.queryByText(/one series/i)).toBeNull();
+  });
+});
 
 describe("FormatPane", () => {
   it("defaults to showing the title, legend and gridlines", () => {
@@ -54,7 +116,8 @@ describe("FormatPane", () => {
 
   it("sets a custom title on the visual itself, not in options", () => {
     const onChange = renderPane();
-    return userEvent.type(screen.getByLabelText(/title text/i), "Q").then(() => {
+    // Anchored: "Title text size" sits beside it and would match a loose one.
+    return userEvent.type(screen.getByLabelText(/^title text$/i), "Q").then(() => {
       expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ title: "Q" }));
     });
   });

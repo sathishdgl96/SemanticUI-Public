@@ -56,12 +56,27 @@ export const COMMON_OPTIONS = [
   // Presentation — the Format pane's territory.
   "title",
   "showTitle",
+  "titleFontSize",
   "showLegend",
   "legendPosition",
+  "legendTitle",
+  "legendFontSize",
   "showDataLabels",
+  "dataLabelFontSize",
   "showGridlines",
+  "xAxisTitle",
+  "yAxisTitle",
+  "axisFontSize",
+  // Number formatting, on every type rather than only the cards: an axis and
+  // a data label need it for the same reason a card does.
+  "format",
   "background",
 ];
+
+/** Text sizes offered wherever a size can be set. A short list rather than a
+ *  free number box: every value here is legible at tile size, which an
+ *  unconstrained input cannot promise. */
+export const FONT_SIZES = [10, 11, 12, 14, 16, 18, 20, 24] as const;
 
 /** Where a legend may sit. */
 export const LEGEND_POSITIONS = ["bottom", "top", "left", "right"] as const;

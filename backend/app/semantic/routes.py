@@ -45,10 +45,13 @@ def describe_view(
     return {**detail, "modelHierarchies": discovery.detect_hierarchies(detail)}
 
 
-# A picker listing more than a thousand values is not a picker; past this the
-# user needs a search box, which is a later feature. The response says so
-# rather than silently showing a prefix.
+# The most a caller may ask for in one page. A picker is not a place to read
+# a thousand values; `search` is how you reach the ones you want, and this is
+# only a backstop against a caller asking for the whole column.
 VALUES_CAP = 1000
+#: What a picker shows without being asked for more. Ten fits on screen beside
+#: the search box that finds the eleventh.
+VALUES_PAGE = 10
 
 
 @router.get("/api/semantic-views/{database}/{schema}/{name}/values")
@@ -57,6 +60,8 @@ def field_values(
     schema: str,
     name: str,
     field: str,
+    search: str | None = None,
+    limit: int = VALUES_PAGE,
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -65,16 +70,34 @@ def field_values(
     Runs on the caller's own connection through the same builder every other
     query uses, so `field` is validated against a live DESCRIBE and emitted as
     a quoted identifier -- it is never interpolated from the query string.
+
+    `search` is a case-insensitive substring test, applied INSIDE the semantic
+    view so it narrows before the limit does. That distinction is the whole
+    point: a column with 150 000 customer names cannot be searched by fetching
+    a page and filtering it, because the name you want is almost never in the
+    first page.
     """
     cache = get_cache()
     entry = cache.acquire(db, sess)
+    page = max(1, min(limit, VALUES_CAP))
+    needle = (search or "").strip()
     req = SemanticQueryRequest.model_validate(
         {
             "database": database,
             "schema": schema,
             "view": name,
             "dimensions": [field],
-            "limit": VALUES_CAP + 1,
+            # Bound like any other filter value -- `search` never becomes SQL
+            # text. It is an ordinary `contains`, so it goes through the same
+            # validation and the same predicate builder as a saved filter.
+            "filters": (
+                [{"id": "search", "field": field, "op": "contains", "value": needle}]
+                if needle
+                else []
+            ),
+            # One more than the page, so "is there another?" is answered by
+            # the rows rather than by a second COUNT query.
+            "limit": page + 1,
         }
     )
     with entry.lock:
@@ -100,7 +123,9 @@ def field_values(
         seen.add(str(value))
 
     values = sorted(seen)
-    return {"values": values[:VALUES_CAP], "truncated": len(values) > VALUES_CAP}
+    # `truncated` now means "there are more that match", which is a prompt to
+    # keep typing rather than the old apology for an unusable list.
+    return {"values": values[:page], "truncated": len(values) > page}
 
 
 @router.post("/api/query/semantic")

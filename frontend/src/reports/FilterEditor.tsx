@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { FieldInfo, Filter, ViewRef } from "../api/types";
 import { describeFilter, isActive, OPERATOR_LABEL } from "./filters";
-import { useFieldValues } from "./useFieldValues";
+import ValuePicker from "./ValuePicker";
 
 export type FilterOp = Filter["op"];
 
@@ -91,26 +91,10 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
   // doing something. Every card standing open at once is what made the pane
   // unusable: a dimension with a thousand values gave each card a 200px
   // scroller, and four filters buried the scopes below them.
+  //
+  // The picker below only mounts when the card is open, which is also what
+  // keeps its Snowflake round trip from happening for a card nobody expanded.
   const [open, setOpen] = useState(() => !isActive(filter));
-  const [search, setSearch] = useState("");
-
-  // The values query is the expensive part (a real Snowflake round trip), so
-  // it only runs for a card that is actually open.
-  const values = useFieldValues(view, open && wantsValues ? filter.field : null);
-
-  const all = values.data?.values ?? [];
-  const needle = search.trim().toLowerCase();
-  const shown = needle
-    ? all.filter((v) => v.toLowerCase().includes(needle))
-    : all;
-
-  const toggle = (value: string) => {
-    if (filter.op !== "is" && filter.op !== "isNot") return;
-    const next = chosen.includes(value)
-      ? chosen.filter((v) => v !== value)
-      : [...chosen, value];
-    onChange({ ...filter, values: next });
-  };
 
   return (
     <div className={open ? "filter-editor open" : "filter-editor"}>
@@ -129,8 +113,18 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
           </span>
           <span className="filter-field">{describeFilter(filter)}</span>
         </button>
-        <button type="button" className="link" onClick={onRemove}>
-          Remove filter
+        {/* An icon, not the words: three filter cards stacked put "Remove
+            filter" on screen three times, which read as the loudest thing in
+            a pane whose subject is the filters. The name is still there for
+            anyone who needs it -- as the accessible name and the tooltip. */}
+        <button
+          type="button"
+          className="icon-button danger"
+          onClick={onRemove}
+          aria-label={`Remove filter on ${filter.field}`}
+          title="Remove filter"
+        >
+          <span aria-hidden="true">🗑</span>
         </button>
       </div>
 
@@ -151,44 +145,12 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
       </label>
 
       {wantsValues && (
-        <>
-        {/* A thousand distinct customer names is not a list anyone scrolls.
-            The box narrows what is drawn; it does not re-query, because the
-            values are already here. */}
-        {all.length > 8 && (
-          <input
-            className="filter-search"
-            type="search"
-            aria-label={`Search values for ${filter.field}`}
-            placeholder={`Search ${all.length} values`}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        )}
-        <div className="filter-values">
-          {values.isLoading && <p className="tile-hint">Loading values…</p>}
-          {values.isError && <p role="alert">Could not load values for this field.</p>}
-          {shown.map((value) => (
-            <label key={value} className="filter-value">
-              <input
-                type="checkbox"
-                checked={chosen.includes(value)}
-                onChange={() => toggle(value)}
-              />
-              {value}
-            </label>
-          ))}
-          {needle && shown.length === 0 && (
-            <p className="tile-hint">No values match "{search}".</p>
-          )}
-          {values.data?.truncated && (
-            <p className="tile-hint">
-              Showing the first {all.length} values. This field has more
-              than the picker can list.
-            </p>
-          )}
-        </div>
-        </>
+        <ValuePicker
+          view={view}
+          field={filter.field}
+          selected={chosen}
+          onChange={(next) => onChange({ ...filter, values: next } as Filter)}
+        />
       )}
 
       {SINGLE_VALUE_OPS.includes(filter.op) && "value" in filter && (

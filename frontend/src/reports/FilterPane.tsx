@@ -2,6 +2,7 @@ import { useDroppable } from "@dnd-kit/core";
 import type { FieldInfo, Filter, ViewRef } from "../api/types";
 import FilterEditor from "./FilterEditor";
 import { newFilterId } from "./filters";
+import InfoTip from "./InfoTip";
 
 /** Droppable ids. BuilderPage's `onDragEnd` matches on these, so they live
  *  here next to the components that register them. */
@@ -30,7 +31,7 @@ function refOf(field: FieldInfo): string {
 
 function FilterScope({
   heading,
-  emptyText,
+  about,
   addLabel,
   dropId,
   testId,
@@ -40,7 +41,10 @@ function FilterScope({
   onChange,
 }: {
   heading: string;
-  emptyText: string;
+  /** What this scope means. Behind the ⓘ rather than printed under the
+   *  heading: three permanent explanations pushed the filters themselves off
+   *  the pane, and each one is worth reading roughly once. */
+  about: string;
   addLabel: string;
   dropId: string;
   testId: string;
@@ -64,8 +68,11 @@ function FilterScope({
       ref={setNodeRef}
       data-testid={testId}
     >
-      <h4>{heading}</h4>
-      {filters.length === 0 && <p className="tile-hint">{emptyText}</p>}
+      <div className="filter-scope-head">
+        <h4>{heading}</h4>
+        <InfoTip label={`About ${heading}`}>{about}</InfoTip>
+      </div>
+      {filters.length === 0 && <p className="tile-hint">None</p>}
       {filters.map((filter, index) => (
         <FilterEditor
           key={filter.id}
@@ -111,8 +118,8 @@ export default function FilterPane({
       <h3>Filters</h3>
       {visualFilters !== null && (
         <FilterScope
-          heading={`Filters on "${selectedVisualTitle || "this visual"}"`}
-          emptyText="No filters on this visual. It shows everything the page and report filters allow."
+          heading={selectedVisualTitle || "This visual"}
+          about="Applies to this visual only. It narrows what the page and all-pages filters already allow."
           addLabel="Add a filter on this visual"
           dropId={VISUAL_DROP_ID}
           testId="filter-drop-visual"
@@ -123,8 +130,8 @@ export default function FilterPane({
         />
       )}
       <FilterScope
-        heading="Filters on this page"
-        emptyText="No filters on this page. Every visual shows all its data."
+        heading="This page"
+        about="Applies to every visual on this page, and to no other page."
         addLabel="Add a filter on this page"
         dropId={PAGE_DROP_ID}
         testId="filter-drop-page"
@@ -134,8 +141,8 @@ export default function FilterPane({
         onChange={onChangePage}
       />
       <FilterScope
-        heading="Filters on all pages"
-        emptyText="No filters across pages."
+        heading="All pages"
+        about="Applies to every visual on every page of this report."
         addLabel="Add a filter on all pages"
         dropId={REPORT_DROP_ID}
         testId="filter-drop-report"

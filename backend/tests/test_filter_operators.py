@@ -70,9 +70,24 @@ def test_no_text_operator_uses_like():
 
 def test_a_users_wildcards_need_no_escaping_and_get_none():
     """The substring functions have no wildcard semantics at all, so "50%_x"
-    is bound verbatim and matches those characters."""
+    is bound with its punctuation intact and matches those characters.
+
+    Only the case is normalised (see below); nothing is escaped, because
+    there is nothing here that escaping would protect against."""
     _, params = build(f(field="CUSTOMERS.NAME", op="contains", value="50%_x"))
-    assert params == ["50%_x"]
+    assert params == ["50%_X"]
+
+
+@pytest.mark.parametrize(
+    "op", ["contains", "notContains", "startsWith", "endsWith"]
+)
+def test_text_matching_ignores_case(op):
+    """`CONTAINS(segment, 'mach')` finds nothing in a column of 'MACHINERY',
+    and someone typing a search term is asking what it looks like they are
+    asking. Both sides are upper-cased: the column in SQL, the value here."""
+    sql, params = build(f(field="CUSTOMERS.NAME", op=op, value="acme corp"))
+    assert "UPPER(" in sql[0]
+    assert params == ["ACME CORP"]
 
 
 def test_an_empty_pattern_is_not_yet_a_filter():

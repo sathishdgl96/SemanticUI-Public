@@ -223,7 +223,14 @@ export default function VisualTile({
         {/* Hidden by Format, but the heading element stays in the tree with
             its text: the tile is still addressable by name to a screen
             reader and to a test, which "no title" should not cost. */}
-        <h3 className={showTitle ? undefined : "sr-only"}>
+        <h3
+          className={showTitle ? undefined : "sr-only"}
+          style={
+            typeof visual.options.titleFontSize === "number"
+              ? { fontSize: `${visual.options.titleFontSize}px` }
+              : undefined
+          }
+        >
           {title || "Untitled visual"}
         </h3>
         {drill && drill.path.length > 0 && (

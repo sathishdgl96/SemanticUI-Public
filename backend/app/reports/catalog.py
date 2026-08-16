@@ -50,10 +50,20 @@ COMMON_OPTIONS = frozenset(
         #: Presentation.
         "title",
         "showTitle",
+        "titleFontSize",
         "showLegend",
         "legendPosition",
+        "legendTitle",
+        "legendFontSize",
         "showDataLabels",
+        "dataLabelFontSize",
         "showGridlines",
+        "xAxisTitle",
+        "yAxisTitle",
+        "axisFontSize",
+        #: Number formatting, on every type rather than only the cards: an
+        #: axis and a data label need it for the same reason a card does.
+        "format",
         "background",
     }
 )

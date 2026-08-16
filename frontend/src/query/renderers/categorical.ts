@@ -135,8 +135,23 @@ export function categoricalSeries(
 export interface FormatOptions {
   showLegend: boolean;
   legendPosition: string;
+  legendTitle: string;
+  legendFontSize: number;
   showDataLabels: boolean;
+  dataLabelFontSize: number;
   showGridlines: boolean;
+  xAxisTitle: string;
+  yAxisTitle: string;
+  axisFontSize: number;
+  /** "compact" renders 1.2M; anything else renders 1,234,567. */
+  numberFormat: string;
+}
+
+/** A size the author set, or the default. Guarded because `options` comes
+ *  from a saved document: a string or a negative number there would otherwise
+ *  reach ECharts and render nothing at all. */
+function size(value: unknown, fallback: number): number {
+  return typeof value === "number" && value > 0 && value <= 72 ? value : fallback;
 }
 
 export function formatOptionsOf(options: Record<string, unknown>): FormatOptions {
@@ -145,26 +160,74 @@ export function formatOptionsOf(options: Record<string, unknown>): FormatOptions
     // saved before the Format pane existed must keep its legend.
     showLegend: options.showLegend !== false,
     legendPosition: (options.legendPosition as string) ?? "bottom",
+    legendTitle: (options.legendTitle as string) ?? "",
+    legendFontSize: size(options.legendFontSize, 11),
     showDataLabels: options.showDataLabels === true,
+    dataLabelFontSize: size(options.dataLabelFontSize, 11),
     showGridlines: options.showGridlines !== false,
+    xAxisTitle: (options.xAxisTitle as string) ?? "",
+    yAxisTitle: (options.yAxisTitle as string) ?? "",
+    axisFontSize: size(options.axisFontSize, 11),
+    numberFormat: (options.format as string) ?? "full",
   };
 }
 
+/** Format a number the way the visual's Number format option asks.
+ *
+ *  Locale pinned to "en-US" for the reason given in VisualTile: the runtime
+ *  default follows the OS, which groups digits differently per machine and
+ *  makes a rendered axis nondeterministic. */
+export function formatNumber(value: number, numberFormat: string): string {
+  if (!Number.isFinite(value)) return "";
+  return numberFormat === "compact"
+    ? new Intl.NumberFormat("en-US", { notation: "compact" }).format(value)
+    : new Intl.NumberFormat("en-US").format(value);
+}
+
 export const axisChrome = {
-  grid: (hasLegend: boolean) => ({
-    left: 48, right: 16, top: 16, bottom: hasLegend ? 48 : 28,
-  }),
-  categoryAxis: (categories: string[]) => ({
+  /** Room for the chrome around the plot.
+   *
+   *  A side legend needs width, not height, and an axis title needs a line of
+   *  its own -- reserving a flat 48px at the bottom for every case is what
+   *  made a bottom legend paint over the bars. The legend is also `scroll`
+   *  (below), so it stays one row however many series there are and this
+   *  reservation stays true. */
+  grid: (hasLegend: boolean, format?: FormatOptions) => {
+    const position = format?.legendPosition ?? "bottom";
+    const side = hasLegend && (position === "left" || position === "right");
+    const legendSize = format?.legendFontSize ?? 11;
+    return {
+      left: 48 + (side && position === "left" ? legendSize * 8 : 0),
+      right: 16 + (side && position === "right" ? legendSize * 8 : 0),
+      top: 16 + (hasLegend && position === "top" ? legendSize * 2.4 : 0),
+      bottom:
+        (hasLegend && position === "bottom" ? legendSize * 2.4 : 0) +
+        (format?.xAxisTitle ? 22 : 0) +
+        28,
+    };
+  },
+  categoryAxis: (categories: string[], format?: FormatOptions) => ({
     type: "category" as const,
     data: categories,
+    name: format?.xAxisTitle || undefined,
+    nameLocation: "middle" as const,
+    nameGap: 28,
+    nameTextStyle: { color: CHART_INK.secondary, fontSize: format?.axisFontSize ?? 11 },
     axisLine: { lineStyle: { color: CHART_INK.axis } },
-    axisLabel: { color: CHART_INK.muted },
+    axisLabel: { color: CHART_INK.muted, fontSize: format?.axisFontSize ?? 11 },
     axisTick: { show: false },
   }),
-  valueAxis: (showGridlines = true) => ({
+  valueAxis: (showGridlines = true, format?: FormatOptions) => ({
     type: "value" as const,
+    name: format?.yAxisTitle || undefined,
+    nameTextStyle: { color: CHART_INK.secondary, fontSize: format?.axisFontSize ?? 11 },
     splitLine: { show: showGridlines, lineStyle: { color: CHART_INK.grid } },
-    axisLabel: { color: CHART_INK.muted },
+    axisLabel: {
+      color: CHART_INK.muted,
+      fontSize: format?.axisFontSize ?? 11,
+      // The axis reads in the same units as the labels and the cards do.
+      formatter: (value: number) => formatNumber(value, format?.numberFormat ?? "full"),
+    },
   }),
   /** A legend is only worth the space when there is more than one series to
    *  tell apart -- unless the author asked for it explicitly. */
@@ -179,7 +242,46 @@ export const axisChrome = {
           : position === "right"
             ? { right: 0, orient: "vertical" as const }
             : { bottom: 0 };
-    return { show, ...anchor, textStyle: { color: CHART_INK.secondary } };
+    return {
+      show,
+      ...anchor,
+      // Paginated rather than wrapped. Twenty-five series used to wrap into
+      // five rows and paint straight over the chart, because the grid below
+      // reserves a fixed band for it. One row with arrows cannot overflow.
+      type: "scroll" as const,
+      pageIconColor: CHART_INK.secondary,
+      pageTextStyle: { color: CHART_INK.muted },
+      textStyle: {
+        color: CHART_INK.secondary,
+        fontSize: format?.legendFontSize ?? 11,
+      },
+    };
   },
   color: (index: number) => SERIES_COLORS[index % SERIES_COLORS.length],
+
+  /** ECharts has no legend title, so it is drawn as a second `title` anchored
+   *  to the same edge the legend sits on. Returns [] when there is nothing to
+   *  draw, which is the shape `title` wants anyway. */
+  legendTitle: (format: FormatOptions, shown: boolean) => {
+    if (!shown || !format.legendTitle) return [];
+    const at =
+      format.legendPosition === "top"
+        ? { left: 0, top: 0 }
+        : format.legendPosition === "left"
+          ? { left: 0, top: 0 }
+          : format.legendPosition === "right"
+            ? { right: 0, top: 0 }
+            : { left: 0, bottom: 0 };
+    return [
+      {
+        text: format.legendTitle,
+        ...at,
+        textStyle: {
+          color: CHART_INK.secondary,
+          fontSize: format.legendFontSize,
+          fontWeight: 600,
+        },
+      },
+    ];
+  },
 };

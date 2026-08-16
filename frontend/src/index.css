@@ -376,14 +376,29 @@ button:disabled {
 
 /* The explorer's sidebar is the exception at every width: views, saved
    explores and fields are stacked in ONE column, so position no longer says
-   which is which and the labels have to. */
+   which is which and the labels have to.
+
+   They are also STICKY. A sidebar holding three sections and a hundred field
+   rows scrolls a long way, and a heading that scrolls away stops answering
+   the question it was added for -- "which section am I in?". The hairline and
+   the opaque background are what let a heading sit over the rows passing
+   beneath it without the two overlapping into mush. */
 .explorer .left .pane-heading {
   display: block;
-  margin-top: 16px;
+  position: sticky;
+  top: calc(var(--pane-padding) * -1);
+  z-index: 1;
+  margin: 18px calc(var(--pane-padding) * -1) 8px;
+  padding: 6px var(--pane-padding) 5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  font-size: 10px;
+  letter-spacing: 0.1em;
 }
 
 .explorer .left .pane-heading:first-child {
-  margin-top: 0;
+  margin-top: calc(var(--pane-padding) * -1);
 }
 
 /* ==========================================================================
@@ -1417,23 +1432,25 @@ button.secondary:hover,
   justify-content: flex-end;
   min-height: 18px;
 }
-.slicer-values {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
+/* The slicer draws through ValuePicker now, so its scrolling box is the
+   picker's option list rather than a <ul> of its own. */
+.slicer .value-picker {
   flex: 1;
+  min-height: 0;
 }
-.slicer-values li label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+
+.slicer .filter-values {
+  overflow-y: auto;
+}
+
+.slicer .filter-value {
   padding: 3px 2px;
   font-size: 12px;
   color: var(--ink);
   cursor: pointer;
 }
-.slicer-values li label:hover {
+
+.slicer .filter-value:hover {
   background: var(--chrome);
 }
 
@@ -1894,9 +1911,132 @@ button.secondary:hover,
 }
 
 /* Bounded so a high-cardinality dimension cannot push the pane off-screen. */
+/* A square icon-only control: an action whose glyph says it, and whose name
+   lives in `aria-label` and `title` rather than on screen. */
+.icon-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+.icon-button.danger:hover {
+  border-color: var(--danger, #b42318);
+  color: var(--danger, #b42318);
+}
+
+/* ==========================================================================
+   Info tip — an explanation available on request rather than always on screen
+   ========================================================================== */
+
+.filter-scope-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filter-scope-head h4 {
+  margin: 0;
+}
+
+.info-tip {
+  display: contents;
+}
+
+.info-tip-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.info-tip-button:hover,
+.info-tip-button[aria-expanded="true"] {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* Takes the whole row of the flex header it opens from, so the text gets the
+   pane's full width instead of squeezing the heading it belongs to. */
+.info-tip-body {
+  flex-basis: 100%;
+  margin: 4px 0 2px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.value-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* What is already ticked, listed above the search box. Searching replaces
+   the option list below, so without this the selection would appear to
+   vanish the moment you started typing. */
+.value-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.value-chosen button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--ink-wash);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.value-chosen button:hover {
+  border-color: var(--ink-secondary);
+}
+
+/* No max-height any more: the list is ten rows by construction, so it needs
+   no scroller of its own -- a 200px box inside a pane that already scrolled
+   was two scrollbars for one list. */
 .filter-values {
-  max-height: 200px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2750,7 +2890,7 @@ button.secondary:hover,
   .field-row {
     min-height: 40px;
   }
-  .slicer-values li label {
+  .filter-value {
     min-height: 40px;
     padding: 8px 4px;
   }
@@ -2904,6 +3044,11 @@ body {
 .filter-toggle {
   display: flex;
   align-items: center;
+  /* Explicit: a <button> centres its content, and `text-align` does not
+     reach flex children. With the old "Remove filter" text button beside it
+     the summary was squeezed left anyway; against a 24px icon it drifted to
+     the middle of the card. */
+  justify-content: flex-start;
   gap: 6px;
   flex: 1 1 auto;
   min-width: 0;
