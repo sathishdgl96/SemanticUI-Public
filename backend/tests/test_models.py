@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import DbSession, Report, User
+from app.db.models import DbSession, Report, User, Workspace, WorkspaceMember
 
 
 def test_user_identity_is_unique(db):
@@ -36,9 +36,15 @@ def test_session_links_to_user(db):
 def test_report_belongs_to_user_and_stores_a_json_definition(db):
     user = User(snowflake_account="ACME", snowflake_user="ALICE")
     db.add(user)
+    db.flush()
+    # A report now always lives in a workspace; the column is NOT NULL because
+    # exactly one access path is the point.
+    workspace = Workspace(name="My reports", kind="personal", snowflake_account="ACME")
+    db.add(workspace)
     db.commit()
     report = Report(
         owner_user_id=user.id,
+        workspace_id=workspace.id,
         name="Sales overview",
         view_database="ANALYTICS",
         view_schema="PUBLIC",
@@ -52,3 +58,60 @@ def test_report_belongs_to_user_and_stores_a_json_definition(db):
     assert loaded.definition["schemaVersion"] == 1
     assert loaded.definition["visuals"] == []
     assert isinstance(loaded.id, uuid.UUID)
+
+
+# --- workspaces ------------------------------------------------------------
+
+
+def _alice_and_workspace(db):
+    user = User(snowflake_account="ACME", snowflake_user="ALICE")
+    db.add(user)
+    db.flush()
+    ws = Workspace(name="Team", kind="shared", snowflake_account="ACME")
+    db.add(ws)
+    db.flush()
+    return user, ws
+
+
+def test_a_workspace_holds_members_with_roles(db):
+    user, ws = _alice_and_workspace(db)
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="admin"))
+    db.commit()
+
+    found = db.query(WorkspaceMember).one()
+    assert found.role == "admin"
+    assert found.workspace_id == ws.id
+
+
+def test_a_user_cannot_be_added_to_the_same_workspace_twice(db):
+    user, ws = _alice_and_workspace(db)
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="admin"))
+    db.commit()
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="viewer"))
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+
+def test_a_report_belongs_to_a_workspace(db):
+    user, ws = _alice_and_workspace(db)
+    db.commit()
+    report = Report(
+        owner_user_id=user.id,
+        workspace_id=ws.id,
+        name="R",
+        view_database="D",
+        view_schema="S",
+        view_name="V",
+        definition={},
+    )
+    db.add(report)
+    db.commit()
+    assert db.query(Report).one().workspace_id == ws.id
+
+
+def test_a_workspace_records_the_account_it_belongs_to(db):
+    """Membership is confined to one Snowflake account, so the workspace has
+    to know which one that is."""
+    _, ws = _alice_and_workspace(db)
+    db.commit()
+    assert db.query(Workspace).one().snowflake_account == "ACME"

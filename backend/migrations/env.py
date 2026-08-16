@@ -6,7 +6,12 @@ from app.db.base import Base
 from app.db import models  # noqa: F401  (register tables on Base.metadata)
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Fall back to the app's own setting only when the caller has not supplied a
+# URL. Overwriting unconditionally makes the migrations untestable -- there is
+# no way to run them against a scratch database -- and silently discards any
+# `-x`/`set_main_option` override, which reads as the override not working.
+if not config.get_main_option("sqlalchemy.url", None):
+    config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata
 
 

@@ -40,12 +40,51 @@ class DbSession(Base):
     user: Mapped[User] = relationship()
 
 
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    #: "personal" or "shared". A personal workspace refuses members, renames
+    #: and deletion -- that is what distinguishes "my private drafts" from a
+    #: shared workspace that happens to have one member today.
+    kind: Mapped[str] = mapped_column(String(16), default="shared")
+    #: Membership is confined to this Snowflake account: a user from another
+    #: account could never resolve the views these reports bind to, so the
+    #: grant would be an illusion of access.
+    snowflake_account: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_members"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    #: Indexed because "which workspaces am I in" runs on every report list.
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
 class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check; see
+    #: workspace_id below and app/workspaces/access.py.
     owner_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id"), index=True
+    )
+    #: The access boundary. Everything about who may read or edit this report
+    #: is decided by membership of this workspace.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(200))
     view_database: Mapped[str] = mapped_column(String(255))
