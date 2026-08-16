@@ -1,18 +1,24 @@
 import { apiFetch } from "./client";
 import type { ReportDefinition, ReportDetail, ReportSummary, ViewRef } from "./types";
 
-export function listReports(): Promise<{ reports: ReportSummary[] }> {
-  return apiFetch<{ reports: ReportSummary[] }>("/api/reports");
+export function listReports(workspaceId?: string): Promise<{ reports: ReportSummary[] }> {
+  const query = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
+  return apiFetch<{ reports: ReportSummary[] }>(`/api/reports${query}`);
 }
 
 export function getReport(id: string): Promise<ReportDetail> {
   return apiFetch<ReportDetail>(`/api/reports/${encodeURIComponent(id)}`);
 }
 
-export function createReport(definition: ReportDefinition): Promise<ReportDetail> {
+export function createReport(
+  definition: ReportDefinition,
+  workspaceId?: string,
+): Promise<ReportDetail> {
   return apiFetch<ReportDetail>("/api/reports", {
     method: "POST",
-    body: JSON.stringify({ definition }),
+    // Omitted workspaceId means "my personal workspace", which is what a
+    // plain "New report" should do.
+    body: JSON.stringify({ definition, workspaceId }),
   });
 }
 

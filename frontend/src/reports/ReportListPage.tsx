@@ -5,6 +5,10 @@ import { ApiError } from "../api/client";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportDefinition, ReportDetail } from "../api/types";
 import ImportPanel from "./ImportPanel";
+import MembersPanel from "../workspaces/MembersPanel";
+import WorkspaceSwitcher from "../workspaces/WorkspaceSwitcher";
+import { useWorkspaces } from "../workspaces/useWorkspaces";
+import { atLeast } from "../api/workspaces";
 
 function blankDefinition(name: string): ReportDefinition {
   return {
@@ -26,8 +30,28 @@ export default function ReportListPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  //: null means "every workspace I belong to", which is what the page shows
+  //: before a workspace has been chosen.
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [showMembers, setShowMembers] = useState(false);
 
-  const reports = useQuery({ queryKey: ["reports"], queryFn: listReports });
+  const workspaces = useWorkspaces();
+  const rows = workspaces.data?.workspaces ?? [];
+  // Default to the personal workspace once the list arrives, so the page is
+  // never showing "all workspaces" with a switcher that claims otherwise.
+  const selectedId = workspaceId ?? rows.find((w) => w.kind === "personal")?.id ?? "";
+  const selected = rows.find((w) => w.id === selectedId);
+  const canCreateHere = selected ? atLeast(selected.myRole, "editor") : false;
+
+  const reports = useQuery({
+    // Keyed on the workspace: switching must refetch rather than serve the
+    // previous workspace's list.
+    queryKey: ["reports", selectedId],
+    // Wrapped, not passed by reference: TanStack calls queryFn with its own
+    // context object, which would otherwise arrive as the workspaceId.
+    queryFn: () => listReports(selectedId || undefined),
+    enabled: Boolean(selectedId),
+  });
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteReport(id),
@@ -49,7 +73,8 @@ export default function ReportListPage() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const create = useMutation({
-    mutationFn: () => createReport(blankDefinition("Untitled report")),
+    mutationFn: () =>
+      createReport(blankDefinition("Untitled report"), selectedId || undefined),
     onSuccess: (report) => navigate(`/reports/${report.id}`),
     // Without this, a rejected create silently does nothing: no report, no
     // navigation, no feedback -- clicking "New report" would look broken.
@@ -69,6 +94,12 @@ export default function ReportListPage() {
     <main className="reports">
       <header className="reports-head">
         <h1>Reports</h1>
+        <WorkspaceSwitcher
+          value={selectedId}
+          onChange={setWorkspaceId}
+          onCreated={setWorkspaceId}
+          onManageMembers={() => setShowMembers(true)}
+        />
         <div className="reports-actions">
           <Link className="button secondary" to="/explore">
             Explore
@@ -81,13 +112,19 @@ export default function ReportListPage() {
               setCreateError(null);
               create.mutate();
             }}
-            disabled={create.isPending}
+            disabled={create.isPending || !canCreateHere}
           >
             {create.isPending ? "Creating..." : "New report"}
           </button>
         </div>
       </header>
 
+      {selected && !canCreateHere && (
+        <p className="tile-hint">
+          You are a {selected.myRole} in {selected.name}, so you cannot add reports
+          here. Switch to a workspace you can write to.
+        </p>
+      )}
       {createError && <p role="alert">{createError}</p>}
       {reports.isLoading && <p>Loading reports...</p>}
       {reports.isError && (
@@ -151,6 +188,15 @@ export default function ReportListPage() {
       {showImport && (
         <div className="panel-overlay">
           <ImportPanel onImported={onImported} onClose={() => setShowImport(false)} />
+        </div>
+      )}
+      {showMembers && selected && (
+        <div className="panel-overlay">
+          <MembersPanel
+            workspaceId={selected.id}
+            myRole={selected.myRole}
+            onClose={() => setShowMembers(false)}
+          />
         </div>
       )}
     </main>

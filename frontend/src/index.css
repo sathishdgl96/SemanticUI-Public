@@ -1387,3 +1387,85 @@ button.secondary,
     flex-direction: column;
   }
 }
+
+/* --- Workspaces and sharing --------------------------------------------- */
+
+.workspace-switcher {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workspace-role {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+
+.workspace-create {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.members-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(440px, 90vw);
+}
+
+.members-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Bounded so a large workspace cannot push the Add form off-screen. */
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.member-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 24px;
+}
+
+.member-name {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.member-role {
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+}
+
+.member-add {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .workspace-switcher {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .member-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

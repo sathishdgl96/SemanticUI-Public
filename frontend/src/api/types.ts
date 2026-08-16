@@ -95,6 +95,24 @@ export interface FieldValuesResponse {
   truncated: boolean;
 }
 
+export type Role = "viewer" | "editor" | "admin";
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  kind: "personal" | "shared";
+  myRole: Role;
+  memberCount: number;
+  reportCount: number;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  snowflakeUser: string;
+  role: Role;
+  isMe: boolean;
+}
+
 export interface ViewRef {
   database: string;
   schema: string;
@@ -138,6 +156,11 @@ export interface ReportSummary {
   name: string;
   view: ViewRef;
   updatedAt: string;
+  workspaceId: string;
+  workspaceName: string;
+  /** The caller's role in that workspace, so the UI can disable an action
+   *  with a stated reason rather than letting them discover it on a 403. */
+  myRole: Role;
 }
 
 export type ReportDetail = ReportSummary & { definition: ReportDefinition };

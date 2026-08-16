@@ -9,6 +9,24 @@ vi.mock("../api/reports", () => ({
   deleteReport: vi.fn(),
   createReport: vi.fn(),
 }));
+// The page now waits for its workspace list before it queries reports at all
+// -- there is no such thing as an unfiled report -- so the switcher's fetch
+// has to resolve for anything else to render.
+vi.mock("../api/workspaces", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/workspaces")>()),
+  listWorkspaces: vi.fn().mockResolvedValue({
+    workspaces: [
+      {
+        id: "w0",
+        name: "My reports",
+        kind: "personal",
+        myRole: "admin",
+        memberCount: 1,
+        reportCount: 1,
+      },
+    ],
+  }),
+}));
 
 import { ApiError } from "../api/client";
 import { createReport, deleteReport, listReports } from "../api/reports";
@@ -44,6 +62,9 @@ describe("ReportListPage", () => {
           name: "Sales overview",
           view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
           updatedAt: "2026-08-15T10:00:00+00:00",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin" as const,
         },
       ],
     });
@@ -66,6 +87,9 @@ describe("ReportListPage", () => {
           name: "Sales overview",
           view: { database: "A", schema: "B", name: "C" },
           updatedAt: "2026-08-15T10:00:00+00:00",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin" as const,
         },
       ],
     });
@@ -91,6 +115,9 @@ describe("ReportListPage", () => {
           name: "Sales overview",
           view: { database: "A", schema: "B", name: "C" },
           updatedAt: "2026-08-15T10:00:00+00:00",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin" as const,
         },
       ],
     });
@@ -124,5 +151,35 @@ describe("ReportListPage", () => {
     expect(alert).toHaveTextContent(
       /this report must be bound to a semantic view before it can hold visuals/i,
     );
+  });
+});
+
+describe("ReportListPage workspaces", () => {
+  it("scopes the listing to the selected workspace", async () => {
+    listMock.mockResolvedValue({ reports: [] });
+    renderPage();
+    await waitFor(() => expect(listMock).toHaveBeenCalled());
+    // The personal workspace is selected by default, so the very first fetch
+    // is already scoped -- the page never shows an unscoped "everything" list
+    // under a switcher that claims one workspace.
+    expect(listMock).toHaveBeenCalledWith("w0");
+  });
+
+  it("creates a report in the selected workspace", async () => {
+    listMock.mockResolvedValue({ reports: [] });
+    createMock.mockResolvedValue({
+      id: "r9",
+      name: "Untitled report",
+      view: { database: "", schema: "", name: "" },
+      updatedAt: "",
+      workspaceId: "w0",
+      workspaceName: "My reports",
+      myRole: "admin",
+      definition: {} as never,
+    });
+    renderPage();
+    await waitFor(() => expect(listMock).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: /new report/i }));
+    expect(createMock).toHaveBeenCalledWith(expect.anything(), "w0");
   });
 });

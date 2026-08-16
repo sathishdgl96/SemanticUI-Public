@@ -51,7 +51,8 @@ describe("ImportPanel", () => {
   it("passes a view override when one is supplied", async () => {
     importMock.mockResolvedValue({
       id: "r2", name: "Imported", view: { database: "P", schema: "M", name: "V" },
-      updatedAt: "", definition: {} as never,
+      updatedAt: "", workspaceId: "w0", workspaceName: "My reports",
+      myRole: "admin" as const, definition: {} as never,
     });
     const onImported = vi.fn();
     renderPanel(onImported);
@@ -115,7 +116,8 @@ describe("ImportPanel", () => {
     expect(() =>
       resolveImport({
         id: "r2", name: "Imported", view: { database: "P", schema: "M", name: "V" },
-        updatedAt: "", definition: {} as never,
+        updatedAt: "", workspaceId: "w0", workspaceName: "My reports",
+      myRole: "admin" as const, definition: {} as never,
       }),
     ).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));

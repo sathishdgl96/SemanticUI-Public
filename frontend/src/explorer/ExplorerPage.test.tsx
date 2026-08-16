@@ -219,6 +219,9 @@ describe("ExplorerPage", () => {
       name: "My View",
       view: { database: "DB", schema: "SCH", name: "My View" },
       updatedAt: "2026-08-15T00:00:00Z",
+      workspaceId: "w0",
+      workspaceName: "My reports",
+      myRole: "admin" as const,
       definition: {
         schemaVersion: 1,
         name: "My View",

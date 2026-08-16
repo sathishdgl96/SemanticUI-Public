@@ -72,6 +72,9 @@ const detail = {
   name: "Sales overview",
   view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
   updatedAt: "2026-08-15T10:00:00+00:00",
+  workspaceId: "w0",
+  workspaceName: "My reports",
+  myRole: "admin" as const,
   definition: {
     schemaVersion: 1,
     name: "Sales overview",
@@ -99,6 +102,9 @@ const detail2 = {
   name: "Marketing overview",
   view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
   updatedAt: "2026-08-15T10:00:00+00:00",
+  workspaceId: "w0",
+  workspaceName: "My reports",
+  myRole: "admin" as const,
   definition: {
     schemaVersion: 1,
     name: "Marketing overview",
@@ -168,6 +174,9 @@ describe("BuilderPage", () => {
     getMock.mockResolvedValue({
       id: "r1",
       name: "Untitled report",
+      workspaceId: "w0",
+      workspaceName: "My reports",
+      myRole: "admin" as const,
       view: { database: "", schema: "", name: "" },
       updatedAt: "2026-08-15T10:00:00+00:00",
       definition: {
