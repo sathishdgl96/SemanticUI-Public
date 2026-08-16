@@ -3,35 +3,56 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Report
+from app.db.models import Report, Workspace, WorkspaceMember
 from app.errors import ApiError
 from app.reports.schema import ReportDefinition, parse_definition
+from app.workspaces.access import require_access, require_workspace
 
 
-def _not_found() -> ApiError:
-    # 404 rather than 403: a non-owner must not learn that this id exists.
-    return ApiError("HTTP_ERROR", 404, "Report not found")
+def list_reports(
+    db: Session, user_id: uuid.UUID, workspace_id: str | None = None
+) -> list[Report]:
+    """Every report in every workspace this user belongs to.
 
-
-def list_reports(db: Session, user_id: uuid.UUID) -> list[Report]:
-    return list(
-        db.scalars(
-            select(Report)
-            .where(Report.owner_user_id == user_id)
-            .order_by(Report.updated_at.desc())
-        )
+    Joined through membership rather than filtered on `owner_user_id`: a
+    shared report is not owned by the person reading it.
+    """
+    query = (
+        select(Report)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Report.workspace_id)
+        .where(WorkspaceMember.user_id == user_id)
+        .order_by(Report.updated_at.desc())
     )
+    if workspace_id:
+        # Through require_workspace, so a bogus or unauthorised id is a 404
+        # rather than a silently empty list that reads as "no reports here".
+        workspace = require_workspace(db, user_id, workspace_id, need="viewer")
+        query = query.where(Report.workspace_id == workspace.id)
+    return list(db.scalars(query))
 
 
-def get_owned_report(db: Session, user_id: uuid.UUID, report_id: str) -> Report:
-    try:
-        key = uuid.UUID(str(report_id))
-    except (ValueError, AttributeError):
-        raise _not_found()
-    report = db.get(Report, key)
-    if report is None or report.owner_user_id != user_id:
-        raise _not_found()
-    return report
+def personal_workspace_id(db: Session, user_id: uuid.UUID) -> uuid.UUID:
+    workspace = db.scalar(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == user_id, Workspace.kind == "personal")
+    )
+    if workspace is None:
+        # Every login creates one, so reaching here means the session outlived
+        # a database reset. An explicit error beats a null workspace_id.
+        raise ApiError(
+            "HTTP_ERROR", 404, "You have no personal workspace; sign in again."
+        )
+    return workspace.id
+
+
+def _resolve_target(
+    db: Session, user_id: uuid.UUID, workspace_id: str | None
+) -> uuid.UUID:
+    """Where a new report should land: the named workspace, or mine."""
+    if workspace_id:
+        return require_workspace(db, user_id, workspace_id, need="editor").id
+    return personal_workspace_id(db, user_id)
 
 
 def _apply(report: Report, definition: ReportDefinition) -> None:
@@ -42,9 +63,15 @@ def _apply(report: Report, definition: ReportDefinition) -> None:
     report.definition = definition.model_dump(by_alias=True, mode="json")
 
 
-def create_report(db: Session, user_id: uuid.UUID, raw_definition: dict) -> Report:
+def create_report(
+    db: Session,
+    user_id: uuid.UUID,
+    raw_definition: dict,
+    workspace_id: str | None = None,
+) -> Report:
+    target = _resolve_target(db, user_id, workspace_id)
     definition = parse_definition(raw_definition)
-    report = Report(owner_user_id=user_id, name=definition.name,
+    report = Report(owner_user_id=user_id, workspace_id=target, name=definition.name,
                     view_database="", view_schema="", view_name="", definition={})
     _apply(report, definition)
     db.add(report)
@@ -56,7 +83,7 @@ def create_report(db: Session, user_id: uuid.UUID, raw_definition: dict) -> Repo
 def update_report(
     db: Session, user_id: uuid.UUID, report_id: str, raw_definition: dict
 ) -> Report:
-    report = get_owned_report(db, user_id, report_id)
+    report = require_access(db, user_id, report_id, need="editor")
     _apply(report, parse_definition(raw_definition))
     db.commit()
     db.refresh(report)
@@ -64,7 +91,7 @@ def update_report(
 
 
 def delete_report(db: Session, user_id: uuid.UUID, report_id: str) -> None:
-    report = get_owned_report(db, user_id, report_id)
+    report = require_access(db, user_id, report_id, need="editor")
     db.delete(report)
     db.commit()
 
@@ -90,6 +117,7 @@ def import_report(
     cache,
     raw_definition: dict,
     view_override: dict | None = None,
+    workspace_id: str | None = None,
 ) -> Report:
     """Create a report from an untrusted definition document.
 
@@ -97,6 +125,8 @@ def import_report(
     importing user's own connection, so an imported report can only reference
     fields their Snowflake role can see.
     """
+    target = _resolve_target(db, user_id, workspace_id)
+
     if view_override:
         raw_definition = {**raw_definition, "view": view_override}
 
@@ -154,10 +184,28 @@ def import_report(
             "or that your Snowflake role cannot see: " + ", ".join(unique),
         )
 
-    report = Report(owner_user_id=user_id, name=definition.name,
+    report = Report(owner_user_id=user_id, workspace_id=target, name=definition.name,
                     view_database="", view_schema="", view_name="", definition={})
     _apply(report, definition)
     db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def move_report(
+    db: Session, user_id: uuid.UUID, report_id: str, workspace_id: str
+) -> Report:
+    """Move a report to another workspace.
+
+    Editor on BOTH ends. Requiring it only on the destination would let anyone
+    lift a report out of a workspace they were merely shown; requiring it only
+    on the source would let them push one into a workspace they cannot write
+    to. Either half alone is a hole.
+    """
+    report = require_access(db, user_id, report_id, need="editor")
+    destination = require_workspace(db, user_id, workspace_id, need="editor")
+    report.workspace_id = destination.id
     db.commit()
     db.refresh(report)
     return report

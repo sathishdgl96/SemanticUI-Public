@@ -62,6 +62,14 @@ def create_session(
         existing = User(snowflake_account=account, snowflake_user=user)
         db.add(existing)
         db.flush()
+    # Every user has exactly one personal workspace, so "which workspace does
+    # this report belong to" always has an answer and there is no second,
+    # unfiled access path. Imported here rather than at module scope:
+    # app.workspaces.service is not importable while this module is being
+    # loaded during app construction.
+    from app.workspaces.service import ensure_personal_workspace
+
+    ensure_personal_workspace(db, existing)
     sess = DbSession(
         id=new_session_id(),
         user_id=existing.id,

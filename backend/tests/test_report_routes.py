@@ -3,7 +3,7 @@ import json
 from sqlalchemy import select
 
 from app.auth.sessions import SESSION_COOKIE, create_session
-from app.db.models import Report, User
+from app.db.models import Report, User, Workspace, WorkspaceMember
 from app.reports.schema import MAX_DEFINITION_BYTES, MAX_REFS_PER_WELL, MAX_VISUALS
 
 
@@ -168,3 +168,161 @@ def test_report_row_stores_no_query_results(client, db):
     assert set(row.definition) == {
         "schemaVersion", "name", "view", "canvas", "visuals", "filters", "hierarchies",
     }
+
+
+# --- workspace-scoped access ----------------------------------------------
+
+
+def _shared_workspace(db, user_id, name="Team", role="editor"):
+    ws = Workspace(name=name, kind="shared", snowflake_account="ACME")
+    db.add(ws)
+    db.flush()
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=user_id, role=role))
+    db.commit()
+    return ws
+
+
+def _report_in(db, workspace, owner_id, name="R"):
+    report = Report(
+        owner_user_id=owner_id,
+        workspace_id=workspace.id,
+        name=name,
+        view_database="ANALYTICS",
+        view_schema="PUBLIC",
+        view_name="SALES",
+        definition=valid_definition(name),
+    )
+    db.add(report)
+    db.commit()
+    return report
+
+
+def test_a_report_in_someone_elses_workspace_is_404_on_every_verb(client, db):
+    """404 and not 403: a stranger must not learn that this id exists."""
+    sign_in(client, db)
+    other = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+    theirs_ws = _shared_workspace(db, other.user_id, "Theirs", role="admin")
+    theirs = _report_in(db, theirs_ws, other.user_id, "Theirs")
+
+    assert client.get(f"/api/reports/{theirs.id}").status_code == 404
+    assert client.get(f"/api/reports/{theirs.id}/export").status_code == 404
+    assert (
+        client.put(
+            f"/api/reports/{theirs.id}", json={"definition": valid_definition()}
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"/api/reports/{theirs.id}").status_code == 404
+
+
+def test_a_viewer_may_read_but_not_write(client, db):
+    """The role split, end to end: same report, same workspace, two verbs."""
+    sess = sign_in(client, db)
+    ws = _shared_workspace(db, sess.user_id, role="viewer")
+    report = _report_in(db, ws, sess.user_id)
+
+    assert client.get(f"/api/reports/{report.id}").status_code == 200
+    assert client.get(f"/api/reports/{report.id}/export").status_code == 200
+
+    write = client.put(
+        f"/api/reports/{report.id}", json={"definition": valid_definition()}
+    )
+    assert write.status_code == 403
+    assert write.json()["code"] == "WORKSPACE_FORBIDDEN"
+    assert "editor" in write.json()["message"]
+    assert client.delete(f"/api/reports/{report.id}").status_code == 403
+
+
+def test_an_editor_may_write(client, db):
+    sess = sign_in(client, db)
+    ws = _shared_workspace(db, sess.user_id, role="editor")
+    report = _report_in(db, ws, sess.user_id)
+    assert (
+        client.put(
+            f"/api/reports/{report.id}", json={"definition": valid_definition()}
+        ).status_code
+        == 200
+    )
+
+
+def test_listing_spans_every_workspace_i_belong_to(client, db):
+    sess = sign_in(client, db)
+    ws = _shared_workspace(db, sess.user_id, role="viewer")
+    _report_in(db, ws, sess.user_id, "In the team ws")
+    client.post("/api/reports", json={"definition": valid_definition()})
+
+    names = [r["name"] for r in client.get("/api/reports").json()["reports"]]
+    assert "In the team ws" in names
+    assert "Sales overview" in names
+
+
+def test_listing_can_be_scoped_to_one_workspace(client, db):
+    sess = sign_in(client, db)
+    ws = _shared_workspace(db, sess.user_id, role="viewer")
+    _report_in(db, ws, sess.user_id, "In the team ws")
+    client.post("/api/reports", json={"definition": valid_definition()})
+
+    scoped = client.get("/api/reports", params={"workspace": str(ws.id)}).json()
+    assert [r["name"] for r in scoped["reports"]] == ["In the team ws"]
+
+
+def test_scoping_to_a_workspace_i_do_not_belong_to_is_404_not_an_empty_list(client, db):
+    """An empty list would read as "no reports here", which is a different and
+    misleading answer."""
+    sign_in(client, db)
+    other = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+    theirs = _shared_workspace(db, other.user_id, "Theirs", role="admin")
+    assert (
+        client.get("/api/reports", params={"workspace": str(theirs.id)}).status_code
+        == 404
+    )
+
+
+def test_a_new_report_lands_in_my_personal_workspace_by_default(client, db):
+    sess = sign_in(client, db)
+    created = client.post("/api/reports", json={"definition": valid_definition()}).json()
+    personal = (
+        db.query(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .filter(WorkspaceMember.user_id == sess.user_id, Workspace.kind == "personal")
+        .one()
+    )
+    assert created["workspaceId"] == str(personal.id)
+    assert created["workspaceName"] == "My reports"
+    assert created["myRole"] == "admin"
+
+
+def test_creating_in_a_workspace_i_can_only_read_is_403(client, db):
+    sess = sign_in(client, db)
+    ws = _shared_workspace(db, sess.user_id, role="viewer")
+    response = client.post(
+        "/api/reports",
+        json={"definition": valid_definition(), "workspaceId": str(ws.id)},
+    )
+    assert response.status_code == 403
+
+
+def test_creating_in_a_workspace_i_do_not_belong_to_is_404(client, db):
+    sign_in(client, db)
+    other = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+    theirs = _shared_workspace(db, other.user_id, "Theirs", role="admin")
+    response = client.post(
+        "/api/reports",
+        json={"definition": valid_definition(), "workspaceId": str(theirs.id)},
+    )
+    assert response.status_code == 404
+
+
+def test_creating_in_a_workspace_i_can_write_to_lands_there(client, db):
+    sess = sign_in(client, db)
+    ws = _shared_workspace(db, sess.user_id, role="editor")
+    created = client.post(
+        "/api/reports",
+        json={"definition": valid_definition(), "workspaceId": str(ws.id)},
+    ).json()
+    assert created["workspaceId"] == str(ws.id)
+    assert created["workspaceName"] == "Team"
+    assert created["myRole"] == "editor"
