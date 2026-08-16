@@ -1636,3 +1636,206 @@ button.secondary:hover,
   margin-right: 8px;
   vertical-align: -1px;
 }
+
+/* --- App shell (PowerBI frame) ------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-topbar {
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--topbar);
+  color: #ffffff;
+}
+
+.app-topbar .brand {
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-topbar .identity {
+  color: #d2d0ce;
+  font-size: 12px;
+}
+
+.topbar-link {
+  color: #ffffff;
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+.nav-rail {
+  flex: 0 0 48px;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome);
+  border-right: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.rail-item {
+  /* Overrides the yellow primary button default: rail items are chrome. */
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--ink-secondary);
+  font-weight: 400;
+  width: 48px;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 0;
+  text-decoration: none;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.rail-glyph {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rail-label {
+  font-size: 9px;
+}
+
+.rail-item:hover {
+  background: #e8e6e4;
+  filter: none;
+}
+
+/* NavLink sets .active; PowerBI marks the current surface with the brand bar. */
+.rail-item.active {
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--brand);
+  background: #ffffff;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+/* The builder manages its own scrolling regions. */
+.app-content > .builder {
+  height: 100%;
+}
+
+.ws-flyout {
+  position: absolute;
+  left: 48px;
+  top: 0;
+  bottom: 0;
+  width: min(300px, 80vw);
+  z-index: 40;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--tile-shadow);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.ws-flyout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ws-flyout-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.ws-flyout-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ws-flyout-item {
+  background: none;
+  border: none;
+  font-weight: 400;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ws-flyout-item:hover {
+  background: var(--chrome);
+  filter: none;
+}
+
+.ws-glyph {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.ws-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.ws-meta {
+  grid-column: 2;
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.explorer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}

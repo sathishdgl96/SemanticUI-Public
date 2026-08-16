@@ -10,6 +10,7 @@ import {
 import { setOnAuthExpired } from "./api/client";
 import LoginPage from "./auth/LoginPage";
 import { useMe } from "./auth/useMe";
+import AppShell from "./shell/AppShell";
 import ExplorerPage from "./explorer/ExplorerPage";
 import BuilderPage from "./reports/BuilderPage";
 import ReportListPage from "./reports/ReportListPage";
@@ -48,7 +49,9 @@ export default function App() {
             path="/reports"
             element={
               <RequireAuth>
-                <ReportListPage />
+                <AppShell>
+                  <ReportListPage />
+                </AppShell>
               </RequireAuth>
             }
           />
@@ -56,7 +59,9 @@ export default function App() {
             path="/explore"
             element={
               <RequireAuth>
-                <ExplorerPage />
+                <AppShell>
+                  <ExplorerPage />
+                </AppShell>
               </RequireAuth>
             }
           />
@@ -64,7 +69,9 @@ export default function App() {
             path="/reports/:id"
             element={
               <RequireAuth>
-                <BuilderPage />
+                <AppShell>
+                  <BuilderPage />
+                </AppShell>
               </RequireAuth>
             }
           />

@@ -1,5 +1,5 @@
 import { DndContext, type Announcements, type DragEndEvent } from "@dnd-kit/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
@@ -11,7 +11,6 @@ import type {
   SemanticViewDetail,
   SemanticViewSummary,
 } from "../api/types";
-import { useMe } from "../auth/useMe";
 import QueryPanel from "../query/QueryPanel";
 import { validateWells } from "../reports/catalog";
 import {
@@ -29,8 +28,6 @@ function dragDataOf(active: { data: { current?: Record<string, unknown> } }): Dr
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const me = useMe();
   const [selectedView, setSelectedView] = useState<SemanticViewSummary | null>(null);
   const [wells, setWells] = useState<Wells>(emptyWells());
   const sensors = useFieldSensors();
@@ -175,28 +172,10 @@ export default function ExplorerPage() {
     });
   }
 
-  async function logout() {
-    // The server-side session is over the moment the user asks to log out,
-    // regardless of whether the request below succeeds — a network hiccup
-    // must not strand the user on the explorer with another identity's
-    // cached data still readable. Clear the cache before navigating so
-    // nothing from this identity survives to be shown to whoever logs in
-    // next in this browser.
-    try {
-      await apiFetch("/auth/logout", { method: "POST" });
-    } catch {
-      // Local logout proceeds regardless; the server may already have
-      // dropped the session, or the failure is transient/irrelevant now.
-    } finally {
-      queryClient.clear();
-      navigate("/login");
-    }
-  }
-
   return (
     <div className="explorer">
-      <header className="topbar">
-        <strong>SemanticUI</strong>
+      <div className="explorer-toolbar">
+        <h1 className="page-title">Explore</h1>
         <span className="identity-row">
           <button
             type="button"
@@ -219,14 +198,8 @@ export default function ExplorerPage() {
                 : "Could not create report."}
             </span>
           )}
-          <span className="identity">
-            {me.data ? `${me.data.snowflakeUser} @ ${me.data.snowflakeAccount}` : ""}
-          </span>
-          <button className="link" onClick={logout}>
-            Log out
-          </button>
         </span>
-      </header>
+      </div>
       <DndContext sensors={sensors} onDragEnd={onDragEnd} accessibility={{ announcements }}>
         <div className="columns">
           <div className="left">

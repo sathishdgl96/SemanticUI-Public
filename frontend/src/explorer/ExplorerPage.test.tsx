@@ -124,51 +124,6 @@ describe("ExplorerPage", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/semantic-views/DB/SCH/My%20View");
   });
 
-  it("clears the query client cache and navigates to /login on logout", async () => {
-    mockRoutes(() => Promise.reject(new ApiError("VIEW_ERROR", 500, "boom")));
-    apiFetchMock.mockImplementation((...args: unknown[]) => {
-      const path = String(args[0]);
-      if (path === "/api/me") return Promise.resolve(ME);
-      if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
-      if (path.startsWith("/api/semantic-views/")) return Promise.reject(new ApiError("VIEW_ERROR", 500, "boom"));
-      if (path === "/auth/logout") return Promise.resolve(undefined);
-      return Promise.reject(new Error(`unexpected path: ${path}`));
-    });
-    const { qc } = renderPage();
-
-    // Wait for A's semantic-views list to actually populate the cache, the
-    // way a real logged-in session leaves it.
-    await screen.findByRole("button", { name: "My View" });
-    expect(qc.getQueryData(["semantic-views"])).toBeDefined();
-
-    await userEvent.click(screen.getByRole("button", { name: /log out/i }));
-
-    await screen.findByText("Login page");
-    expect(qc.getQueryData(["semantic-views"])).toBeUndefined();
-  });
-
-  it("clears the cache and navigates to /login even when the logout request itself fails", async () => {
-    apiFetchMock.mockImplementation((...args: unknown[]) => {
-      const path = String(args[0]);
-      if (path === "/api/me") return Promise.resolve(ME);
-      if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
-      if (path === "/auth/logout") return Promise.reject(new Error("network down"));
-      return Promise.reject(new Error(`unexpected path: ${path}`));
-    });
-    const { qc } = renderPage();
-
-    await screen.findByRole("button", { name: "My View" });
-    expect(qc.getQueryData(["semantic-views"])).toBeDefined();
-
-    await userEvent.click(screen.getByRole("button", { name: /log out/i }));
-
-    // Local session is over regardless of whether the server call
-    // succeeded — the user must not be stranded on the explorer with a
-    // stale cache.
-    await screen.findByText("Login page");
-    expect(qc.getQueryData(["semantic-views"])).toBeUndefined();
-  });
-
   it("disables Add to report until a view is selected and a field is placed", async () => {
     mockRoutes(() => Promise.resolve(DETAIL));
     renderPage();
