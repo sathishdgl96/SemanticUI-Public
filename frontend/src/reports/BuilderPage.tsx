@@ -7,6 +7,8 @@ import { getReport, updateReport } from "../api/reports";
 import { atLeast, moveReport } from "../api/workspaces";
 import AskPanel from "../ask/AskPanel";
 import ConnectPanel from "../export/ConnectPanel";
+import Pane from "../shell/Pane";
+import DataPane from "./DataPane";
 import { downloadXlsx } from "../api/exports";
 import { useWorkspaces } from "../workspaces/useWorkspaces";
 import type {
@@ -143,26 +145,6 @@ function BuilderFieldRow({
   );
 }
 
-function BuilderFieldGroup({
-  title,
-  kind,
-  fields,
-  onAdd,
-}: {
-  title: string;
-  kind: FieldKind;
-  fields: FieldInfo[];
-  onAdd: (ref: string, kind: FieldKind) => void;
-}) {
-  return (
-    <section className="field-group">
-      <h4 className="field-group-title">{title}</h4>
-      {fields.map((field) => (
-        <BuilderFieldRow key={refOf(field)} field={field} kind={kind} onAdd={onAdd} />
-      ))}
-    </section>
-  );
-}
 
 /** Hierarchies are placed exactly like dimensions -- click or drag -- but
  *  carry a "hierarchy:<id>" reference instead of a field name. Without this
@@ -286,6 +268,14 @@ export default function BuilderPage() {
   const [drill, setDrill] = useState<Record<string, DrillState>>({});
   const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
   const [moving, setMoving] = useState(false);
+  // On narrower desktops PowerBI shows two panes open; Filters starts tucked
+  // away. Guarded: jsdom has no matchMedia.
+  const [startFiltersCollapsed] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(max-width: 1279px)").matches,
+  );
 
   // The route element isn't keyed in App.tsx, so navigating from one report
   // to another (e.g. BuilderPage's own Import flow, which navigates to the
@@ -448,6 +438,50 @@ export default function BuilderPage() {
     setSelectedType(type);
   };
 
+  /** PBI checkbox semantics for the Data pane. Checking with no visual
+   *  selected creates one carrying the field -- exactly what PowerBI does --
+   *  built in ONE setDefinition, because addVisual + addFieldToSelected in
+   *  sequence would read stale state between the two updates. */
+  const toggleField = (ref: string, kind: FieldKind, nextChecked: boolean) => {
+    if (!canEdit) return;
+    if (!nextChecked) {
+      if (!selected) return;
+      replaceVisual({
+        ...selected,
+        wells: Object.fromEntries(
+          Object.entries(selected.wells).map(([key, refs]) => [
+            key,
+            refs.filter((r) => r !== ref),
+          ]),
+        ),
+      });
+      return;
+    }
+    if (selected) {
+      addFieldToSelected(ref, kind);
+      return;
+    }
+    const type = selectedType;
+    const wells = emptyWellsFor(type);
+    const wellKey = defaultWellFor(type, kind, wells);
+    if (wellKey) wells[wellKey] = [ref];
+    const nextY = definition.visuals.reduce(
+      (max, v) => Math.max(max, v.layout.y + v.layout.h),
+      0,
+    );
+    const visual: Visual = {
+      id: `v${crypto.randomUUID().slice(0, 8)}`,
+      type,
+      title: "",
+      layout: { x: 0, y: nextY, w: 6, h: 6 },
+      wells,
+      options: {},
+      filters: [],
+    };
+    setDefinition({ ...definition, visuals: [...definition.visuals, visual] });
+    setSelectedId(visual.id);
+  };
+
   const addFieldToSelected = (ref: string, kind: FieldKind) => {
     const visual = definition.visuals.find((v) => v.id === selectedId);
     if (!visual) return;
@@ -575,8 +609,9 @@ export default function BuilderPage() {
 
   return (
     <div className="builder">
-      <header className="builder-head">
+      <header className="builder-head command-bar">
         <input
+          className="report-title"
           aria-label="Report name"
           value={definition.name}
           onChange={(e) => setDefinition({ ...definition, name: e.target.value })}
@@ -598,6 +633,7 @@ export default function BuilderPage() {
               Move
             </button>
           )}
+          <span className="cmd-sep" aria-hidden="true" />
           <button
             type="button"
             className="secondary"
@@ -622,6 +658,7 @@ export default function BuilderPage() {
           >
             Connect live
           </button>
+          <span className="cmd-sep" aria-hidden="true" />
           <button
             type="button"
             className="secondary"
@@ -674,7 +711,8 @@ export default function BuilderPage() {
             </p>
           )}
           <div className="builder-body">
-            <CanvasGrid
+            <div className="canvas-column">
+              <CanvasGrid
               visuals={definition.visuals}
               canvas={definition.canvas}
               view={view}
@@ -696,11 +734,33 @@ export default function BuilderPage() {
               crossFilter={crossFilter}
               onCrossFilter={setCrossFilter}
             />
-            <aside className="builder-panes">
-              <section>
-                <h3>Visualizations</h3>
+              <div className="page-bar">
+                <button type="button" className="page-tab active" aria-current="page">
+                  Page 1
+                </button>
+              </div>
+            </div>
+            <aside className="builder-rail">
+              <Pane title="Filters" defaultCollapsed={startFiltersCollapsed}>
+                <FilterPane
+                  view={view}
+                  fields={[...dimensions, ...metrics]}
+                  reportFilters={definition.filters ?? []}
+                  visualFilters={selected ? (selected.filters ?? []) : null}
+                  selectedVisualTitle={selected ? visualTitle(selected) : null}
+                  onChangeReport={(filters) => setDefinition({ ...definition, filters })}
+                  onChangeVisual={(filters) => {
+                    if (selected) replaceVisual({ ...selected, filters });
+                  }}
+                />
+              </Pane>
+              <Pane title="Visualizations">
                 <VisualPicker value={selectedType} onChange={onTypeChange} />
-                <button type="button" className="secondary" onClick={() => addVisual(selectedType)}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => addVisual(selectedType)}
+                >
                   Add visual
                 </button>
                 {selected ? (
@@ -708,80 +768,72 @@ export default function BuilderPage() {
                 ) : (
                   <p className="tile-hint">Select a visual on the canvas to edit its fields.</p>
                 )}
-              </section>
-              <section>
-                <div className="fields-pane-head">
-                  <h3>Fields</h3>
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => refreshFields.mutate()}
-                    disabled={refreshFields.isPending || !view.name}
-                  >
-                    {refreshFields.isPending ? "Refreshing…" : "Refresh fields"}
-                  </button>
-                </div>
-                {refreshFields.isError && (
-                  <p role="alert">
-                    {refreshFields.error instanceof ApiError
-                      ? refreshFields.error.message
-                      : "Could not refresh fields."}
-                  </p>
-                )}
-                {viewDetail.isError && !isMissingView(viewDetail.error) && (
-                  <p role="alert">
-                    {viewDetail.error instanceof ApiError
-                      ? viewDetail.error.message
-                      : "Could not describe this view."}
-                  </p>
-                )}
-                <BuilderFieldGroup
-                  title="Dimensions"
-                  kind="dimension"
-                  fields={dimensions}
-                  onAdd={addFieldToSelected}
+              </Pane>
+              <Pane title="Data">
+                <DataPane
+                  dimensions={dimensions}
+                  metrics={metrics}
+                  selected={selected}
+                  canEdit={canEdit}
+                  onToggleField={toggleField}
+                  renderRow={(field, kind) => (
+                    <BuilderFieldRow field={field} kind={kind} onAdd={addFieldToSelected} />
+                  )}
+                  headerExtra={
+                    <>
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => refreshFields.mutate()}
+                        disabled={refreshFields.isPending || !view.name}
+                      >
+                        {refreshFields.isPending ? "Refreshing…" : "Refresh fields"}
+                      </button>
+                      {refreshFields.isError && (
+                        <p role="alert">
+                          {refreshFields.error instanceof ApiError
+                            ? refreshFields.error.message
+                            : "Could not refresh fields."}
+                        </p>
+                      )}
+                      {viewDetail.isError && !isMissingView(viewDetail.error) && (
+                        <p role="alert">
+                          {viewDetail.error instanceof ApiError
+                            ? viewDetail.error.message
+                            : "Could not describe this view."}
+                        </p>
+                      )}
+                    </>
+                  }
+                  hierarchyRows={
+                    hierarchies.length > 0 ? (
+                      <section className="field-group">
+                        <h4 className="field-group-title">Hierarchies</h4>
+                        {hierarchies.map((h) => (
+                          <BuilderHierarchyRow
+                            key={h.id}
+                            hierarchy={h}
+                            onAdd={addFieldToSelected}
+                          />
+                        ))}
+                      </section>
+                    ) : null
+                  }
+                  footer={
+                    <HierarchyPane
+                      hierarchies={hierarchies}
+                      dimensions={dimensions}
+                      onChange={(next) =>
+                        setDefinition({
+                          ...definition,
+                          // Model-declared hierarchies are not the report's to store.
+                          hierarchies: next.filter((h) => !h.id.startsWith("model:")),
+                        })
+                      }
+                    />
+                  }
                 />
-                {hierarchies.length > 0 && (
-                  <section className="field-group">
-                    <h4 className="field-group-title">Hierarchies</h4>
-                    {hierarchies.map((h) => (
-                      <BuilderHierarchyRow
-                        key={h.id}
-                        hierarchy={h}
-                        onAdd={addFieldToSelected}
-                      />
-                    ))}
-                  </section>
-                )}
-                <BuilderFieldGroup
-                  title="Metrics"
-                  kind="metric"
-                  fields={metrics}
-                  onAdd={addFieldToSelected}
-                />
-              </section>
-              <FilterPane
-                view={view}
-                fields={[...dimensions, ...metrics]}
-                reportFilters={definition.filters ?? []}
-                visualFilters={selected ? (selected.filters ?? []) : null}
-                selectedVisualTitle={selected ? visualTitle(selected) : null}
-                onChangeReport={(filters) => setDefinition({ ...definition, filters })}
-                onChangeVisual={(filters) => {
-                  if (selected) replaceVisual({ ...selected, filters });
-                }}
-              />
-              <HierarchyPane
-                hierarchies={hierarchies}
-                dimensions={dimensions}
-                onChange={(next) =>
-                  setDefinition({
-                    ...definition,
-                    // Model-declared hierarchies are not the report's to store.
-                    hierarchies: next.filter((h) => !h.id.startsWith("model:")),
-                  })
-                }
-              />
+              </Pane>
             </aside>
           </div>
         </DndContext>

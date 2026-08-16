@@ -101,9 +101,9 @@ export default function FilterPane({
     <section className="filter-pane">
       <h3>Filters</h3>
       <FilterScope
-        heading="Filters on this report"
-        emptyText="No filters on this report. Every visual shows all its data."
-        addLabel="Add a filter on this report"
+        heading="Filters on this page"
+        emptyText="No filters on this page. Every visual shows all its data."
+        addLabel="Add a filter on this page"
         dropId={REPORT_DROP_ID}
         testId="filter-drop-report"
         filters={reportFilters}

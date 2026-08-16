@@ -51,14 +51,14 @@ afterEach(() => vi.unstubAllGlobals());
 describe("FilterPane", () => {
   it("says the report has no filters yet", () => {
     wrap(<FilterPane {...props} />);
-    expect(screen.getByText(/no filters on this report/i)).toBeInTheDocument();
+    expect(screen.getByText(/no filters on this page/i)).toBeInTheDocument();
   });
 
   it("adds a report-scope filter for a chosen field", async () => {
     const onChangeReport = vi.fn();
     wrap(<FilterPane {...props} onChangeReport={onChangeReport} />);
     await userEvent.selectOptions(
-      screen.getByLabelText(/add a filter on this report/i),
+      screen.getByLabelText(/add a filter on this page/i),
       "CUSTOMERS.REGION",
     );
     expect(onChangeReport).toHaveBeenCalledWith([
@@ -78,7 +78,7 @@ describe("FilterPane", () => {
       />,
     );
     expect(
-      screen.getByRole("heading", { name: /filters on this report/i }),
+      screen.getByRole("heading", { name: /filters on this page/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /filters on "Revenue by region"/i }),
@@ -113,7 +113,7 @@ describe("FilterPane", () => {
       />,
     );
     const select = screen.getByLabelText(
-      /add a filter on this report/i,
+      /add a filter on this page/i,
     ) as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).not.toContain("CUSTOMERS.REGION");
   });

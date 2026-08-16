@@ -26,7 +26,7 @@ function Well({
         </span>
       </div>
       {refs.length === 0 ? (
-        <p className="well-hint">Drop a field here</p>
+        <p className="well-hint">Add data fields here</p>
       ) : (
         refs.map((ref) => (
           <span className="chip" key={ref} data-kind={spec.kind}>

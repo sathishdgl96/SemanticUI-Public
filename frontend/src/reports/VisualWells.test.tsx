@@ -47,6 +47,6 @@ describe("VisualWells", () => {
 
   it("states what each empty well accepts", () => {
     renderWells({ ...bar, wells: { axis: [], legend: [], values: [] } });
-    expect(screen.getAllByText(/drop a field here/i).length).toBe(3);
+    expect(screen.getAllByText(/add data fields here/i).length).toBe(3);
   });
 });

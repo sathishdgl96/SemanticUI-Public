@@ -139,8 +139,10 @@ describe("BuilderPage", () => {
   it("shows the report name and both panes", async () => {
     renderBuilder();
     expect(await screen.findByDisplayValue("Sales overview")).toBeInTheDocument();
-    expect(screen.getByText(/visualizations/i)).toBeInTheDocument();
-    expect(screen.getByText(/^fields$/i)).toBeInTheDocument();
+    // The Fields section became the PBI tri-pane's Data pane.
+    expect(screen.getByRole("region", { name: "Visualizations" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Data" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Filters" })).toBeInTheDocument();
   });
 
   it("asks the user to pick a visual before showing wells", async () => {
@@ -407,7 +409,7 @@ describe("BuilderPage filters", () => {
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
     expect(
-      await screen.findByLabelText(/add a filter on this report/i),
+      await screen.findByLabelText(/add a filter on this page/i),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/add a filter on this visual/i)).toBeNull();
 
@@ -424,7 +426,7 @@ describe("BuilderPage filters", () => {
     expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
 
     await userEvent.selectOptions(
-      await screen.findByLabelText(/add a filter on this report/i),
+      await screen.findByLabelText(/add a filter on this page/i),
       "C.REGION",
     );
     expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
@@ -502,7 +504,7 @@ describe("BuilderPage cross-filtering", () => {
 
     // Force a real change, then check what actually goes over the wire.
     await userEvent.selectOptions(
-      await screen.findByLabelText(/add a filter on this report/i),
+      await screen.findByLabelText(/add a filter on this page/i),
       "C.REGION",
     );
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
@@ -689,5 +691,57 @@ describe("BuilderPage Excel export", () => {
     await screen.findByDisplayValue("Sales overview");
     expect(screen.getByRole("button", { name: /^excel$/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /connect live/i })).toBeEnabled();
+  });
+});
+
+describe("BuilderPage PBI panes", () => {
+  beforeEach(() => stubApi());
+
+  it("collapsing the Data pane tucks it into a strip and back", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(await screen.findByLabelText(/search fields/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /collapse data/i }));
+    expect(screen.queryByLabelText(/search fields/i)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /expand data/i }));
+    expect(await screen.findByLabelText(/search fields/i)).toBeInTheDocument();
+  });
+
+  it("checking a field with no visual selected creates a visual carrying it", async () => {
+    // PowerBI's defining Data-pane behavior.
+    updateMock.mockResolvedValue(detail);
+    getMock.mockResolvedValue({
+      ...detail,
+      definition: { ...detail.definition, visuals: [] },
+    });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(
+      await screen.findByRole("checkbox", { name: "C.REGION" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.visuals).toHaveLength(1);
+    expect(saved.visuals[0].wells.axis).toEqual(["C.REGION"]);
+  });
+
+  it("unchecking removes the field from the selected visual", async () => {
+    updateMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+
+    const box = await screen.findByRole("checkbox", { name: "C.REGION" });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.visuals[0].wells.axis).toEqual([]);
   });
 });
