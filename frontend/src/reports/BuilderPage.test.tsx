@@ -271,7 +271,9 @@ describe("BuilderPage", () => {
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
     await userEvent.click(screen.getByRole("button", { name: "select v1" }));
-    const row = await screen.findByRole("button", { name: /A\.PROFIT/i });
+    // Rows now show the bare field name (the pane groups by table); the
+    // dataType rides in the accessible name, hence the loose match.
+    const row = await screen.findByRole("button", { name: /PROFIT/i });
     await userEvent.click(row);
     await userEvent.click(row);
     const values = await screen.findByRole("region", { name: "Values" });

@@ -139,7 +139,12 @@ function BuilderFieldRow({
       {...attributes}
     >
       <span className="field-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
-      <span className="field-ref">{ref}</span>
+      {/* Just the field name: the Data pane already groups by table, so the
+          prefix is redundant and it truncated every row. The full ref stays
+          available as the tooltip and in the checkbox's accessible name. */}
+      <span className="field-ref" title={ref}>
+        {field.name}
+      </span>
       {field.dataType && <small>{field.dataType}</small>}
     </button>
   );

@@ -99,9 +99,9 @@ export default function ReportListPage() {
           <h1 className="page-title">{selected?.name ?? "Reports"}</h1>
           {selected && (
             <p className="ws-subtitle">
+              {/* Kind only: the switcher beside it already states the role,
+                  and saying it twice reads as a bug. */}
               {selected.kind === "personal" ? "Personal workspace" : "Shared workspace"}
-              {" · "}You are {selected.myRole === "admin" ? "an" : "a"} {selected.myRole}{" "}
-              here
             </p>
           )}
         </div>

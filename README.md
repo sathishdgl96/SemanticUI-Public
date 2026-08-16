@@ -685,6 +685,30 @@ product refuses exactly that, so this one does too. Snowflake's own connector
 achieves the same result without it.
 
 
+## The PowerBI-style UI
+
+The app is framed by a PowerBI-like shell: a near-black top bar with the
+brand mark and your identity (Log out lives here), and a left nav rail --
+Home, Explore, and a Workspaces flyout listing every workspace with your
+role. The active surface carries the brand-yellow indicator.
+
+The report list is the **workspace content page**: the workspace name as the
+title, a toolbar (New report, Import, Explore, Members), and a content table.
+Selection rides in the URL as `?workspace=<id>`, so the rail flyout and the
+page share one source of truth and a workspace view is linkable.
+
+The builder is the PowerBI editing surface: a ribbon-style command bar, a
+gray canvas with white shadowed tiles and a Page 1 bar, and the tri-pane --
+**Filters** (filter cards per scope), **Visualizations** (the visual gallery
+and field wells), and **Data** (fields grouped by table, with search and
+PowerBI checkbox semantics: checking a field adds it to the selected visual,
+or creates a visual if none is selected; unchecking removes it). Each pane
+collapses to a labeled strip.
+
+Chart colors still come only from `src/query/palette.ts`; the brand yellow
+(#f2c811) is chrome, never a series color.
+
+
 ## Tests
 
     cd backend && .venv\Scripts\python.exe -m pytest -v     # unit tests (no Snowflake needed)
