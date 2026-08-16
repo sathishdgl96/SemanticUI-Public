@@ -2,7 +2,7 @@
 // React-free: what a visual's effective filter set IS can then be asserted
 // directly, without rendering anything.
 
-import type { Filter, Hierarchy, Visual } from "../api/types";
+import type { Filter, Hierarchy, SheetRequest, Visual } from "../api/types";
 
 /** A well entry of this shape stands in for a whole drill path, not a field.
  *  Mirrors HIERARCHY_PREFIX in backend/app/reports/catalog.py. */
@@ -169,4 +169,54 @@ export function describeFilter(filter: Filter): string {
  *  already how visual ids are minted in BuilderPage. */
 export function newFilterId(): string {
   return `f${crypto.randomUUID().slice(0, 8)}`;
+}
+
+/** One export sheet per visual, carrying exactly what that tile is currently
+ *  showing -- drill position and cross-filter included.
+ *
+ *  Built from the same `resolveWells` and `effectiveFilters` that produce the
+ *  tile's own query, so an export can never quietly disagree with the screen
+ *  it was taken from. */
+export function sheetRequestsFor({
+  visuals,
+  reportFilters,
+  hierarchies,
+  drill,
+  crossFilter,
+  titleOf,
+  wellsToQuery,
+}: {
+  visuals: Visual[];
+  reportFilters: Filter[];
+  hierarchies: Hierarchy[];
+  drill: Record<string, DrillState>;
+  crossFilter: CrossFilter | null;
+  titleOf: (visual: Visual, wells: Record<string, string[]>) => string;
+  wellsToQuery: (
+    type: string,
+    wells: Record<string, string[]>,
+  ) => { dimensions: string[]; metrics: string[] };
+}): SheetRequest[] {
+  return visuals.map((visual) => {
+    const own = drill[visual.id];
+    const wells = resolveWells(visual.wells, hierarchies, own);
+    const { dimensions, metrics } = wellsToQuery(visual.type, wells);
+
+    const context: string[] = [];
+    if (own?.path.length) {
+      context.push(`Drilled into ${own.path.map((s) => s.value).join(" > ")}`);
+    }
+    if (crossFilter && crossFilter.sourceVisualId !== visual.id) {
+      context.push(`Filtered by ${crossFilter.field} = ${crossFilter.value}`);
+    }
+
+    return {
+      title: titleOf(visual, wells),
+      dimensions,
+      metrics,
+      filters: effectiveFilters({ reportFilters, visual, drill: own, crossFilter }),
+      orderBy: [],
+      context: context.join("; "),
+    };
+  });
 }

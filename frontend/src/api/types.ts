@@ -113,6 +113,25 @@ export interface WorkspaceMember {
   isMe: boolean;
 }
 
+export interface SheetRequest {
+  title: string;
+  dimensions: string[];
+  metrics: string[];
+  filters: Filter[];
+  orderBy: { field: string; direction: "asc" | "desc" }[];
+  /** Free text describing drill position or cross-filter. Recorded on the
+   *  workbook's Summary sheet so the file explains itself later. */
+  context: string;
+}
+
+export interface ConnectResponse {
+  account: string;
+  database: string;
+  schema: string;
+  view: string;
+  sheets: { title: string; sql: string }[];
+}
+
 export interface AskSpec {
   dimensions: string[];
   metrics: string[];

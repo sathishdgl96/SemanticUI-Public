@@ -1,15 +1,18 @@
 import { DndContext, useDraggable, type DragEndEvent } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import { atLeast, moveReport } from "../api/workspaces";
 import AskPanel from "../ask/AskPanel";
+import ConnectPanel from "../export/ConnectPanel";
+import { downloadXlsx } from "../api/exports";
 import { useWorkspaces } from "../workspaces/useWorkspaces";
 import type {
   AskSpec,
   FieldInfo,
+  SheetRequest,
   Filter,
   Hierarchy,
   ReportDefinition,
@@ -23,13 +26,21 @@ import type {
 import { useFieldSensors } from "../explorer/dndSensors";
 import ViewTree from "../explorer/ViewTree";
 import { visualTitle } from "../query/renderers";
-import { CATALOG, defaultWellFor, emptyWellsFor, type FieldKind, type VisualType } from "./catalog";
+import {
+  CATALOG,
+  defaultWellFor,
+  emptyWellsFor,
+  wellsToQuery,
+  type FieldKind,
+  type VisualType,
+} from "./catalog";
 import CanvasGrid from "./CanvasGrid";
 import ExportPanel from "./ExportPanel";
 import FilterPane, { REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
 import {
   HIERARCHY_PREFIX,
   newFilterId,
+  sheetRequestsFor,
   type CrossFilter,
   type DrillState,
 } from "./filters";
@@ -262,10 +273,16 @@ export default function BuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<VisualType>("bar");
   const [notice, setNotice] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"export" | "import" | "ask" | null>(null);
+  const [panel, setPanel] = useState<
+    "export" | "import" | "ask" | "connect" | null
+  >(null);
   // Ephemeral by design: never written to the definition, so a saved report
   // always opens at the top level with nothing selected, and can never point
   // at a value that has since disappeared from the view.
+  //: Filled in below, once `definition` is known to be non-null. The export
+  //: mutation is declared before that point and would otherwise close over a
+  //: variable in its temporal dead zone.
+  const exportSheetsRef = useRef<() => SheetRequest[]>(() => []);
   const [drill, setDrill] = useState<Record<string, DrillState>>({});
   const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
   const [moving, setMoving] = useState(false);
@@ -342,6 +359,15 @@ export default function BuilderPage() {
       setSavedJson(JSON.stringify(saved.definition));
       queryClient.invalidateQueries({ queryKey: ["reports"] });
     },
+  });
+
+  const exportExcel = useMutation({
+    mutationFn: () =>
+      downloadXlsx(
+        reportId,
+        exportSheetsRef.current(),
+        `${(report.data?.name ?? "report").slice(0, 120)}.xlsx`,
+      ),
   });
 
   // Error must be checked first: `definition` only ever leaves `null` when
@@ -468,6 +494,22 @@ export default function BuilderPage() {
     setPanel(null);
   };
 
+  /** Exactly what each tile is showing right now, drill and cross-filter
+   *  included. Built from the same helpers the tiles query with, so an export
+   *  can never quietly disagree with the screen it came from. */
+  const exportSheets = () =>
+    sheetRequestsFor({
+      visuals: definition.visuals,
+      reportFilters: definition.filters ?? [],
+      hierarchies,
+      drill,
+      crossFilter,
+      titleOf: (v, wells) => visualTitle({ ...v, wells }),
+      wellsToQuery: (type, wells) => wellsToQuery(type as VisualType, wells),
+    });
+
+  exportSheetsRef.current = exportSheets;
+
   const onDragEnd = (event: DragEndEvent) => {
     const visual = definition.visuals.find((v) => v.id === selectedId);
     const overId = String(event.over?.id ?? "");
@@ -563,6 +605,22 @@ export default function BuilderPage() {
             onClick={() => setPanel(panel === "ask" ? null : "ask")}
           >
             Ask
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={exportExcel.isPending}
+            onClick={() => exportExcel.mutate()}
+          >
+            {exportExcel.isPending ? "Exporting…" : "Excel"}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={panel === "connect"}
+            onClick={() => setPanel(panel === "connect" ? null : "connect")}
+          >
+            Connect live
           </button>
           <button
             type="button"
@@ -736,6 +794,25 @@ export default function BuilderPage() {
       {panel === "import" && (
         <div className="panel-overlay">
           <ImportPanel onImported={onImported} onClose={() => setPanel(null)} />
+        </div>
+      )}
+      {exportExcel.isPending && (
+        <p className="tile-hint">Running each visual's query on your connection…</p>
+      )}
+      {exportExcel.isError && (
+        <p role="alert">
+          {exportExcel.error instanceof ApiError
+            ? exportExcel.error.message
+            : "Could not export this report."}
+        </p>
+      )}
+      {panel === "connect" && (
+        <div className="panel-overlay">
+          <ConnectPanel
+            reportId={reportId}
+            sheets={exportSheets()}
+            onClose={() => setPanel(null)}
+          />
         </div>
       )}
       {panel === "ask" && (

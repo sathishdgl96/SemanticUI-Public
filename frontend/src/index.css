@@ -1549,3 +1549,52 @@ button.secondary,
     align-items: stretch;
   }
 }
+
+/* --- Excel export and live connection ------------------------------------ */
+
+.connect-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(720px, 94vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.connect-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.connect-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connect-sql {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  padding: var(--pane-padding);
+}
+
+.connect-sql-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connect-sql pre {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  /* Wrapped rather than scrolled: a statement you cannot see all of is one
+     you cannot check before pasting it. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

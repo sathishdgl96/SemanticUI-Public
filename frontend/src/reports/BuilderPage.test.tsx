@@ -364,6 +364,15 @@ function stubApi() {
         modelHierarchies: [],
       });
     }
+    if (path.includes("/connect")) {
+      return Promise.resolve({
+        account: "ACME",
+        database: "ANALYTICS",
+        schema: "PUBLIC",
+        view: "SALES",
+        sheets: [{ title: "Revenue by region", sql: "SELECT 1" }],
+      });
+    }
     if (path === "/api/workspaces") {
       return Promise.resolve({
         workspaces: [
@@ -628,5 +637,57 @@ describe("BuilderPage roles", () => {
       expect(call?.[0]).toBe("/api/reports/r1/move");
       expect(JSON.parse(String(call?.[1]?.body))).toEqual({ workspaceId: "w1" });
     });
+  });
+});
+
+describe("BuilderPage Excel export", () => {
+  beforeEach(() => stubApi());
+
+  it("posts one sheet per visual to the xlsx endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      blob: async () => new Blob(["x"]),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:x"),
+      revokeObjectURL: vi.fn(),
+    });
+    try {
+      renderBuilder();
+      await screen.findByDisplayValue("Sales overview");
+      await userEvent.click(screen.getByRole("button", { name: /^excel$/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("/api/reports/r1/export.xlsx");
+      // same-origin: the export runs every visual's query on the user's own
+      // Snowflake connection, so it needs their session.
+      expect(init.credentials).toBe("same-origin");
+      const body = JSON.parse(init.body);
+      expect(body.sheets).toHaveLength(1);
+      expect(body.sheets[0].metrics).toEqual(["A.REV"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("offers a Connect live panel", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /connect live/i }));
+    expect(
+      await screen.findByRole("region", { name: /connect from excel/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers both to a viewer, since exporting and copying SQL are reading", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "viewer" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(screen.getByRole("button", { name: /^excel$/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /connect live/i })).toBeEnabled();
   });
 });

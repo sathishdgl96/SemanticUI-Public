@@ -9,6 +9,7 @@ import {
   hierarchyIdOf,
   isActive,
   resolveWells,
+  sheetRequestsFor,
 } from "./filters";
 
 const GEO: Hierarchy = {
@@ -274,5 +275,79 @@ describe("effectiveFilters drops unfinished filters", () => {
       visual: visual(),
     });
     expect(out.map((f) => f.id)).toEqual(["f2"]);
+  });
+});
+
+describe("sheetRequestsFor", () => {
+  const wellsToQuery = (_type: string, wells: Record<string, string[]>) => ({
+    dimensions: wells.axis ?? [],
+    metrics: wells.values ?? [],
+  });
+  const titleOf = (v: Visual) => v.title || "Untitled";
+
+  it("produces one sheet per visual", () => {
+    const sheets = sheetRequestsFor({
+      visuals: [visual({ id: "v1", title: "A" }), visual({ id: "v2", title: "B" })],
+      reportFilters: [],
+      hierarchies: [],
+      drill: {},
+      crossFilter: null,
+      titleOf,
+      wellsToQuery,
+    });
+    expect(sheets.map((s) => s.title)).toEqual(["A", "B"]);
+  });
+
+  it("carries the drilled level and names the path in context", () => {
+    // The export must match the screen it was taken from.
+    const sheets = sheetRequestsFor({
+      visuals: [
+        visual({
+          id: "v1",
+          title: "Geo",
+          wells: { axis: ["hierarchy:h1"], legend: [], values: ["ORDERS.TOTAL"] },
+        }),
+      ],
+      reportFilters: [],
+      hierarchies: [GEO],
+      drill: {
+        v1: { hierarchyId: "h1", path: [{ field: "CUSTOMERS.COUNTRY", value: "US" }] },
+      },
+      crossFilter: null,
+      titleOf,
+      wellsToQuery,
+    });
+    expect(sheets[0].dimensions).toEqual(["CUSTOMERS.STATE"]);
+    expect(sheets[0].filters.map((f) => f.field)).toContain("CUSTOMERS.COUNTRY");
+    expect(sheets[0].context).toMatch(/Drilled into US/);
+  });
+
+  it("does not apply a cross-filter to the visual it came from", () => {
+    const sheets = sheetRequestsFor({
+      visuals: [visual({ id: "v1", title: "Source" }), visual({ id: "v2", title: "Other" })],
+      reportFilters: [],
+      hierarchies: [],
+      drill: {},
+      crossFilter: { sourceVisualId: "v1", field: "CUSTOMERS.REGION", value: "EAST" },
+      titleOf,
+      wellsToQuery,
+    });
+    expect(sheets[0].filters).toEqual([]);
+    expect(sheets[0].context).toBe("");
+    expect(sheets[1].filters.map((f) => f.field)).toEqual(["CUSTOMERS.REGION"]);
+    expect(sheets[1].context).toMatch(/Filtered by CUSTOMERS.REGION/);
+  });
+
+  it("carries report-scope filters onto every sheet", () => {
+    const sheets = sheetRequestsFor({
+      visuals: [visual({ id: "v1", title: "A" })],
+      reportFilters: [REGION_IS_EAST],
+      hierarchies: [],
+      drill: {},
+      crossFilter: null,
+      titleOf,
+      wellsToQuery,
+    });
+    expect(sheets[0].filters).toEqual([REGION_IS_EAST]);
   });
 });
