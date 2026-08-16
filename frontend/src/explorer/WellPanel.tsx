@@ -2,10 +2,13 @@ import { useDroppable } from "@dnd-kit/core";
 import FieldChip from "./FieldChip";
 import { canDrop, type DragData, type FieldKind, type WellId, type Wells } from "./wells";
 
+// Labelled as a QUERY rather than as a bar chart's anatomy: an explore
+// groups and measures, and only sometimes becomes a chart. "Group by" also
+// says truthfully that it takes several fields, which "Axis" did not.
 const WELLS: { id: WellId; label: string; hint: string; accepts: FieldKind }[] = [
-  { id: "axis", label: "Axis", hint: "Drop a field here", accepts: "dimension" },
-  { id: "legend", label: "Legend", hint: "Drop a field here", accepts: "dimension" },
-  { id: "values", label: "Values", hint: "Drop a field here", accepts: "metric" },
+  { id: "axis", label: "Group by", hint: "Drop dimensions here", accepts: "dimension" },
+  { id: "legend", label: "Split by", hint: "Optional: one dimension", accepts: "dimension" },
+  { id: "values", label: "Measures", hint: "Drop measures here", accepts: "metric" },
 ];
 
 interface Props {

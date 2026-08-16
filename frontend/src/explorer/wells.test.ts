@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addToWell, canDrop, defaultWellFor, emptyWells, removeFromWell,
-  reorderWell, wellsToQuery,
+  reorderWell, visualForShape, wellsToQuery,
 } from "./wells";
 
 describe("wells model", () => {
@@ -18,10 +18,19 @@ describe("wells model", () => {
     expect(w).toEqual(emptyWells());
   });
 
-  it("caps axis and legend at one field, replacing", () => {
+  it("groups by as many dimensions as you like", () => {
+    // An explore is a query. The old one-dimension cap came from the report
+    // hand-off building a bar chart, not from anything about querying.
     let w = addToWell(emptyWells(), "axis", "ORDERS.DATE", "dimension");
     w = addToWell(w, "axis", "CUSTOMERS.REGION", "dimension");
-    expect(w.axis).toEqual(["CUSTOMERS.REGION"]);
+    w = addToWell(w, "axis", "PART.BRAND", "dimension");
+    expect(w.axis).toEqual(["ORDERS.DATE", "CUSTOMERS.REGION", "PART.BRAND"]);
+  });
+
+  it("still allows only one legend, because a series splits one way", () => {
+    let w = addToWell(emptyWells(), "legend", "A.X", "dimension");
+    w = addToWell(w, "legend", "C.REGION", "dimension");
+    expect(w.legend).toEqual(["C.REGION"]);
   });
 
   it("accumulates and de-dupes values", () => {
@@ -38,12 +47,15 @@ describe("wells model", () => {
     expect(removeFromWell(w, "values", "A.X").values).toEqual(["A.Y"]);
   });
 
-  it("picks a default well: axis first, then legend", () => {
+  it("sends every clicked dimension to the group-by well", () => {
     const w = emptyWells();
     expect(defaultWellFor("metric", w)).toBe("values");
     expect(defaultWellFor("dimension", w)).toBe("axis");
+    // It used to overflow into `legend` once axis held one, so a second
+    // dimension silently changed the SHAPE of the chart instead of adding a
+    // grouping -- and a third had nowhere to go at all.
     const withAxis = addToWell(w, "axis", "A.X", "dimension");
-    expect(defaultWellFor("dimension", withAxis)).toBe("legend");
+    expect(defaultWellFor("dimension", withAxis)).toBe("axis");
   });
 
   it("maps wells to a query body with axis before legend", () => {
@@ -66,13 +78,10 @@ describe("wells model", () => {
 
   it("treats a second click on an already-placed field as a no-op", () => {
     let w = addToWell(emptyWells(), "axis", "ORDERS.ORDER_DATE", "dimension");
-    // defaultWellFor still routes a second dimension to legend once axis is
-    // occupied (its signature is unchanged) — but addToWell now refuses to
-    // add a ref that's already present in a different well, so routing
-    // there is harmless and the wells stay exactly as before.
     const target = defaultWellFor("dimension", w);
-    expect(target).toBe("legend");
     w = addToWell(w, target, "ORDERS.ORDER_DATE", "dimension");
+    // A ref may only occupy one well, so re-adding it changes nothing --
+    // otherwise the query would name the same column twice.
     expect(w).toEqual({ axis: ["ORDERS.ORDER_DATE"], legend: [], values: [] });
   });
 
@@ -81,5 +90,27 @@ describe("wells model", () => {
     w = addToWell(w, "legend", "ORDERS.ORDER_DATE", "dimension");
     const { dimensions } = wellsToQuery(w);
     expect(new Set(dimensions).size).toBe(dimensions.length);
+  });
+});
+
+describe("visualForShape", () => {
+  it("hands off one dimension as a bar chart", () => {
+    let w = addToWell(emptyWells(), "axis", "C.REGION", "dimension");
+    w = addToWell(w, "values", "O.REVENUE", "metric");
+    expect(visualForShape(w)).toBe("bar");
+  });
+
+  it("keeps a bar for one axis plus a legend", () => {
+    let w = addToWell(emptyWells(), "axis", "C.REGION", "dimension");
+    w = addToWell(w, "legend", "C.SEGMENT", "dimension");
+    expect(visualForShape(w)).toBe("bar");
+  });
+
+  it("hands off several dimensions as a table", () => {
+    // A bar's axis takes exactly one field, so handing it two would produce
+    // a definition the server rejects.
+    let w = addToWell(emptyWells(), "axis", "C.REGION", "dimension");
+    w = addToWell(w, "axis", "C.SEGMENT", "dimension");
+    expect(visualForShape(w)).toBe("table");
   });
 });

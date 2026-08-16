@@ -326,12 +326,19 @@ button:disabled {
 }
 
 .left,
+.selection,
 .middle {
   flex: 0 0 auto;
   overflow-y: auto;
   padding: var(--pane-padding);
   border-right: 1px solid var(--border);
   background: var(--surface);
+}
+
+/* The drop target. Its own column so it stays on screen while a drag is in
+   progress -- underneath a twenty-field list it was usually scrolled away. */
+.selection {
+  width: var(--pane-wells);
 }
 
 .left {
@@ -877,6 +884,7 @@ th {
   }
 
   .left,
+  .selection,
   .middle,
   .main {
     width: 100%;

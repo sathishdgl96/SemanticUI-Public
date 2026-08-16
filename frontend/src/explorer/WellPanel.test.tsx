@@ -11,9 +11,9 @@ describe("WellPanel", () => {
     render(
       <WellPanel wells={wells} onRemove={onRemove} onRun={vi.fn()} running={false} />,
     );
-    expect(screen.getByText("Values")).toBeInTheDocument();
-    expect(screen.getByText("Axis")).toBeInTheDocument();
-    expect(screen.getByText("Legend")).toBeInTheDocument();
+    expect(screen.getByText("Measures")).toBeInTheDocument();
+    expect(screen.getByText("Group by")).toBeInTheDocument();
+    expect(screen.getByText("Split by")).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: /remove ORDERS\.REVENUE/i }),
     );
@@ -24,7 +24,11 @@ describe("WellPanel", () => {
     render(
       <WellPanel wells={emptyWells()} onRemove={vi.fn()} onRun={vi.fn()} running={false} />,
     );
-    expect(screen.getAllByText(/drop a field here/i).length).toBe(3);
+    // Each well says what it wants, rather than three identical hints:
+    // "Split by" takes one optional dimension and the others take many.
+    expect(screen.getByText(/drop dimensions here/i)).toBeInTheDocument();
+    expect(screen.getByText(/optional: one dimension/i)).toBeInTheDocument();
+    expect(screen.getByText(/drop measures here/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run/i })).toBeDisabled();
   });
 });

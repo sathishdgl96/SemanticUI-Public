@@ -10,9 +10,9 @@ describe("wells accessibility", () => {
     render(
       <WellPanel wells={wells} onRemove={vi.fn()} onRun={vi.fn()} running={false} />,
     );
-    expect(screen.getByRole("region", { name: "Axis" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Legend" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Values" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Group by" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Split by" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Measures" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /remove ORDERS\.DATE/i }),
     ).toBeInTheDocument();

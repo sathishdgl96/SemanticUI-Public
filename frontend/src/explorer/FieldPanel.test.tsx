@@ -33,11 +33,12 @@ describe("FieldPanel", () => {
     const wells = addToWell(emptyWells(), "axis", "ORDERS.ORDER_DATE", "dimension");
     render(<FieldPanel detail={DETAIL} wells={wells} onAdd={onAdd} />);
 
-    // Axis is already occupied, so a second dimension defaults to legend.
+    // Every clicked dimension goes to the group-by well, however many are
+    // already there: an explore groups by as many as you like.
     await userEvent.click(
       screen.getByRole("button", { name: /ORDERS\.ORDER_DATE/ }),
     );
-    expect(onAdd).toHaveBeenCalledWith("legend", "ORDERS.ORDER_DATE", "dimension");
+    expect(onAdd).toHaveBeenCalledWith("axis", "ORDERS.ORDER_DATE", "dimension");
 
     await userEvent.click(
       screen.getByRole("button", { name: /ORDERS\.TOTAL_REVENUE/ }),

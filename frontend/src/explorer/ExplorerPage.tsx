@@ -27,7 +27,7 @@ import { useFieldSensors } from "./dndSensors";
 import FieldPanel from "./FieldPanel";
 import ViewTree from "./ViewTree";
 import WellPanel from "./WellPanel";
-import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
+import { addToWell, emptyWells, removeFromWell, visualForShape, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
 
 function dragDataOf(active: { data: { current?: Record<string, unknown> } }): DragData | undefined {
   return active.data.current as DragData | undefined;
@@ -103,26 +103,24 @@ export default function ExplorerPage() {
       }),
   });
 
-  // The explorer's wells (Axis/Legend/Values) are exactly the well keys a
-  // "bar" visual takes (see reports/catalog.ts's CATEGORICAL wells), so the
-  // current selection hands off to the builder unchanged as that visual's
-  // one well set — no remapping needed.
+  // The hand-off picks the visual type that FITS the selection: a bar for
+  // one dimension (its axis takes exactly one), a table once there are
+  // more. Always building a bar was what forced the explorer to cap
+  // dimensions at two in the first place.
   const addToReport = useMutation({
     mutationFn: (definition: ReportDefinition) => createReport(definition),
     onSuccess: (report) => navigate(`/reports/${report.id}`),
   });
 
-  // The hand-off always builds a "bar" visual (see the comment above
-  // `addToReport`), so enablement has to mirror the catalog's own rule for
-  // that type -- Axis >= 1 AND Values >= 1 -- rather than "any field
-  // placed". A dimension alone (or a metric alone) is a combination the
-  // server's catalog rejects with a 400, so it must not be offered here.
-  const barWells: Record<string, string[]> = {
-    axis: wells.axis,
-    legend: wells.legend,
-    values: wells.values,
-  };
-  const wellProblems = validateWells("bar", barWells);
+  // Enablement mirrors the catalog's own rule for whichever type will be
+  // built, rather than "any field placed": a combination the server rejects
+  // with a 400 must not be offered here.
+  const handoffType = visualForShape(wells);
+  const handoffWells: Record<string, string[]> =
+    handoffType === "table"
+      ? { dimensions: [...wells.axis, ...wells.legend], metrics: wells.values }
+      : { axis: wells.axis, legend: wells.legend, values: wells.values };
+  const wellProblems = validateWells(handoffType, handoffWells);
   const canAddToReport = selectedView !== null && wellProblems.length === 0;
   const showAddToReportHint = selectedView !== null && !canAddToReport;
 
@@ -144,10 +142,10 @@ export default function ExplorerPage() {
           visuals: [
             {
               id: `v${crypto.randomUUID().slice(0, 8)}`,
-              type: "bar",
+              type: handoffType,
               title: "",
               layout: { x: 0, y: 0, w: 6, h: 6 },
-              wells: { axis: wells.axis, legend: wells.legend, values: wells.values },
+              wells: handoffWells,
               options: {},
               filters: [],
             },
@@ -363,11 +361,14 @@ export default function ExplorerPage() {
               />
             )}
           </div>
-          <div className="middle">
-            <h2 className="pane-heading">Fields &amp; wells</h2>
-            {selectedView && detail.data && (
+          {/* The selection sits in its own column beside the fields, not
+              under them. It used to be at the BOTTOM of the field list, so
+              dropping a field meant scrolling past twenty of them with a
+              drag in progress -- the target was rarely even on screen. */}
+          <div className="selection">
+            <h2 className="pane-heading">Selection</h2>
+            {selectedView && detail.data ? (
               <>
-                <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />
                 <WellPanel
                   wells={wells}
                   onRemove={removeField}
@@ -385,6 +386,14 @@ export default function ExplorerPage() {
                   onChange={setFilters}
                 />
               </>
+            ) : (
+              <p className="tile-hint">Pick a view to start selecting fields.</p>
+            )}
+          </div>
+          <div className="middle">
+            <h2 className="pane-heading">Fields</h2>
+            {selectedView && detail.data && (
+              <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />
             )}
             {selectedView && detail.isLoading && <p>Describing view...</p>}
             {selectedView && detail.isError && (
