@@ -40,6 +40,13 @@ function stubValues(values: string[], truncated = false) {
 beforeEach(() => stubValues(["EAST", "NORTH", "SOUTH", "WEST"]));
 afterEach(() => vi.unstubAllGlobals());
 
+/** A configured filter now renders collapsed -- the summary IS the card
+ *  until it is opened. Tests that drive the controls open it first. */
+async function open() {
+  const toggle = screen.queryByRole("button", { expanded: false });
+  if (toggle) await userEvent.click(toggle);
+}
+
 describe("operatorsFor", () => {
   it("offers ranges and relative windows on a date", () => {
     const ops = operatorsFor("DATE");
@@ -129,7 +136,7 @@ describe("FilterEditor", () => {
     );
   });
 
-  it("shows no value box for a presence test, and says why", () => {
+  it("shows no value box for a presence test, and says why", async () => {
     const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "isBlank" };
     wrap(
       <FilterEditor
@@ -140,6 +147,7 @@ describe("FilterEditor", () => {
         onRemove={noop}
       />,
     );
+    await open();
     expect(screen.queryByLabelText(/^value$/i)).toBeNull();
     expect(screen.getByText(/needs no value/i)).toBeInTheDocument();
   });
@@ -161,6 +169,7 @@ describe("FilterEditor", () => {
         onRemove={noop}
       />,
     );
+    await open();
     await userEvent.selectOptions(screen.getByLabelText(/operator/i), "contains");
     // `values` must NOT survive: the backend union forbids extra keys.
     expect(onChange).toHaveBeenCalledWith({
@@ -235,6 +244,7 @@ describe("FilterEditor", () => {
         onRemove={noop}
       />,
     );
+    await open();
     await userEvent.selectOptions(screen.getByLabelText(/operator/i), "between");
     // A stale `values` key alongside from/to would fail the backend's
     // discriminated union, which forbids extra keys.
@@ -247,7 +257,7 @@ describe("FilterEditor", () => {
     });
   });
 
-  it("offers a relative-date window on a date field", () => {
+  it("offers a relative-date window on a date field", async () => {
     const filter: Filter = {
       id: "f1",
       field: "ORDERS.ORDER_DATE",
@@ -264,6 +274,7 @@ describe("FilterEditor", () => {
         onRemove={noop}
       />,
     );
+    await open();
     expect(screen.getByLabelText(/^last$/i)).toHaveValue(30);
     expect(screen.getByLabelText(/unit/i)).toBeInTheDocument();
   });
@@ -316,5 +327,106 @@ describe("FilterEditor", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: /remove filter/i }));
     expect(onRemove).toHaveBeenCalled();
+  });
+});
+
+describe("collapsing", () => {
+  const noop = () => {};
+
+  it("opens a filter that still needs input", () => {
+    // Freshly added from the field picker: nothing to summarise yet, so
+    // there is no reason to make the user open it.
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "is", values: [] };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    expect(screen.getByLabelText(/operator/i)).toBeInTheDocument();
+  });
+
+  it("closes a filter that is already doing something", () => {
+    // Four open cards, each with a 200px value scroller, buried the scopes
+    // below them -- the pane became unusable.
+    const filter: Filter = {
+      id: "f1",
+      field: "CUSTOMERS.REGION",
+      op: "is",
+      values: ["EAST"],
+    };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    expect(screen.queryByLabelText(/operator/i)).toBeNull();
+    // The summary still says what it is doing, and Remove stays reachable.
+    expect(screen.getByText(/CUSTOMERS.REGION is EAST/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove filter/i })).toBeInTheDocument();
+  });
+
+  it("opens and closes on the summary", async () => {
+    const filter: Filter = {
+      id: "f1",
+      field: "CUSTOMERS.REGION",
+      op: "is",
+      values: ["EAST"],
+    };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    const toggle = screen.getByRole("button", { expanded: false });
+    await userEvent.click(toggle);
+    expect(screen.getByLabelText(/operator/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { expanded: true }));
+    expect(screen.queryByLabelText(/operator/i)).toBeNull();
+  });
+});
+
+describe("searching a long value list", () => {
+  const noop = () => {};
+  const many = Array.from({ length: 40 }, (_, i) => `Customer#${String(i).padStart(4, "0")}`);
+
+  it("offers a search box once the list is long", async () => {
+    stubValues(many);
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.NAME", op: "is", values: [] };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    const box = await screen.findByLabelText(/search values/i);
+    expect(box).toHaveAttribute("placeholder", "Search 40 values");
+  });
+
+  it("narrows the drawn values without re-querying", async () => {
+    stubValues(many);
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.NAME", op: "is", values: [] };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    await screen.findByLabelText(/search values/i);
+    const before = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await userEvent.type(screen.getByLabelText(/search values/i), "0007");
+    expect(screen.getByText("Customer#0007")).toBeInTheDocument();
+    expect(screen.queryByText("Customer#0008")).toBeNull();
+    // The values are already here; narrowing must not cost a Snowflake query.
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before);
+  });
+
+  it("says so when nothing matches", async () => {
+    stubValues(many);
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.NAME", op: "is", values: [] };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    await screen.findByLabelText(/search values/i);
+    await userEvent.type(screen.getByLabelText(/search values/i), "zzzz");
+    expect(screen.getByText(/no values match/i)).toBeInTheDocument();
+  });
+
+  it("does not clutter a short list with a search box", async () => {
+    // Four regions do not need finding.
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "is", values: [] };
+    wrap(
+      <FilterEditor field={REGION} filter={filter} view={VIEW} onChange={noop} onRemove={noop} />,
+    );
+    await screen.findByText("EAST");
+    expect(screen.queryByLabelText(/search values/i)).toBeNull();
   });
 });

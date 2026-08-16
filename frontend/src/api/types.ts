@@ -239,3 +239,28 @@ export interface ReportSummary {
 }
 
 export type ReportDetail = ReportSummary & { definition: ReportDefinition };
+
+/** A saved explore: a saved QUERY, not a canvas. Mirrors
+ *  backend/app/explores/schema.py. */
+export interface ExploreDefinition {
+  schemaVersion: number;
+  name: string;
+  view: ViewRef;
+  dimensions: string[];
+  metrics: string[];
+  filters: Filter[];
+  orderBy: { field: string; direction: "asc" | "desc" }[];
+  limit?: number | null;
+}
+
+export interface ExploreSummary {
+  id: string;
+  name: string;
+  view: ViewRef;
+  updatedAt: string;
+  workspaceId: string;
+  workspaceName: string;
+  myRole: Role;
+}
+
+export type ExploreDetail = ExploreSummary & { definition: ExploreDefinition };

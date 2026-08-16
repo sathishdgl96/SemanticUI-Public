@@ -1,5 +1,6 @@
+import { useState } from "react";
 import type { FieldInfo, Filter, ViewRef } from "../api/types";
-import { describeFilter, OPERATOR_LABEL } from "./filters";
+import { describeFilter, isActive, OPERATOR_LABEL } from "./filters";
 import { useFieldValues } from "./useFieldValues";
 
 export type FilterOp = Filter["op"];
@@ -84,8 +85,24 @@ interface Props {
 export default function FilterEditor({ field, filter, view, onChange, onRemove }: Props) {
   const operators = operatorsFor(field?.dataType ?? null);
   const wantsValues = filter.op === "is" || filter.op === "isNot";
-  const values = useFieldValues(view, wantsValues ? filter.field : null);
   const chosen = wantsValues ? filter.values : [];
+
+  // A filter arrives open when it still needs input and closed once it is
+  // doing something. Every card standing open at once is what made the pane
+  // unusable: a dimension with a thousand values gave each card a 200px
+  // scroller, and four filters buried the scopes below them.
+  const [open, setOpen] = useState(() => !isActive(filter));
+  const [search, setSearch] = useState("");
+
+  // The values query is the expensive part (a real Snowflake round trip), so
+  // it only runs for a card that is actually open.
+  const values = useFieldValues(view, open && wantsValues ? filter.field : null);
+
+  const all = values.data?.values ?? [];
+  const needle = search.trim().toLowerCase();
+  const shown = needle
+    ? all.filter((v) => v.toLowerCase().includes(needle))
+    : all;
 
   const toggle = (value: string) => {
     if (filter.op !== "is" && filter.op !== "isNot") return;
@@ -96,16 +113,29 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
   };
 
   return (
-    <div className="filter-editor">
+    <div className={open ? "filter-editor open" : "filter-editor"}>
       <div className="filter-editor-head">
-        {/* The summary, not just the field name: with two scopes on screen at
-            once, "CUSTOMERS.REGION" alone does not say what it is doing. */}
-        <span className="filter-field">{describeFilter(filter)}</span>
+        {/* The summary, not just the field name: with several scopes on screen
+            at once, "CUSTOMERS.REGION" alone does not say what it is doing --
+            and when the card is closed the summary IS the card. */}
+        <button
+          type="button"
+          className="filter-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((was) => !was)}
+        >
+          <span className="filter-caret" aria-hidden="true">
+            {open ? "⌄" : "›"}
+          </span>
+          <span className="filter-field">{describeFilter(filter)}</span>
+        </button>
         <button type="button" className="link" onClick={onRemove}>
           Remove filter
         </button>
       </div>
 
+      {open && (
+      <>
       <label>
         Operator
         <select
@@ -121,10 +151,24 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
       </label>
 
       {wantsValues && (
+        <>
+        {/* A thousand distinct customer names is not a list anyone scrolls.
+            The box narrows what is drawn; it does not re-query, because the
+            values are already here. */}
+        {all.length > 8 && (
+          <input
+            className="filter-search"
+            type="search"
+            aria-label={`Search values for ${filter.field}`}
+            placeholder={`Search ${all.length} values`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        )}
         <div className="filter-values">
           {values.isLoading && <p className="tile-hint">Loading values…</p>}
           {values.isError && <p role="alert">Could not load values for this field.</p>}
-          {values.data?.values.map((value) => (
+          {shown.map((value) => (
             <label key={value} className="filter-value">
               <input
                 type="checkbox"
@@ -134,13 +178,17 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
               {value}
             </label>
           ))}
+          {needle && shown.length === 0 && (
+            <p className="tile-hint">No values match "{search}".</p>
+          )}
           {values.data?.truncated && (
             <p className="tile-hint">
-              Showing the first {values.data.values.length} values. This field has more
+              Showing the first {all.length} values. This field has more
               than the picker can list.
             </p>
           )}
         </div>
+        </>
       )}
 
       {SINGLE_VALUE_OPS.includes(filter.op) && "value" in filter && (
@@ -221,6 +269,8 @@ export default function FilterEditor({ field, filter, view, onChange, onRemove }
             </select>
           </label>
         </div>
+      )}
+      </>
       )}
     </div>
   );

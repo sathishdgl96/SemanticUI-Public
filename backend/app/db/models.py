@@ -96,3 +96,38 @@ class Report(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )
+
+
+class SavedExplore(Base):
+    """A saved query, not a saved canvas.
+
+    Looker's Look, in this codebase's vocabulary: one semantic view, a set of
+    fields, its filters and its ordering. Deliberately its own table rather
+    than a Report with a single table visual -- an explore has no layout, no
+    pages and no visuals, and modelling it as a degenerate report would mean
+    every report code path had to keep asking whether it was really an
+    explore.
+    """
+
+    __tablename__ = "saved_explores"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check; see
+    #: workspace_id below and app/workspaces/access.py.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary, exactly as for a report.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    view_database: Mapped[str] = mapped_column(String(255))
+    view_schema: Mapped[str] = mapped_column(String(255))
+    view_name: Mapped[str] = mapped_column(String(255))
+    #: The explore document: fields, filters, ordering, row cap.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )

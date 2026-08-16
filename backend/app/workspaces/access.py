@@ -66,24 +66,35 @@ def require_workspace(
     return workspace
 
 
-def require_access(
-    db: Session, user_id: uuid.UUID, report_id: str, *, need: str
-) -> Report:
-    """Resolve report -> workspace -> membership, or raise.
+def require_owned(
+    db: Session, user_id: uuid.UUID, entity_id: str, model: type, *, need: str
+):
+    """Resolve any workspace-owned row -> workspace -> membership, or raise.
 
-    Replaces `get_owned_report`. `Report.owner_user_id` is deliberately not
-    consulted: it records who created the report, not who may read it, so
-    removing someone from a workspace actually removes their access.
+    `owner_user_id` is deliberately not consulted anywhere here: it records
+    who CREATED the row, not who may read it, so removing someone from a
+    workspace actually removes their access.
+
+    Generic over the model because reports and saved explores are governed by
+    exactly the same rule, and two copies of an authorization check is one
+    copy too many -- the second is where the drift starts.
     """
-    key = as_uuid(report_id)
+    key = as_uuid(entity_id)
     if key is None:
         raise _not_found()
-    report = db.get(Report, key)
-    if report is None:
+    row = db.get(model, key)
+    if row is None:
         raise _not_found()
-    member = membership(db, user_id, report.workspace_id)
+    member = membership(db, user_id, row.workspace_id)
     if member is None:
         raise _not_found()
     if not at_least(member.role, need):
         raise _forbidden(need, member.role)
-    return report
+    return row
+
+
+def require_access(
+    db: Session, user_id: uuid.UUID, report_id: str, *, need: str
+) -> Report:
+    """Resolve report -> workspace -> membership, or raise."""
+    return require_owned(db, user_id, report_id, Report, need=need)

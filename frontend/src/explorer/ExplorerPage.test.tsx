@@ -49,6 +49,10 @@ function mockRoutes(detailResult: () => Promise<unknown>) {
     if (path === "/api/me") return Promise.resolve(ME);
     if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
     if (path.startsWith("/api/semantic-views/")) return detailResult();
+    // The explorer now lists saved explores too. Answering it here keeps
+    // these tests about the describe path they are named for, rather than
+    // about a second failure they never meant to provoke.
+    if (path.startsWith("/api/explores")) return Promise.resolve({ explores: [] });
     return Promise.reject(new Error(`unexpected path: ${path}`));
   });
 }
@@ -214,5 +218,143 @@ describe("ExplorerPage", () => {
     });
 
     await screen.findByText("Builder page");
+  });
+});
+
+describe("ExplorerPage saved explores", () => {
+  const SAVED = {
+    id: "e1",
+    name: "Revenue by region",
+    view: { database: "DB", schema: "SCH", name: "My View" },
+    updatedAt: "2026-08-16T00:00:00Z",
+    workspaceId: "w0",
+    workspaceName: "My reports",
+    myRole: "admin" as const,
+    definition: {
+      schemaVersion: 1,
+      name: "Revenue by region",
+      view: { database: "DB", schema: "SCH", name: "My View" },
+      dimensions: ["T.REGION"],
+      metrics: ["T.REVENUE"],
+      filters: [
+        { id: "f1", field: "T.REGION", op: "is" as const, values: ["EAST"] },
+      ],
+      orderBy: [],
+    },
+  };
+
+  function mockWithExplores(explores: unknown[], detailResult = () => Promise.resolve(DETAIL)) {
+    apiFetchMock.mockImplementation((...args: unknown[]) => {
+      const path = String(args[0]);
+      const init = args[1] as { method?: string } | undefined;
+      if (path === "/api/me") return Promise.resolve(ME);
+      if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
+      if (path.startsWith("/api/semantic-views/")) return detailResult();
+      if (path === "/api/explores" && init?.method === "POST") {
+        return Promise.resolve(SAVED);
+      }
+      if (path === "/api/explores") return Promise.resolve({ explores });
+      if (path === "/api/explores/e1") return Promise.resolve(SAVED);
+      if (path === "/api/query/semantic") {
+        return Promise.resolve({
+          columns: [{ name: "REGION", type: "TEXT" }],
+          rows: [["EAST"]],
+          truncated: false,
+          sfqid: null,
+          sql: "",
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+  }
+
+  it("says so when there are no saved explores yet", async () => {
+    mockWithExplores([]);
+    renderPage();
+    expect(await screen.findByText(/no saved explores yet/i)).toBeInTheDocument();
+  });
+
+  it("saves the current query, filters included", async () => {
+    mockWithExplores([]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /REVENUE/ }));
+
+    await userEvent.type(screen.getByLabelText(/explore name/i), "Revenue by region");
+    await userEvent.click(screen.getByRole("button", { name: /save as explore/i }));
+
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/explores",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const [, init] = apiFetchMock.mock.calls.find(
+      ([p, i]) => p === "/api/explores" && (i as { method?: string })?.method === "POST",
+    )!;
+    const body = JSON.parse((init as { body: string }).body);
+    expect(body.definition.dimensions).toEqual(["T.REGION"]);
+    expect(body.definition.metrics).toEqual(["T.REVENUE"]);
+    expect(body.definition.view.name).toBe("My View");
+  });
+
+  it("updates the open explore rather than saving a second copy", async () => {
+    mockWithExplores([SAVED]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Revenue by region/ }));
+    await screen.findByDisplayValue("Revenue by region");
+
+    await userEvent.click(screen.getByRole("button", { name: /^save explore$/i }));
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/explores/e1",
+        expect.objectContaining({ method: "PUT" }),
+      ),
+    );
+  });
+
+  it("restores the whole query when reopening, filters included", async () => {
+    // Restoring only some of it would show numbers that never belonged to
+    // the saved question.
+    mockWithExplores([SAVED]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Revenue by region/ }));
+
+    // The filter came back and describes itself.
+    expect(await screen.findByText(/T.REGION is EAST/)).toBeInTheDocument();
+    // And the name is loaded, so Save updates rather than duplicates.
+    expect(screen.getByLabelText(/explore name/i)).toHaveValue("Revenue by region");
+  });
+
+  it("sends the explore's filters with the query", async () => {
+    mockWithExplores([SAVED]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Revenue by region/ }));
+    await screen.findByDisplayValue("Revenue by region");
+
+    await userEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/query/semantic",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const [, init] = apiFetchMock.mock.calls.find(([p]) => p === "/api/query/semantic")!;
+    const body = JSON.parse((init as { body: string }).body);
+    expect(body.filters).toEqual([
+      { id: "f1", field: "T.REGION", op: "is", values: ["EAST"] },
+    ]);
+  });
+
+  it("drops the filters when the view changes", async () => {
+    // They name fields of the old view; the new one has never heard of them.
+    mockWithExplores([SAVED]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Revenue by region/ }));
+    await screen.findByText(/T.REGION is EAST/);
+
+    await userEvent.click(screen.getByRole("button", { name: "My View" }));
+    await waitFor(() => expect(screen.queryByText(/T.REGION is EAST/)).toBeNull());
   });
 });

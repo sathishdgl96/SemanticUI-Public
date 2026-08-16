@@ -3,8 +3,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
+import { createExplore, listExplores, updateExplore } from "../api/explores";
 import { createReport } from "../api/reports";
 import type {
+  ExploreDefinition,
+  ExploreDetail,
+  Filter,
   QueryResponse,
   ReportDefinition,
   SemanticQueryBody,
@@ -12,7 +16,10 @@ import type {
   SemanticViewSummary,
 } from "../api/types";
 import QueryPanel from "../query/QueryPanel";
+import ExploreFilters from "./ExploreFilters";
+import SavedExplores from "./SavedExplores";
 import { validateWells } from "../reports/catalog";
+import { isActive } from "../reports/filters";
 import {
   announceDragCancel, announceDragEnd, announceDragOver, announceDragStart,
 } from "./announcements";
@@ -30,6 +37,15 @@ export default function ExplorerPage() {
   const navigate = useNavigate();
   const [selectedView, setSelectedView] = useState<SemanticViewSummary | null>(null);
   const [wells, setWells] = useState<Wells>(emptyWells());
+  // Explore filters, in the same vocabulary reports use. Held here rather
+  // than inside the query because they survive a re-run and are part of what
+  // gets saved.
+  const [filters, setFilters] = useState<Filter[]>([]);
+  // The saved explore currently open, if any: Save updates it rather than
+  // making a second copy every time.
+  const [openExplore, setOpenExplore] = useState<ExploreDetail | null>(null);
+  const [exploreName, setExploreName] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const sensors = useFieldSensors();
 
   // dnd-kit's default announcer is purely geometric and knows nothing
@@ -148,6 +164,12 @@ export default function ExplorerPage() {
   function selectView(view: SemanticViewSummary) {
     setSelectedView(view);
     setWells(emptyWells());
+    // Filters name fields of the OLD view; carrying them across would send
+    // references the new view has never heard of.
+    setFilters([]);
+    setOpenExplore(null);
+    setExploreName("");
+    setSaveError(null);
     run.reset();
   }
 
@@ -176,13 +198,122 @@ export default function ExplorerPage() {
       view: selectedView.name,
       dimensions,
       metrics,
+      // Unfinished filters are dropped here, exactly as they are for a
+      // report tile: an empty IN list is a 422, not a filter.
+      filters: filters.filter(isActive),
     });
+  }
+
+  /** What this explore currently IS, as a saved document. */
+  function currentDefinition(name: string): ExploreDefinition | null {
+    if (!selectedView) return null;
+    const { dimensions, metrics } = wellsToQuery(wells);
+    return {
+      schemaVersion: 1,
+      name,
+      view: {
+        database: selectedView.database,
+        schema: selectedView.schema,
+        name: selectedView.name,
+      },
+      dimensions,
+      metrics,
+      filters,
+      orderBy: [],
+    };
+  }
+
+  const explores = useQuery({
+    queryKey: ["explores"],
+    queryFn: () => listExplores(),
+  });
+
+  const save = useMutation({
+    mutationFn: (name: string) => {
+      const definition = currentDefinition(name);
+      if (!definition) return Promise.reject(new Error("Pick a semantic view first"));
+      // An open explore is UPDATED. Saving a second copy under the same name
+      // every time is how a list becomes unusable.
+      return openExplore
+        ? updateExplore(openExplore.id, definition)
+        : createExplore(definition);
+    },
+    onSuccess: (saved) => {
+      setOpenExplore(saved);
+      setExploreName(saved.name);
+      setSaveError(null);
+      explores.refetch();
+    },
+    onError: (error) => {
+      setSaveError(
+        error instanceof ApiError ? error.message : "Could not save this explore.",
+      );
+    },
+  });
+
+  /** Reopening a saved explore restores the whole query: view, fields and
+   *  filters together. Restoring only some of it would show numbers that
+   *  never belonged to the saved question. */
+  function openSaved(explore: ExploreDetail) {
+    const { view, dimensions, metrics, filters: saved } = explore.definition;
+    setSelectedView({
+      database: view.database,
+      schema: view.schema,
+      name: view.name,
+      comment: null,
+    });
+    let next = emptyWells();
+    for (const ref of dimensions) next = addToWell(next, "axis", ref, "dimension");
+    for (const ref of metrics) next = addToWell(next, "values", ref, "metric");
+    setWells(next);
+    setFilters(saved ?? []);
+    setOpenExplore(explore);
+    setExploreName(explore.name);
+    setSaveError(null);
+    run.reset();
   }
 
   return (
     <div className="explorer">
       <div className="explorer-toolbar">
         <h1 className="page-title">Explore</h1>
+        <span className="explore-save">
+          <label className="sr-only" htmlFor="explore-name">
+            Explore name
+          </label>
+          <input
+            id="explore-name"
+            placeholder="Name this explore"
+            value={exploreName}
+            onChange={(e) => setExploreName(e.target.value)}
+            disabled={!selectedView}
+          />
+          <button
+            type="button"
+            onClick={() => save.mutate(exploreName.trim())}
+            disabled={!selectedView || !exploreName.trim() || save.isPending}
+          >
+            {save.isPending
+              ? "Saving…"
+              : openExplore
+                ? "Save explore"
+                : "Save as explore"}
+          </button>
+          {openExplore && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                // "Save a copy" is just forgetting which explore is open.
+                setOpenExplore(null);
+                setExploreName(`${exploreName} (copy)`.slice(0, 200));
+              }}
+            >
+              Save a copy
+            </button>
+          )}
+          {saveError && <span role="alert">{saveError}</span>}
+        </span>
         <span className="identity-row">
           <button
             type="button"
@@ -220,6 +351,17 @@ export default function ExplorerPage() {
                 onSelect={selectView}
               />
             )}
+            <h2 className="pane-heading">Saved explores</h2>
+            {explores.isLoading && <p>Loading explores…</p>}
+            {explores.isError && <p role="alert">Could not load saved explores.</p>}
+            {explores.data && (
+              <SavedExplores
+                explores={explores.data.explores}
+                openId={openExplore?.id ?? null}
+                onOpen={openSaved}
+                onError={setSaveError}
+              />
+            )}
           </div>
           <div className="middle">
             <h2 className="pane-heading">Fields &amp; wells</h2>
@@ -231,6 +373,16 @@ export default function ExplorerPage() {
                   onRemove={removeField}
                   onRun={runQuery}
                   running={run.isPending}
+                />
+                <ExploreFilters
+                  view={{
+                    database: selectedView.database,
+                    schema: selectedView.schema,
+                    name: selectedView.name,
+                  }}
+                  fields={[...detail.data.dimensions, ...detail.data.metrics, ...detail.data.facts]}
+                  filters={filters}
+                  onChange={setFilters}
                 />
               </>
             )}
