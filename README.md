@@ -494,6 +494,99 @@ Users who own no reports get their personal workspace lazily on next login,
 so the migration does not manufacture one for someone who may never sign in.
 
 
+## Asking a report a question
+
+`POST /api/reports/{id}/ask` takes a plain-language question and answers it
+with numbers from the report's own semantic view.
+
+### The model proposes a query. It never executes one, and it never sees data.
+
+The flow is:
+
+1. `require_access(report, need="viewer")` - asking is reading, and sharing
+   rules are unchanged.
+2. `DESCRIBE SEMANTIC VIEW` on the caller's own connection, giving exactly the
+   fields their Snowflake role can see.
+3. A prompt built from **field names and types only** - never rows.
+4. The model returns a **JSON query spec**: dimensions, metrics, filters,
+   orderBy, limit, and a one-line explanation. The same vocabulary
+   `POST /api/query/semantic` already speaks.
+5. Every field in that spec is checked against the live catalog.
+6. Execution through the existing `build_semantic_sql` + bound-parameter path,
+   on the caller's own connection.
+
+The model is a query *author*, not a query engine. Its output re-enters the
+same validated path a human's clicks do, so every guarantee the product
+already had continues to hold.
+
+### The Cortex call runs on your connection
+
+`SNOWFLAKE.CORTEX.COMPLETE` is a SQL function, so it is called on `entry.conn`
+with the prompt as a **bound parameter**. The model call is authorized by your
+Snowflake role and billed to your compute, exactly like every other query.
+**There is no server-side API key in this design**, and no data leaves
+Snowflake.
+
+### Prompt injection
+
+The question is untrusted text entering a prompt. **Prompt wording is not a
+security control and this design does not pretend otherwise.**
+
+The defence is structural: the model's reply is parsed as JSON and rejected
+unless every field it names exists in the catalog your own role can already
+see. So the worst a fully hijacked model can do is produce a strange query
+over data you could have queried by hand. It cannot emit SQL (it returns a
+field list), cannot reach another view (the view is fixed by the report),
+cannot escalate (execution uses your connection), and cannot exfiltrate (it
+never receives a row).
+
+`extra="forbid"` on the spec means a model inventing a `sql` key is refused
+outright rather than partially honoured. `explanation` is displayed and
+**never parsed** - it is allowed to contain anything, because it reaches no
+interpreter.
+
+This is defence in depth rather than a single gate: `build_semantic_sql`
+resolves every field against the same DESCRIBE and rejects an unknown one
+independently. `test_the_query_builder_rejects_it_independently` asserts that,
+so the redundancy is deliberate rather than an accident someone refactors away.
+
+### Errors
+
+| Condition | Code | Status |
+|---|---|---|
+| Cortex not enabled on the account | `CORTEX_UNAVAILABLE` | 503 |
+| Model returned unparseable JSON, or invented a key | `ASK_FAILED` | 502 |
+| Spec names a field the catalog lacks | `ASK_INVALID` | 400 |
+| Question empty or over 1,000 characters | `HTTP_ERROR` | 422 |
+| Report not visible to the caller | `HTTP_ERROR` | 404 |
+
+`ASK_INVALID` names the offending field, because the most common real failure
+is the model guessing a plausible column name and the fix is to rephrase.
+
+### Cortex is unavailable on a trial account
+
+    399258 (0A000): AI function COMPLETE is not available for trial accounts.
+
+The whole Cortex LLM surface is gated behind a paid account. The feature is
+built behind a provider seam and reports this with Snowflake's own wording, so
+a user learns *why* rather than seeing a generic failure. Everything except
+the live model call is implemented and tested; it starts working the moment
+Cortex is enabled, with no code change.
+
+`backend/tests/integration/test_ask_it.py` records the account's actual
+capability on every integration run, and its end-to-end question test skips
+behind `SEMANTICUI_IT_CORTEX=1`. **A skipped test is not a passing one** - see
+`docs/superpowers/manual-passes/2026-08-16-ask.md` for what has and has not
+been exercised.
+
+### Settings
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `SEMANTICUI_CORTEX_MODEL` | `llama3.1-70b` | Which Cortex model answers |
+| `SEMANTICUI_ASK_ENABLED` | `true` | Kill switch, no deploy needed |
+
+
 ## Tests
 
     cd backend && .venv\Scripts\python.exe -m pytest -v     # unit tests (no Snowflake needed)
