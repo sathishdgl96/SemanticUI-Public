@@ -1255,7 +1255,10 @@ button.secondary:hover,
 }
 
 @media (max-width: 959px) {
-  /* Stacked reading mode: tiles flow full width in layout order. */
+  /* Stacked reading mode: tiles flow full width in layout order.
+     (The canvas-column sizing that goes with this lives at the END of this
+     file — `.canvas-column .canvas { flex: 1 }` is declared below this
+     block, so an override here would lose to it on source order.) */
   .canvas .react-grid-layout {
     height: auto !important;
   }
@@ -2385,4 +2388,218 @@ button.secondary:hover,
 .well-hint {
   color: var(--ink-muted);
   font-size: 12px;
+}
+
+/* ==========================================================================
+   Small screens
+   --------------------------------------------------------------------------
+   Phones and small tablets. The rules below are layout changes, not a
+   shrink: a 48px vertical rail beside a 320px canvas leaves nothing to look
+   at, and a six-column table does not become readable by getting narrower.
+
+   Three moves carry most of it:
+     - the nav rail becomes a bottom tab bar (thumb reach, and it stops
+       stealing horizontal room from the canvas);
+     - wide tables shed the columns that are context rather than identity;
+     - anything the finger has to hit grows to a 44px target.
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* --- Shell ------------------------------------------------------------ */
+  .app-body {
+    /* Column, so the rail can sit under the content rather than beside it. */
+    flex-direction: column;
+  }
+  .nav-rail {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: space-around;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding-top: 0;
+    /* Last in the column: a bottom bar, where a thumb already is. */
+    order: 2;
+  }
+  .rail-item {
+    flex: 1;
+    width: auto;
+    min-height: 48px;
+  }
+  .rail-item.active {
+    /* The indicator moves with the bar: a left edge means nothing on a
+       horizontal strip. */
+    box-shadow: inset 0 3px 0 var(--brand);
+  }
+  .app-content {
+    order: 1;
+    flex: 1;
+  }
+  .ws-flyout {
+    left: 0;
+    right: 0;
+    bottom: 48px;
+    width: auto;
+    border-right: none;
+  }
+  .app-topbar .identity {
+    /* The account is context, not navigation; the name alone would push
+       Log out off a 320px bar. */
+    display: none;
+  }
+
+  /* --- Report list ------------------------------------------------------ */
+  .reports {
+    padding: 12px;
+  }
+  .reports-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .reports-actions {
+    flex-wrap: wrap;
+  }
+  /* Name and actions survive; the rest is detail available on the report
+     itself. Hidden with display:none rather than shrunk, so the remaining
+     columns get the full width. */
+  .content-table .report-view,
+  .content-table .report-updated,
+  .content-table thead th:nth-child(3),
+  .content-table thead th:nth-child(4),
+  .content-table thead th:nth-child(5),
+  .content-table tbody td:nth-child(4) {
+    display: none;
+  }
+  .content-table td,
+  .content-table th {
+    padding: 10px 8px;
+  }
+  .content-table .report-name {
+    /* A tap target, not a text link. */
+    display: inline-block;
+    padding: 4px 0;
+  }
+
+  /* --- Builder ---------------------------------------------------------- */
+  .builder-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .command-bar .report-title {
+    width: 100%;
+  }
+  .builder-actions {
+    /* Scrolls sideways rather than wrapping into four stacked rows and
+       pushing the canvas off screen. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+  .builder-actions button {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+  .cmd-sep {
+    display: none;
+  }
+  .canvas {
+    padding: 8px;
+  }
+  .page-bar {
+    overflow-x: auto;
+    flex: 0 0 40px;
+  }
+  .page-tab,
+  .page-add,
+  .page-menu-toggle {
+    min-height: 40px;
+    flex: 0 0 auto;
+  }
+  .page-menu {
+    /* Anchored to the bar rather than the button, which can sit anywhere
+       along a scrolled strip. */
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 88px;
+    min-width: 0;
+  }
+  .page-menu button {
+    min-height: 44px;
+  }
+
+  /* --- Panes ------------------------------------------------------------ */
+  .pane-head {
+    min-height: 44px;
+  }
+  .pane-strip {
+    min-height: 44px;
+  }
+  .data-row,
+  .field-row {
+    min-height: 40px;
+  }
+  .slicer-values li label {
+    min-height: 40px;
+    padding: 8px 4px;
+  }
+
+  /* --- Visuals ---------------------------------------------------------- */
+  .canvas .react-grid-item .tile {
+    /* Enough room for a chart to say something once it is full width.
+       Set on the tile rather than on `.tile-body`, so the header is counted
+       inside the height instead of being added on top of it. */
+    min-height: 300px;
+  }
+  .matrix th,
+  .matrix td {
+    padding: 6px;
+  }
+  .multi-card-values {
+    gap: 12px;
+  }
+}
+
+/* Tablets: the rail stays, the tri-pane does not. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .builder-actions {
+    flex-wrap: wrap;
+  }
+  .tile-body {
+    min-height: 200px;
+  }
+}
+
+/* Nothing on any screen may scroll the page sideways. Wide content -- a
+   matrix, a results table, a code block -- scrolls inside its own box. */
+html,
+body {
+  overflow-x: hidden;
+}
+
+/* Canvas flow on small screens.
+   --------------------------------------------------------------------------
+   Deliberately last in the file: `.canvas-column .canvas { flex: 1 }` is
+   declared further up, and these have the same specificity, so only source
+   order settles it.
+
+   `.builder` is `height: auto` at this tier, so a `flex: 1` canvas column is
+   resolving a percentage of nothing: it collapses to a near-zero box, and the
+   grid then paints its tiles straight over the page bar and the pane headers
+   that follow it in the document. Sizing to content restores ordinary flow --
+   canvas, then page bar, then panes, each pushing the next down -- and lets
+   the page itself do the scrolling instead of a nested region. */
+@media (max-width: 959px) {
+  .canvas-column,
+  .canvas-column .canvas,
+  .canvas {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .builder-body {
+    flex: 0 0 auto;
+  }
 }

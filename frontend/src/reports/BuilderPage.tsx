@@ -52,6 +52,7 @@ import {
 } from "./filters";
 import HierarchyPane from "./HierarchyPane";
 import ImportPanel from "./ImportPanel";
+import { normalizeDefinition } from "./normalize";
 import VisualPicker, { changeVisualType } from "./VisualPicker";
 import VisualWells from "./VisualWells";
 
@@ -337,8 +338,15 @@ export default function BuilderPage() {
 
   useEffect(() => {
     if (report.data && definition === null) {
-      setDefinition(report.data.definition);
-      setSavedJson(JSON.stringify(report.data.definition));
+      // Normalised on the way in, so a document from an older server (or an
+      // older cached response) cannot reach the render tree without `pages`
+      // and blank the whole builder.
+      const normalized = normalizeDefinition(report.data.definition);
+      setDefinition(normalized);
+      // The baseline is the NORMALISED document, not the raw one: comparing
+      // against the raw shape would mark an untouched report dirty the
+      // moment it loaded.
+      setSavedJson(JSON.stringify(normalized));
     }
   }, [report.data, definition]);
 

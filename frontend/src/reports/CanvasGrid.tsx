@@ -48,6 +48,36 @@ function useMeasuredWidth() {
   return { ref, width };
 }
 
+/** Below this the 12-column grid stops being a layout and starts being a
+ *  column of slivers: a half-width tile on a 390px phone is under 180px,
+ *  which no chart can say anything in. */
+const STACK_BELOW = 640;
+
+/** Minimum rows a stacked tile gets, so a KPI card does not collapse to a
+ *  line of text and a chart keeps a drawable aspect ratio. */
+const MIN_STACKED_ROWS = 6;
+
+/** The grid layout to draw: the author's own arrangement, or -- on a narrow
+ *  screen -- a single column in the reading order that arrangement implies
+ *  (top to bottom, then left to right). */
+export function layoutFor(visuals: Visual[], stacked: boolean): Layout[] {
+  if (!stacked) {
+    return visuals.map((v) => ({
+      i: v.id, x: v.layout.x, y: v.layout.y, w: v.layout.w, h: v.layout.h, minW: 2, minH: 3,
+    }));
+  }
+  return [...visuals]
+    .sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
+    .reduce<Layout[]>((rows, v) => {
+      const h = Math.max(v.layout.h, MIN_STACKED_ROWS);
+      const y = rows.reduce((sum, r) => sum + r.h, 0);
+      // `static`, not merely undraggable: on a touch screen a drag IS the
+      // scroll gesture, and letting the grid claim it traps the page.
+      rows.push({ i: v.id, x: 0, y, w: 1, h, static: true });
+      return rows;
+    }, []);
+}
+
 export default function CanvasGrid({
   visuals, canvas, view, selectedId, onSelect, onLayoutChange, readOnly = false,
   reportFilters = [], pageFilters = [], hierarchies = [], drill = {}, onDrill,
@@ -64,24 +94,30 @@ export default function CanvasGrid({
     );
   }
 
-  const layout: Layout[] = visuals.map((v) => ({
-    i: v.id, x: v.layout.x, y: v.layout.y, w: v.layout.w, h: v.layout.h, minW: 2, minH: 3,
-  }));
+  // On a phone the grid becomes a single stacked column, in the reading order
+  // the desktop layout implies (top to bottom, then left to right).
+  const stacked = width < STACK_BELOW;
+
+  const layout = layoutFor(visuals, stacked);
 
   return (
-    <div className="canvas" ref={ref}>
+    <div className={stacked ? "canvas stacked" : "canvas"} ref={ref}>
       <GridLayout
         className="layout"
         layout={layout}
-        cols={canvas.columns}
+        cols={stacked ? 1 : canvas.columns}
         rowHeight={canvas.rowHeight}
         width={width}
         margin={[12, 12]}
-        isDraggable={!readOnly}
-        isResizable={!readOnly}
+        isDraggable={!readOnly && !stacked}
+        isResizable={!readOnly && !stacked}
         draggableHandle=".tile-head"
         onLayoutChange={(next) => {
-          if (readOnly) return;
+          // Never write the phone stacking back to the definition. The
+          // stacked layout is a rendering of the real one, not a replacement
+          // for it -- saving it would silently flatten the author's desktop
+          // arrangement the first time they opened the report on a phone.
+          if (readOnly || stacked) return;
           const mapped: Record<string, VisualLayout> = {};
           for (const item of next) {
             mapped[item.i] = { x: item.x, y: item.y, w: item.w, h: item.h };

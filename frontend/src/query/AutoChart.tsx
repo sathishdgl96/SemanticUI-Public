@@ -43,8 +43,17 @@ export default function AutoChart({
     });
     const onResize = () => chart.resize();
     window.addEventListener("resize", onResize);
+    // The window is not the only thing that changes a chart's size: collapsing
+    // a pane, resizing a tile on the grid, or switching to a page whose
+    // layout differs all resize the CONTAINER while the window sits still.
+    // Watching the element itself is what makes the chart track its tile
+    // instead of stretching only when the browser frame moves.
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
+    observer?.observe(ref.current);
     return () => {
       window.removeEventListener("resize", onResize);
+      observer?.disconnect();
       chart.dispose();
     };
     // The dependency list intentionally switches shape with `option`: when a
