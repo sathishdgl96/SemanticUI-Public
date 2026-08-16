@@ -91,7 +91,10 @@ export default function LoginPage() {
 
   return (
     <main className="login">
-      <h1>SemanticUI</h1>
+      <h1>
+        <span className="brand-mark" aria-hidden="true" />
+        SemanticUI
+      </h1>
       {redirectReason && <p className="notice">{redirectReason}</p>}
       {authMode === "oauth" && (
         <a className="button" href="/auth/login">

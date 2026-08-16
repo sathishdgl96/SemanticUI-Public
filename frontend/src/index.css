@@ -8,23 +8,33 @@
    ========================================================================== */
 
 :root {
-  /* Palette — fixed, validated against chart contrast. Do not invent or
-     substitute; slots 2-8 of SERIES_COLORS never appear here. */
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --ink: #0b0b0b;
-  --ink-secondary: #52514e;
-  --ink-muted: #898781;
-  --grid: #e1e0d9;
-  --axis: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.1);
-  --accent: #2a78d6;
-  --accent-wash: rgba(42, 120, 214, 0.04);
-  --ink-wash: rgba(11, 11, 11, 0.02);
-  --error: #d03b3b;
+  /* Fluent/PowerBI language. Chart colors live ONLY in src/query/palette.ts;
+     --brand (#f2c811) is PowerBI's signature yellow and is deliberately
+     distinct from the palette's #eda100 -- chrome never wears a series color. */
+  --page: #faf9f8;
+  --surface: #ffffff;
+  --ink: #252423;
+  --ink-secondary: #605e5c;
+  --ink-muted: #8a8886;
+  --grid: #e1dfdd;
+  --axis: #c8c6c4;
+  --border: #e1dfdd;
+  --accent: #0078d4;
+  --accent-wash: rgba(0, 120, 212, 0.06);
+  --ink-wash: rgba(37, 36, 35, 0.04);
+  --error: #a4262c;
+
+  /* Shell */
+  --chrome: #f3f2f1;
+  --canvas: #eaeaea;
+  --brand: #f2c811;
+  --brand-ink: #252423;
+  --topbar: #252423;
+  --tile-shadow: 0 1.6px 3.6px rgba(0, 0, 0, 0.13), 0 0.3px 0.9px rgba(0, 0, 0, 0.1);
 
   /* Type */
-  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Segoe UI", "Segoe UI Web (West European)", -apple-system,
+    system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", Consolas, "SF Mono", monospace;
 
   /* Density */
@@ -113,8 +123,10 @@ button,
   padding: 6px 14px;
   border: 1px solid transparent;
   border-radius: 4px;
-  background: var(--accent);
-  color: #ffffff;
+  /* PowerBI's primary action: brand yellow with dark ink. */
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-weight: 600;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -129,7 +141,8 @@ button,
 
 button:hover,
 .button:hover {
-  filter: brightness(0.93);
+  filter: none;
+  background: #e0b50f;
 }
 
 button:disabled {
@@ -141,6 +154,7 @@ button:disabled {
 .link {
   background: none;
   color: var(--accent);
+  font-weight: 400;
   /* Vertical padding brings the hit target to ~24.8px tall (line-height
      1.4 * 12px font + 8px padding) even though the text stays 12px — the
      24px floor applies to the clickable box, not the glyph size. */
@@ -151,6 +165,9 @@ button:disabled {
 
 .link:hover {
   filter: none;
+  /* Re-asserted: the primary button hover would otherwise paint links
+     brand-yellow on hover. */
+  background: none;
   text-decoration: underline;
 }
 
@@ -934,7 +951,13 @@ button.secondary,
 .button.secondary {
   background: var(--surface);
   color: var(--ink);
-  border: 1px solid var(--axis);
+  font-weight: 400;
+  border: 1px solid #8a8886;
+}
+
+button.secondary:hover,
+.button.secondary:hover {
+  background: var(--chrome);
 }
 
 .report-list {
@@ -1601,4 +1624,15 @@ button.secondary,
      you cannot check before pasting it. */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* --- Brand mark (top bar, login) ----------------------------------------- */
+
+.brand-mark {
+  width: 14px;
+  height: 14px;
+  background: var(--brand);
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -1px;
 }
