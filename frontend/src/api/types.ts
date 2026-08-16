@@ -113,6 +113,26 @@ export interface WorkspaceMember {
   isMe: boolean;
 }
 
+export interface AskSpec {
+  dimensions: string[];
+  metrics: string[];
+  filters: Filter[];
+  orderBy: { field: string; direction: "asc" | "desc" }[];
+  limit: number | null;
+  explanation: string;
+}
+
+export interface AskResponse {
+  explanation: string;
+  spec: AskSpec;
+  columns: ColumnInfo[];
+  rows: unknown[][];
+  truncated: boolean;
+  /** Returned on purpose: an answer you cannot audit is one you should not
+   *  act on. The panel shows it alongside the numbers. */
+  sql: string;
+}
+
 export interface ViewRef {
   database: string;
   schema: string;

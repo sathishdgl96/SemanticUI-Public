@@ -1,6 +1,15 @@
-import type { QueryResponse } from "../api/types";
+import type { ColumnInfo } from "../api/types";
 
-export default function ResultsTable({ result }: { result: QueryResponse }) {
+/** Only what this component reads. Narrower than QueryResponse on purpose:
+ *  an Ask answer has no sfqid, and demanding one would force callers to
+ *  invent a field rather than express what they actually have. */
+export interface TabularResult {
+  columns: ColumnInfo[];
+  rows: unknown[][];
+  truncated: boolean;
+}
+
+export default function ResultsTable({ result }: { result: TabularResult }) {
   return (
     <div className="results">
       {result.truncated && (

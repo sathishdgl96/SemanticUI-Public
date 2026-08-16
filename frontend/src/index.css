@@ -1485,3 +1485,67 @@ button.secondary,
   border-radius: var(--radius-pane);
   margin-bottom: 8px;
 }
+
+/* --- Ask ---------------------------------------------------------------- */
+
+.ask-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(640px, 92vw);
+}
+
+.ask-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ask-panel form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ask-panel input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ask-explanation {
+  font-weight: 600;
+  margin: 0;
+}
+
+.ask-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.spec-summary dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.spec-summary dt {
+  color: var(--ink-muted);
+}
+
+.spec-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .ask-panel form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

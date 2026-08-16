@@ -5,8 +5,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import { atLeast, moveReport } from "../api/workspaces";
+import AskPanel from "../ask/AskPanel";
 import { useWorkspaces } from "../workspaces/useWorkspaces";
 import type {
+  AskSpec,
   FieldInfo,
   Filter,
   Hierarchy,
@@ -260,7 +262,7 @@ export default function BuilderPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<VisualType>("bar");
   const [notice, setNotice] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"export" | "import" | null>(null);
+  const [panel, setPanel] = useState<"export" | "import" | "ask" | null>(null);
   // Ephemeral by design: never written to the definition, so a saved report
   // always opens at the top level with nothing selected, and can never point
   // at a value that has since disappeared from the view.
@@ -439,6 +441,33 @@ export default function BuilderPage() {
     });
   };
 
+  /** Pin an answer onto the canvas. The spec already speaks the well
+   *  vocabulary, so this is a re-shaping rather than a translation. */
+  const addVisualFromSpec = (spec: AskSpec) => {
+    const nextY = definition.visuals.reduce(
+      (max, v) => Math.max(max, v.layout.y + v.layout.h),
+      0,
+    );
+    const visual: Visual = {
+      id: `v${crypto.randomUUID().slice(0, 8)}`,
+      type: "bar",
+      title: spec.explanation.slice(0, 200),
+      layout: { x: 0, y: nextY, w: 6, h: 6 },
+      wells: {
+        ...emptyWellsFor("bar"),
+        axis: spec.dimensions.slice(0, 1),
+        values: spec.metrics,
+      },
+      options: {},
+      // The answer's filters travel with it, or the pinned tile would show a
+      // different number from the one that was just on screen.
+      filters: spec.filters,
+    };
+    setDefinition({ ...definition, visuals: [...definition.visuals, visual] });
+    setSelectedId(visual.id);
+    setPanel(null);
+  };
+
   const onDragEnd = (event: DragEndEvent) => {
     const visual = definition.visuals.find((v) => v.id === selectedId);
     const overId = String(event.over?.id ?? "");
@@ -527,6 +556,14 @@ export default function BuilderPage() {
               Move
             </button>
           )}
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={panel === "ask"}
+            onClick={() => setPanel(panel === "ask" ? null : "ask")}
+          >
+            Ask
+          </button>
           <button
             type="button"
             className="secondary"
@@ -699,6 +736,16 @@ export default function BuilderPage() {
       {panel === "import" && (
         <div className="panel-overlay">
           <ImportPanel onImported={onImported} onClose={() => setPanel(null)} />
+        </div>
+      )}
+      {panel === "ask" && (
+        <div className="panel-overlay">
+          <AskPanel
+            reportId={reportId}
+            canEdit={canEdit}
+            onAddVisual={addVisualFromSpec}
+            onClose={() => setPanel(null)}
+          />
         </div>
       )}
     </div>
