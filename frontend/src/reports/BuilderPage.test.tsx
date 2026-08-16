@@ -625,8 +625,8 @@ describe("BuilderPage roles", () => {
       const call = apiFetchMock.mock.calls.find(([url]) =>
         String(url).includes("/move"),
       );
-      expect(call![0]).toBe("/api/reports/r1/move");
-      expect(JSON.parse(call![1].body)).toEqual({ workspaceId: "w1" });
+      expect(call?.[0]).toBe("/api/reports/r1/move");
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ workspaceId: "w1" });
     });
   });
 });
