@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     row_cap: int = 10000
     describe_cache_ttl_seconds: int = 300
 
+    #: Which Cortex model answers questions. Unavailable on trial accounts.
+    cortex_model: str = "llama3.1-70b"
+    #: Kill switch, so an operator can turn Q&A off without a deploy.
+    ask_enabled: bool = True
+
     # oauth mode only
     snowflake_account: str | None = None  # e.g. "myorg-myaccount"
     oauth_client_id: str | None = None
