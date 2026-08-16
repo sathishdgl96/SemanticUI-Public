@@ -326,7 +326,6 @@ button:disabled {
 }
 
 .left,
-.selection,
 .middle {
   flex: 0 0 auto;
   overflow-y: auto;
@@ -335,12 +334,11 @@ button:disabled {
   background: var(--surface);
 }
 
-/* The drop target. Its own column so it stays on screen while a drag is in
-   progress -- underneath a twenty-field list it was usually scrolled away. */
-.selection {
-  width: var(--pane-wells);
-}
-
+/* The explorer is two columns, as Looker is: the field picker against the
+   left edge, and one stack of sections to its right. It used to be four,
+   which spent 744px on chrome before showing a number and put the field list
+   third from the left. The builder still uses `.middle`, which is why that
+   rule stays. */
 .left {
   width: var(--pane-fields);
 }
@@ -362,10 +360,10 @@ button:disabled {
   font-size: 13px;
 }
 
-/* Section label shown only in the stacked (<960px) layout, where the three
-   panes lose their spatial (side-by-side) context and need a textual one
-   instead. Hidden above that breakpoint so the three-column layout is
-   untouched. Same small-caps role as .view-tree h3 / .field-group-title. */
+/* Section label shown only in the stacked (<960px) layout, where side-by-side
+   panes lose their spatial context and need a textual one instead. Hidden
+   above that breakpoint in the builder, where the panes are still columns.
+   Same small-caps role as .view-tree h3 / .field-group-title. */
 .pane-heading {
   display: none;
   margin: 0 0 8px;
@@ -374,6 +372,18 @@ button:disabled {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--ink-muted);
+}
+
+/* The explorer's sidebar is the exception at every width: views, saved
+   explores and fields are stacked in ONE column, so position no longer says
+   which is which and the labels have to. */
+.explorer .left .pane-heading {
+  display: block;
+  margin-top: 16px;
+}
+
+.explorer .left .pane-heading:first-child {
+  margin-top: 0;
 }
 
 /* ==========================================================================
@@ -552,6 +562,156 @@ button:disabled {
   color: var(--ink-muted);
   font-size: 10px;
   line-height: 1.4;
+}
+
+/* ==========================================================================
+   Explorer: the selected-fields strip and the stacked sections beside it
+   ========================================================================== */
+
+/* The three wells run ACROSS the top of the right-hand column rather than
+   down a column of their own. Side by side with the field list they are a
+   drop target that is always on screen, which is what the separate column
+   was for -- without costing a column. */
+.explore-selected {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+/* `.well-panel` is a COLUMN by default (it was a column of wells in a pane of
+   its own). Overriding `display` alone left `flex-direction: column` in force
+   and the wells stacked anyway -- along with the top border and margin that
+   separated them from the pane above, which no longer exists here. */
+.explore-selected .well-panel {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.explore-selected .well {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+
+.explore-selected .well-panel > button {
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.explore-section {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.explore-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid transparent;
+}
+
+.explore-section[data-open="true"] .explore-section-head {
+  border-bottom-color: var(--border);
+}
+
+.explore-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  margin: 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.explore-section-summary {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* Pushed to the right edge, and kept in the header so a folded section's
+   controls (the visual picker, the row limit) stay reachable. */
+.explore-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.explore-section-body {
+  padding: 10px;
+}
+
+.viz-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.viz-choice {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.viz-choice:hover:not(:disabled) {
+  background: var(--ink-wash);
+}
+
+.viz-choice[aria-pressed="true"] {
+  border-color: var(--border);
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* Dimmed, not removed: the gallery keeps its shape so you learn where a
+   type lives rather than watching the row change length as you select. */
+.viz-choice:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.viz-glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.row-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.row-limit input {
+  width: 72px;
+  margin: 0;
 }
 
 /* Said above the results, not inside a tile: it qualifies the whole answer. */
@@ -916,10 +1076,19 @@ th {
   }
 
   .left,
-  .selection,
   .middle,
   .main {
     width: 100%;
+  }
+
+  /* The wells stop competing for width and stack, so each drop target keeps
+     a usable target area on a phone. */
+  .explore-selected .well-panel {
+    display: block;
+  }
+
+  .explore-selected .well {
+    margin-bottom: 8px;
   }
 
   .left,

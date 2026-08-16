@@ -15,10 +15,14 @@ import type {
   SemanticViewDetail,
   SemanticViewSummary,
 } from "../api/types";
-import QueryPanel from "../query/QueryPanel";
+import ResultsTable from "../query/ResultsTable";
+import SqlPreview from "../query/SqlPreview";
 import ExploreFilters from "./ExploreFilters";
+import ExploreVisual from "./ExploreVisual";
 import SavedExplores from "./SavedExplores";
-import { validateWells } from "../reports/catalog";
+import Section from "./Section";
+import VizPicker from "./VizPicker";
+import { CATALOG, type VisualType } from "../reports/catalog";
 import { isActive } from "../reports/filters";
 import {
   announceDragCancel, announceDragEnd, announceDragOver, announceDragStart,
@@ -26,12 +30,22 @@ import {
 import { useFieldSensors } from "./dndSensors";
 import FieldPanel from "./FieldPanel";
 import ViewTree from "./ViewTree";
+import { canRender, effectiveType, exploreVisual, unusedFields } from "./vizTypes";
 import WellPanel from "./WellPanel";
-import { addToWell, emptyWells, removeFromWell, visualForShape, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
+import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
 
 function dragDataOf(active: { data: { current?: Record<string, unknown> } }): DragData | undefined {
   return active.data.current as DragData | undefined;
 }
+
+/** Looker's default, and a good one: enough rows to see the shape of an
+ *  answer without waiting for a result set nobody reads. It is a starting
+ *  point, not a ceiling -- the box takes any number up to the server's cap. */
+const DEFAULT_ROW_LIMIT = 500;
+/** The server's own cap (`row_cap`, and `MAX_ROW_LIMIT` on a saved explore).
+ *  Clamped here so a number that would be silently reduced -- or refused on
+ *  save -- cannot be typed in the first place. */
+const MAX_ROW_LIMIT = 10000;
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
@@ -41,6 +55,11 @@ export default function ExplorerPage() {
   // than inside the query because they survive a re-run and are part of what
   // gets saved.
   const [filters, setFilters] = useState<Filter[]>([]);
+  // The visual the user picked, or null while they are happy with the one
+  // that fits. Kept separate from the effective type so that outgrowing a
+  // pie and then removing the extra measure returns to the pie.
+  const [chosenType, setChosenType] = useState<VisualType | null>(null);
+  const [rowLimit, setRowLimit] = useState(DEFAULT_ROW_LIMIT);
   // The saved explore currently open, if any: Save updates it rather than
   // making a second copy every time.
   const [openExplore, setOpenExplore] = useState<ExploreDetail | null>(null);
@@ -103,26 +122,22 @@ export default function ExplorerPage() {
       }),
   });
 
-  // The hand-off picks the visual type that FITS the selection: a bar for
-  // one dimension (its axis takes exactly one), a table once there are
-  // more. Always building a bar was what forced the explorer to cap
-  // dimensions at two in the first place.
   const addToReport = useMutation({
     mutationFn: (definition: ReportDefinition) => createReport(definition),
     onSuccess: (report) => navigate(`/reports/${report.id}`),
   });
 
-  // Enablement mirrors the catalog's own rule for whichever type will be
-  // built, rather than "any field placed": a combination the server rejects
-  // with a 400 must not be offered here.
-  const handoffType = visualForShape(wells);
-  const handoffWells: Record<string, string[]> =
-    handoffType === "table"
-      ? { dimensions: [...wells.axis, ...wells.legend], metrics: wells.values }
-      : { axis: wells.axis, legend: wells.legend, values: wells.values };
-  const wellProblems = validateWells(handoffType, handoffWells);
-  const canAddToReport = selectedView !== null && wellProblems.length === 0;
-  const showAddToReportHint = selectedView !== null && !canAddToReport;
+  // What is on screen, and what the hand-off produces: the same visual, so a
+  // report opens showing the chart the explore was already showing.
+  const visualType = effectiveType(chosenType, wells);
+  const visual = exploreVisual(visualType, wells);
+  const unused = unusedFields(visualType, wells);
+  const totalFields = wells.axis.length + wells.legend.length + wells.values.length;
+  // `canRender` as well as "something is selected": handing the server a
+  // definition it rejects with a 400 naming an internal visual id is the one
+  // outcome this button must never produce.
+  const canAddToReport =
+    selectedView !== null && totalFields > 0 && canRender(visualType, wells);
 
   function handleAddToReport() {
     if (!selectedView) return;
@@ -141,13 +156,11 @@ export default function ExplorerPage() {
           name: "Page 1",
           visuals: [
             {
+              ...visual,
               id: `v${crypto.randomUUID().slice(0, 8)}`,
-              type: handoffType,
-              title: "",
-              layout: { x: 0, y: 0, w: 6, h: 6 },
-              wells: handoffWells,
-              options: {},
-              filters: [],
+              // The filters travel with it. A report that opened showing more
+              // rows than the explore did would be a different answer.
+              filters: filters.filter(isActive),
             },
           ],
           filters: [],
@@ -165,6 +178,7 @@ export default function ExplorerPage() {
     // Filters name fields of the OLD view; carrying them across would send
     // references the new view has never heard of.
     setFilters([]);
+    setChosenType(null);
     setOpenExplore(null);
     setExploreName("");
     setSaveError(null);
@@ -199,6 +213,7 @@ export default function ExplorerPage() {
       // Unfinished filters are dropped here, exactly as they are for a
       // report tile: an empty IN list is a 422, not a filter.
       filters: filters.filter(isActive),
+      limit: rowLimit,
     });
   }
 
@@ -218,6 +233,7 @@ export default function ExplorerPage() {
       metrics,
       filters,
       orderBy: [],
+      limit: rowLimit,
     };
   }
 
@@ -253,7 +269,7 @@ export default function ExplorerPage() {
    *  filters together. Restoring only some of it would show numbers that
    *  never belonged to the saved question. */
   function openSaved(explore: ExploreDetail) {
-    const { view, dimensions, metrics, filters: saved } = explore.definition;
+    const { view, dimensions, metrics, filters: saved, limit } = explore.definition;
     setSelectedView({
       database: view.database,
       schema: view.schema,
@@ -265,11 +281,15 @@ export default function ExplorerPage() {
     for (const ref of metrics) next = addToWell(next, "values", ref, "metric");
     setWells(next);
     setFilters(saved ?? []);
+    setRowLimit(limit ?? DEFAULT_ROW_LIMIT);
+    setChosenType(null);
     setOpenExplore(explore);
     setExploreName(explore.name);
     setSaveError(null);
     run.reset();
   }
+
+  const activeFilterCount = filters.filter(isActive).length;
 
   return (
     <div className="explorer">
@@ -318,13 +338,15 @@ export default function ExplorerPage() {
             className="add-to-report"
             onClick={handleAddToReport}
             disabled={!canAddToReport || addToReport.isPending}
-            aria-describedby={showAddToReportHint ? "add-to-report-hint" : undefined}
+            aria-describedby={
+              selectedView && !canAddToReport ? "add-to-report-hint" : undefined
+            }
           >
             {addToReport.isPending ? "Adding…" : "Add to report"}
           </button>
-          {showAddToReportHint && (
+          {selectedView && !canAddToReport && (
             <span id="add-to-report-hint" className="add-to-report-hint">
-              Add a dimension and a measure to start a report.
+              Pick a field to start a report.
             </span>
           )}
           {addToReport.isError && (
@@ -337,6 +359,10 @@ export default function ExplorerPage() {
         </span>
       </div>
       <DndContext sensors={sensors} onDragEnd={onDragEnd} accessibility={{ announcements }}>
+        {/* Two columns, as Looker has them: the field picker hard against
+            the left edge, and one stack of sections to its right. The four
+            columns this replaced spent 744px on chrome before a single
+            number was shown, and made the picker the third thing across. */}
         <div className="columns">
           <div className="left">
             <h2 className="pane-heading">Views</h2>
@@ -360,37 +386,6 @@ export default function ExplorerPage() {
                 onError={setSaveError}
               />
             )}
-          </div>
-          {/* The selection sits in its own column beside the fields, not
-              under them. It used to be at the BOTTOM of the field list, so
-              dropping a field meant scrolling past twenty of them with a
-              drag in progress -- the target was rarely even on screen. */}
-          <div className="selection">
-            <h2 className="pane-heading">Selection</h2>
-            {selectedView && detail.data ? (
-              <>
-                <WellPanel
-                  wells={wells}
-                  onRemove={removeField}
-                  onRun={runQuery}
-                  running={run.isPending}
-                />
-                <ExploreFilters
-                  view={{
-                    database: selectedView.database,
-                    schema: selectedView.schema,
-                    name: selectedView.name,
-                  }}
-                  fields={[...detail.data.dimensions, ...detail.data.metrics, ...detail.data.facts]}
-                  filters={filters}
-                  onChange={setFilters}
-                />
-              </>
-            ) : (
-              <p className="tile-hint">Pick a view to start selecting fields.</p>
-            )}
-          </div>
-          <div className="middle">
             <h2 className="pane-heading">Fields</h2>
             {selectedView && detail.data && (
               <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />
@@ -408,21 +403,103 @@ export default function ExplorerPage() {
             )}
             {!selectedView && <p>Select a semantic view to begin.</p>}
           </div>
+
           <div className="main">
-            <h2 className="pane-heading">Canvas</h2>
-            {run.isError && (
-              <p role="alert">
-                {run.error instanceof ApiError ? run.error.message : "Query failed"}
-              </p>
-            )}
-            {run.data?.bridgedThrough && (
-              <p className="explore-note">
-                {`Joined through ${run.data.bridgedThrough}. These fields have no direct
-                relationship, so the rows are the combinations that actually occur there.`}
-              </p>
-            )}
-            {run.data && detail.data && (
-              <QueryPanel result={run.data} detail={detail.data} wells={wells} />
+            {!selectedView && <p>Pick a view to start exploring.</p>}
+            {selectedView && detail.data && (
+              <>
+                <div className="explore-selected">
+                  <WellPanel
+                    wells={wells}
+                    onRemove={removeField}
+                    onRun={runQuery}
+                    running={run.isPending}
+                  />
+                </div>
+
+                <Section title="Filters" summary={`${activeFilterCount} active`}>
+                  <ExploreFilters
+                    view={{
+                      database: selectedView.database,
+                      schema: selectedView.schema,
+                      name: selectedView.name,
+                    }}
+                    fields={[
+                      ...detail.data.dimensions,
+                      ...detail.data.metrics,
+                      ...detail.data.facts,
+                    ]}
+                    filters={filters}
+                    onChange={setFilters}
+                  />
+                </Section>
+
+                <Section
+                  title="Visualization"
+                  summary={CATALOG[visualType].label}
+                  actions={
+                    <VizPicker wells={wells} active={visualType} onPick={setChosenType} />
+                  }
+                >
+                  {run.isError && (
+                    <p role="alert">
+                      {run.error instanceof ApiError ? run.error.message : "Query failed"}
+                    </p>
+                  )}
+                  {run.data?.bridgedThrough && (
+                    <p className="explore-note">
+                      {`Joined through ${run.data.bridgedThrough}. These fields have no
+                      direct relationship, so the rows are the combinations that actually
+                      occur there.`}
+                    </p>
+                  )}
+                  {unused.length > 0 && run.data && (
+                    <p className="explore-note">
+                      {`Not shown by this visual: ${unused.join(", ")}. The table below has
+                      every selected field.`}
+                    </p>
+                  )}
+                  {run.data ? (
+                    <ExploreVisual visual={visual} result={run.data} />
+                  ) : (
+                    <p className="tile-hint">Pick fields and press Run.</p>
+                  )}
+                </Section>
+
+                <Section
+                  title="Data"
+                  summary={run.data ? `${run.data.rows.length} rows` : undefined}
+                  actions={
+                    <label className="row-limit">
+                      Row limit
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAX_ROW_LIMIT}
+                        step={100}
+                        value={rowLimit}
+                        onChange={(e) =>
+                          setRowLimit(
+                            Math.min(
+                              MAX_ROW_LIMIT,
+                              Math.max(1, Number(e.target.value) || 1),
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  }
+                >
+                  {run.data ? (
+                    <>
+                      <ResultsTable result={run.data} />
+                      <SqlPreview sql={run.data.sql} />
+                    </>
+                  ) : (
+                    <p className="tile-hint">No results yet.</p>
+                  )}
+                </Section>
+              </>
             )}
           </div>
         </div>

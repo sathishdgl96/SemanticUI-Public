@@ -139,36 +139,57 @@ describe("ExplorerPage", () => {
     expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
   });
 
-  // The hand-off always builds a "bar" visual (see the comment above
-  // `addToReport` in ExplorerPage), and the catalog requires bar to have
-  // Axis >= 1 AND Values >= 1. Placing only a dimension is the most natural
-  // first action in the explorer, so this is exactly the case that must stay
-  // disabled -- enabling it would let the user submit a definition the
-  // server rejects with a 400 naming an internal visual id.
-  it("stays disabled with a hint when only a dimension is placed", async () => {
+  // The hand-off used to build a "bar" whatever was selected, and the catalog
+  // requires bar to have Axis >= 1 AND Values >= 1 -- so a lone dimension or a
+  // lone measure had to leave the button disabled. It now hands over the type
+  // that FITS, which makes both of those perfectly good reports.
+  it("offers a lone dimension as a table", async () => {
     mockRoutes(() => Promise.resolve(DETAIL));
     renderPage();
 
     await userEvent.click(await screen.findByRole("button", { name: "My View" }));
     await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
 
-    expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
-    expect(
-      screen.getByText(/add a dimension and a measure to start a report/i),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add to report/i })).toBeEnabled();
+    // The picker shows what is being drawn, so the pressed button is the
+    // assertion -- "Table" also appears as the section's summary text.
+    expect(screen.getByRole("button", { name: "Table" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
-  it("stays disabled with a hint when only a metric is placed", async () => {
+  it("offers a lone measure as a card", async () => {
     mockRoutes(() => Promise.resolve(DETAIL));
     renderPage();
 
     await userEvent.click(await screen.findByRole("button", { name: "My View" }));
     await userEvent.click(await screen.findByRole("button", { name: /REVENUE/ }));
 
-    expect(screen.getByRole("button", { name: /add to report/i })).toBeDisabled();
-    expect(
-      screen.getByText(/add a dimension and a measure to start a report/i),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add to report/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Card" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("hands the report the visual the explore is showing, not always a bar", async () => {
+    mockRoutes(() => Promise.resolve(DETAIL));
+    createReportMock.mockResolvedValue({ id: "r9" } as never);
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /REVENUE/ }));
+    // Pick a pie explicitly; the hand-off must carry it rather than reverting
+    // to whatever the auto-choice would have been.
+    await userEvent.click(screen.getByRole("button", { name: /^Pie$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /add to report/i }));
+
+    const definition = createReportMock.mock.calls[0][0];
+    const visual = definition.pages[0].visuals[0];
+    expect(visual.type).toBe("pie");
+    expect(visual.wells).toEqual({ legend: ["T.REGION"], values: ["T.REVENUE"] });
   });
 
   it("says so when the answer had to be joined through a third entity", async () => {
