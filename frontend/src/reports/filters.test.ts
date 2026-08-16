@@ -412,3 +412,13 @@ describe("the wider operator set", () => {
     expect(out.map((f) => f.op)).toEqual(["isBlank"]);
   });
 });
+
+describe("describing an unfinished filter", () => {
+  it("invites the user to pick values instead of saying 'is 0 values'", () => {
+    // The empty state is a filter still being built, not one that matches
+    // nothing -- and "is 0 values" reads like a bug.
+    expect(describeFilter({ id: "f", field: "C.SEGMENT", op: "is", values: [] })).toBe(
+      "C.SEGMENT — pick values",
+    );
+  });
+});

@@ -38,7 +38,10 @@ export function scatterOption(visual: Visual, result: QueryResponse): ScatterOpt
   return {
     backgroundColor: "transparent",
     grid: { left: 56, right: 16, top: 16, bottom: series.length > 1 ? 48 : 28 },
-    tooltip: { trigger: "item" },
+    // Confined to the chart's own box: a tile clips its overflow, so a
+    // tooltip near an edge would otherwise be drawn half outside and read as
+    // truncated data ("ustomer#0001" instead of "Customer#0001").
+    tooltip: { trigger: "item", confine: true },
     legend: { show: series.length > 1, bottom: 0, textStyle: { color: CHART_INK.secondary } },
     xAxis: {
       type: "value",

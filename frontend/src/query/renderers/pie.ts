@@ -27,7 +27,10 @@ export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike 
   // This return needs no cast: it's already structurally a PieOptionLike.
   return {
     backgroundColor: "transparent",
-    tooltip: { trigger: "item" },
+    // Confined to the chart's own box: a tile clips its overflow, so a
+    // tooltip near an edge would otherwise be drawn half outside and read as
+    // truncated data ("ustomer#0001" instead of "Customer#0001").
+    tooltip: { trigger: "item", confine: true },
     legend: { show: true, bottom: 0, textStyle: { color: CHART_INK.secondary } },
     series: [{
       type: "pie",

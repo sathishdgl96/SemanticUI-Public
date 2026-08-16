@@ -46,7 +46,7 @@ export function treemapOption(
   if (!data) return null;
   return {
     backgroundColor: "transparent",
-    tooltip: { trigger: "item" },
+    tooltip: { trigger: "item", confine: true },
     // A treemap labels its own tiles, so a separate legend would repeat every
     // name already drawn on the canvas.
     legend: { show: false },
@@ -74,7 +74,7 @@ export function funnelOption(
   if (!data) return null;
   return {
     backgroundColor: "transparent",
-    tooltip: { trigger: "item" },
+    tooltip: { trigger: "item", confine: true },
     legend: { show: true, bottom: 0, textStyle: { color: CHART_INK.secondary } },
     series: [
       {

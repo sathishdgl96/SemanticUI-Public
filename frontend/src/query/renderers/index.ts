@@ -112,6 +112,10 @@ export function buildVisualOption(
     tooltip: {
       trigger: "axis",
       axisPointer: { type: type === "line" ? "line" : "shadow" },
+      // Confined to the chart's own box: a tile clips its overflow, so a
+      // tooltip near an edge would otherwise be drawn half outside and read
+      // as truncated data ("ustomer#0001" instead of "Customer#0001").
+      confine: true,
     },
     legend: axisChrome.legend(drawn.length),
     // A horizontal bar is the same chart with its axes exchanged: the

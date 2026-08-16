@@ -266,6 +266,10 @@ export function describeFilter(filter: Filter): string {
     return `${filter.field} in the last ${filter.count} ${UNIT_LABEL[filter.unit ?? "day"]}`;
   }
   if (!takesValues(filter)) return filter.field;
+  // An empty selection is a filter still being built, not one that matches
+  // nothing. "is 0 values" reads like a broken filter rather than an
+  // unfinished one, and `isActive` already keeps it out of the query.
+  if (filter.values.length === 0) return `${filter.field} — pick values`;
   const verb = filter.op === "is" ? "is" : "is not";
   const what =
     filter.values.length === 1
