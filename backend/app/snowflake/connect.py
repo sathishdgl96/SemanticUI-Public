@@ -135,6 +135,32 @@ def close_quietly(conn: Any) -> None:
         pass
 
 
+def account_identifier(conn: Any) -> str | None:
+    """The ORG-ACCOUNT identifier Snowflake's own clients expect.
+
+    CURRENT_ACCOUNT() returns the account LOCATOR ("RC16948"), which only
+    resolves as a hostname in the default region. An account in, say,
+    AZURE_CENTRALINDIA needs a region segment appended -- so handing the bare
+    locator to Excel produces a server string that simply does not connect.
+    The org-account form works everywhere, so that is what we hand out.
+
+    Returns None on any older Snowflake without these functions; the caller
+    falls back to the stored locator rather than showing nothing.
+    """
+    cur = conn.cursor()
+    try:
+        row = cur.execute(
+            "SELECT CURRENT_ORGANIZATION_NAME(), CURRENT_ACCOUNT_NAME()"
+        ).fetchone()
+    except Exception:
+        return None
+    finally:
+        cur.close()
+    if row and row[0] and row[1]:
+        return f"{row[0]}-{row[1]}"
+    return None
+
+
 def probe_identity(conn: Any) -> tuple[str, str]:
     cur = conn.cursor()
     try:

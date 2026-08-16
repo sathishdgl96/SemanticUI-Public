@@ -229,7 +229,9 @@ class TestConnect:
         body = response.json()
         assert body["database"] == "ANALYTICS"
         assert body["view"] == "SALES"
-        assert body["account"] == "ACME"
+        # The ORG-ACCOUNT form, not the stored locator: the locator does not
+        # resolve as a hostname outside the default region.
+        assert body["account"] == "ACME-MAIN"
         assert "?" not in body["sheets"][0]["sql"]
         assert "SEMANTIC_VIEW" in body["sheets"][0]["sql"]
 
@@ -279,3 +281,47 @@ class TestConnect:
             f"/api/reports/{report.id}/connect", json={"sheets": [SHEET]}
         )
         assert response.status_code == 404
+
+
+class TestAccountIdentifier:
+    """CURRENT_ACCOUNT() returns the account LOCATOR, which only resolves as a
+    hostname in the default region. Handing that to Excel gives a server string
+    that does not connect -- found by driving the real UI."""
+
+    def test_the_org_account_form_is_returned_when_available(self, client, db, report):
+        conn = get_cache()
+        entry = conn._entries[next(iter(conn._entries))]  # noqa: SLF001
+
+        original = entry.conn.cursor_obj.execute
+
+        def execute(sql, params=None):
+            if "CURRENT_ORGANIZATION_NAME" in sql:
+                entry.conn.cursor_obj._rows = [("XRIIEIM", "EH01350")]
+                entry.conn.cursor_obj.description = []
+                return entry.conn.cursor_obj
+            return original(sql, params)
+
+        entry.conn.cursor_obj.execute = execute
+        response = client.post(
+            f"/api/reports/{report.id}/connect", json={"sheets": [SHEET]}
+        )
+        assert response.json()["account"] == "XRIIEIM-EH01350"
+
+    def test_it_falls_back_to_the_stored_account_on_older_snowflake(
+        self, client, db, report
+    ):
+        """An account without those functions must still get a usable panel."""
+        conn = get_cache()
+        entry = conn._entries[next(iter(conn._entries))]  # noqa: SLF001
+        original = entry.conn.cursor_obj.execute
+
+        def execute(sql, params=None):
+            if "CURRENT_ORGANIZATION_NAME" in sql:
+                raise ProgrammingError(msg="Unknown function", errno=2143)
+            return original(sql, params)
+
+        entry.conn.cursor_obj.execute = execute
+        response = client.post(
+            f"/api/reports/{report.id}/connect", json={"sheets": [SHEET]}
+        )
+        assert response.json()["account"] == "ACME"

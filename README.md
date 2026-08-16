@@ -587,6 +587,104 @@ been exercised.
 | `SEMANTICUI_ASK_ENABLED` | `true` | Kill switch, no deploy needed |
 
 
+## Excel export and live connection
+
+Two different things, and the difference matters.
+
+### The snapshot
+
+**Export to Excel** in the builder downloads an `.xlsx` of what is currently on
+screen. It is a POST, because drill position and cross-filter live only in the
+browser: the client sends, per visual, the same resolved wells and effective
+filters it already sends to `/api/query/semantic`, and the server validates and
+runs each one on **your own connection**. So an export can never quietly
+disagree with the screen it was taken from.
+
+The workbook has a **Summary** sheet first - report name, semantic view, who
+exported it and when, and one row per data sheet naming its filters and any
+drill context. A spreadsheet found in a shared drive six months later should be
+able to explain itself. Then one sheet per visual, with a bold frozen header
+row.
+
+### Formula injection
+
+**A value from your warehouse beginning `=`, `+`, `-` or `@` is a formula to
+whoever opens the file.** `=cmd|'/c calc'!A0` is the classic; `+HYPERLINK(...)`
+and `-2+3+cmd|...` work the same way.
+
+Every text cell is written with `write_string`, and the workbook sets
+`strings_to_formulas=False`. A string cell in `.xlsx` carries an explicit type
+and is never evaluated, so the value displays exactly as stored. This is
+preferred over the common trick of prefixing an apostrophe, which changes what
+the reader sees.
+
+A negative *number* stays a number - `-5` begins with a dangerous prefix, and
+writing it as text would break every sum in the sheet, so the type check comes
+before the prefix check.
+
+The tests read the generated file back with **openpyxl**, a different library
+from the one that wrote it, and assert the cell type and the unchanged text.
+
+### Limits and partial failure
+
+100,000 rows per sheet, 50 sheets, `SEMANTICUI_EXPORT_ROW_CAP` (default
+100,000) on the query. Truncation is declared on the Summary sheet, never
+silent.
+
+**A per-sheet failure keeps the workbook.** If one visual's query fails -
+most likely `SNOWFLAKE_FORBIDDEN` on a field your role cannot read - that sheet
+carries the error and the Summary says which failed. A shared report exported
+by a colleague with narrower permissions produces a partial workbook that
+explains itself, rather than a 500. An unknown *field* still fails the whole
+export, because that indicates a client bug rather than a permissions
+difference.
+
+### Connecting Excel live
+
+**Connect live** gives you what Snowflake's own Excel connector needs:
+
+1. In Excel: Data → Get Data → From Database → From Snowflake.
+2. Server: the panel shows it, in the form `ORG-ACCOUNT.snowflakecomputing.com`.
+3. Sign in with your own Snowflake credentials.
+4. Advanced options → paste one of the statements shown.
+
+The workbook then refreshes straight from Snowflake **as you**. No data passes
+through this application once connected, and there is no token anywhere.
+
+The account identifier is read from `CURRENT_ORGANIZATION_NAME()` and
+`CURRENT_ACCOUNT_NAME()` on your connection, not from `CURRENT_ACCOUNT()`.
+The latter returns the account *locator*, which only resolves as a hostname in
+Snowflake's default region - handing it to Excel gives a server string that
+simply fails outside that region.
+
+### Why the copyable SQL is a separate code path
+
+Power Query supplies no bind parameters, so the statement it receives must have
+its values **inlined as literals**. Every statement this application *executes*
+binds its values instead, and that rule is not relaxed.
+
+`app/export/literals.py` produces the copyable form. It imports no cursor, no
+connection and no gateway - `test_the_literals_module_imports_nothing_that_can_execute`
+parses its imports and asserts so - and nothing in this application ever runs
+what it returns. A second test asserts `build_semantic_sql` still emits `?`, so
+the two paths cannot be merged by a later refactor.
+
+Inlining is safe there in a way it would not be elsewhere: the statement runs in
+your Excel, under your Snowflake role, expressing nothing you could not already
+do by hand. The escaping (single quotes doubled, dates as `TO_DATE(...)`) exists
+so a value containing a quote produces *valid* SQL, not to prevent an escalation
+that was never available.
+
+### What is deliberately not built
+
+**A refreshable URL served by this application.** Excel's refresh cannot carry
+a session cookie, so such a URL would need a long-lived token - and a token that
+returns data is a standing data-access grant that outlives your session, works
+from anywhere, and belongs to whoever holds the link. Every other part of this
+product refuses exactly that, so this one does too. Snowflake's own connector
+achieves the same result without it.
+
+
 ## Tests
 
     cd backend && .venv\Scripts\python.exe -m pytest -v     # unit tests (no Snowflake needed)

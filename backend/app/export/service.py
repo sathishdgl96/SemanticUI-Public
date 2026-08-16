@@ -12,6 +12,7 @@ from app.export.workbook import SheetData, build_workbook
 from app.reports.filters import is_active
 from app.semantic.query import SemanticQueryRequest, build_semantic_sql
 from app.snowflake import gateway
+from app.snowflake.connect import account_identifier
 from app.snowflake.provider import get_cache
 from app.workspaces.access import require_access
 
@@ -109,8 +110,12 @@ def connection_details(
             }
             for sheet in sheets
         ]
+        # Asked of the connection rather than read from the stored locator:
+        # the locator does not resolve as a hostname outside the default
+        # region, so it would give the user a server string that fails.
+        identifier = account_identifier(entry.conn)
     return {
-        "account": sess.user.snowflake_account,
+        "account": identifier or sess.user.snowflake_account,
         "database": report.view_database,
         "schema": report.view_schema,
         "view": report.view_name,

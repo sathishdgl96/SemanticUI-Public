@@ -25,6 +25,12 @@ class ScriptedCursor:
         if sql.startswith("SHOW SEMANTIC VIEWS"):
             self.description = SHOW_DESC
             self._rows = [("2026-01-01", "SALES", "ANALYTICS", "PUBLIC", None)]
+        elif "CURRENT_ORGANIZATION_NAME" in sql:
+            # Answered explicitly: without this the catch-all below returns
+            # data rows for an identity query, and the org-account identifier
+            # comes out as "2026-01-01-10.0".
+            self.description = [FakeCol("ORG"), FakeCol("ACCT")]
+            self._rows = [("ACME", "MAIN")]
         elif sql.startswith("DESCRIBE SEMANTIC VIEW"):
             self.description = DESCRIBE_DESC
             self._rows = list(DESCRIBE_ROWS)

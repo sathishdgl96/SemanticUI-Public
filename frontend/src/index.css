@@ -1173,9 +1173,13 @@ button.secondary,
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   flex: 0 0 auto; padding: 8px 16px;
   background: var(--surface); border-bottom: 1px solid var(--border);
+  /* The header now carries Save, Move, Ask, Excel, Connect live, Export and
+     Import. Without wrapping it overflows below ~430px, which the 390px
+     breakpoint check caught. */
+  flex-wrap: wrap;
 }
 .builder-head input { font-size: 14px; font-weight: 600; min-width: 0; flex: 1 1 auto; }
-.builder-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.builder-actions { display: flex; gap: 8px; flex: 0 1 auto; flex-wrap: wrap; }
 .builder-body { display: flex; flex: 1; min-height: 0; }
 .builder-panes {
   flex: 0 0 var(--pane-wells); overflow-y: auto; padding: var(--pane-padding);
