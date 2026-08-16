@@ -1469,3 +1469,14 @@ button.secondary,
     flex-direction: column;
   }
 }
+
+.move-panel {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: var(--pane-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  margin-bottom: 8px;
+}

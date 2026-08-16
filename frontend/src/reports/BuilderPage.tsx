@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
+import { atLeast, moveReport } from "../api/workspaces";
+import { useWorkspaces } from "../workspaces/useWorkspaces";
 import type {
   FieldInfo,
   Filter,
@@ -183,6 +185,63 @@ function BuilderHierarchyRow({
   );
 }
 
+/** Only workspaces the caller can write to are offered. Moving needs editor
+ *  on BOTH ends, so listing a read-only workspace would only produce a 403. */
+function MovePanel({ reportId, onDone }: { reportId: string; onDone: () => void }) {
+  const workspaces = useWorkspaces();
+  const queryClient = useQueryClient();
+  const [target, setTarget] = useState("");
+
+  const move = useMutation({
+    mutationFn: () => moveReport(reportId, target),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+      queryClient.invalidateQueries({ queryKey: ["report", reportId] });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      onDone();
+    },
+  });
+
+  const writable = (workspaces.data?.workspaces ?? []).filter((w) =>
+    atLeast(w.myRole, "editor"),
+  );
+
+  return (
+    <form
+      className="move-panel"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (target) move.mutate();
+      }}
+    >
+      <label>
+        Move to
+        <select value={target} onChange={(e) => setTarget(e.target.value)}>
+          <option value="">Choose a workspace…</option>
+          {writable.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="submit" disabled={!target || move.isPending}>
+        {move.isPending ? "Moving…" : "Move report"}
+      </button>
+      <button type="button" className="link" onClick={onDone}>
+        Cancel
+      </button>
+      {move.isError && (
+        <p role="alert">
+          {move.error instanceof ApiError
+            ? move.error.message
+            : "Could not move this report."}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export default function BuilderPage() {
   const { id } = useParams<{ id: string }>();
   const reportId = id ?? "";
@@ -207,6 +266,7 @@ export default function BuilderPage() {
   // at a value that has since disappeared from the view.
   const [drill, setDrill] = useState<Record<string, DrillState>>({});
   const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
+  const [moving, setMoving] = useState(false);
 
   // The route element isn't keyed in App.tsx, so navigating from one report
   // to another (e.g. BuilderPage's own Import flow, which navigates to the
@@ -234,6 +294,7 @@ export default function BuilderPage() {
     setPanel(null);
     setDrill({});
     setCrossFilter(null);
+    setMoving(false);
     save.reset();
     refreshFields.reset();
     // `save`/`refreshFields` deliberately left out of the dependency array:
@@ -295,6 +356,11 @@ export default function BuilderPage() {
   if (report.isLoading || definition === null) {
     return <p>Loading report…</p>;
   }
+
+  // The caller's role in this report's workspace. Absent on an older
+  // response shape, in which case the safe reading is "cannot edit".
+  const myRole = report.data?.myRole ?? "viewer";
+  const canEdit = atLeast(myRole, "editor");
 
   const dirty = JSON.stringify(definition) !== savedJson;
   const selected = definition.visuals.find((v) => v.id === selectedId) ?? null;
@@ -445,9 +511,22 @@ export default function BuilderPage() {
           onChange={(e) => setDefinition({ ...definition, name: e.target.value })}
         />
         <div className="builder-actions">
-          <button onClick={() => save.mutate()} disabled={!dirty || save.isPending}>
+          <button
+            onClick={() => save.mutate()}
+            disabled={!canEdit || !dirty || save.isPending}
+          >
             {save.isPending ? "Saving…" : "Save"}
           </button>
+          {canEdit && (
+            <button
+              type="button"
+              className="secondary"
+              aria-pressed={moving}
+              onClick={() => setMoving((open) => !open)}
+            >
+              Move
+            </button>
+          )}
           <button
             type="button"
             className="secondary"
@@ -456,16 +535,29 @@ export default function BuilderPage() {
           >
             Export
           </button>
-          <button
-            type="button"
-            className="secondary"
-            aria-pressed={panel === "import"}
-            onClick={() => setPanel(panel === "import" ? null : "import")}
-          >
-            Import
-          </button>
+          {/* Import CREATES a report, so a viewer has nowhere to put one.
+              Export stays available to everyone -- reading is what they can
+              already do. */}
+          {canEdit && (
+            <button
+              type="button"
+              className="secondary"
+              aria-pressed={panel === "import"}
+              onClick={() => setPanel(panel === "import" ? null : "import")}
+            >
+              Import
+            </button>
+          )}
         </div>
       </header>
+      {!canEdit && (
+        <p className="tile-hint">
+          You have the {myRole} role in {report.data?.workspaceName || "this workspace"},
+          so this report is read-only for you. Its data still runs on your own
+          Snowflake credentials.
+        </p>
+      )}
+      {moving && canEdit && <MovePanel reportId={reportId} onDone={() => setMoving(false)} />}
       {save.isError && (
         <p role="alert">
           {save.error instanceof ApiError ? save.error.message : "Could not save this report."}

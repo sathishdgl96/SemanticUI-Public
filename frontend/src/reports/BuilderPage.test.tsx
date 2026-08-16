@@ -364,6 +364,23 @@ function stubApi() {
         modelHierarchies: [],
       });
     }
+    if (path === "/api/workspaces") {
+      return Promise.resolve({
+        workspaces: [
+          { id: "w0", name: "My reports", kind: "personal", myRole: "admin",
+            memberCount: 1, reportCount: 1 },
+          { id: "w1", name: "Team", kind: "shared", myRole: "editor",
+            memberCount: 3, reportCount: 2 },
+          // Present precisely so the Move control can be asserted NOT to
+          // offer it: moving needs editor on both ends.
+          { id: "w2", name: "Read only", kind: "shared", myRole: "viewer",
+            memberCount: 9, reportCount: 4 },
+        ],
+      });
+    }
+    if (path.includes("/move")) {
+      return Promise.resolve({ ...detail, workspaceId: "w1" });
+    }
     return Promise.resolve({
       columns: [],
       rows: [],
@@ -541,5 +558,75 @@ describe("BuilderPage hierarchy placement", () => {
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const [, saved] = updateMock.mock.calls.at(-1)!;
     expect(saved.visuals[0].wells.axis[0]).toMatch(/^hierarchy:/);
+  });
+});
+
+describe("BuilderPage roles", () => {
+  beforeEach(() => stubApi());
+
+  it("lets an editor save", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "editor" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+    const axis = await screen.findByRole("region", { name: "Axis" });
+    await userEvent.click(within(axis).getByRole("button", { name: /remove C\.REGION/i }));
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+  });
+
+  it("disables Save for a viewer and says why", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "viewer" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    expect(screen.getByText(/read-only for you/i)).toBeInTheDocument();
+    // And it says the data still runs on their own credentials, so read-only
+    // is not mistaken for "this report is broken".
+    expect(screen.getByText(/your own\s+Snowflake credentials/i)).toBeInTheDocument();
+  });
+
+  it("does not offer Import or Move to a viewer", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "viewer" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(screen.queryByRole("button", { name: /^import$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^move$/i })).toBeNull();
+  });
+
+  it("still lets a viewer export", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "viewer" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(screen.getByRole("button", { name: /^export$/i })).toBeEnabled();
+  });
+
+  it("offers Move only to workspaces I can write to", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "editor" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /^move$/i }));
+    await screen.findByRole("option", { name: "Team" });
+    const select = screen.getByLabelText(/move to/i) as HTMLSelectElement;
+    const names = [...select.options].map((o) => o.textContent);
+    expect(names).toContain("Team");
+    expect(names).not.toContain("Read only");
+  });
+
+  it("moves the report to the chosen workspace", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "editor" as const });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /^move$/i }));
+    await screen.findByRole("option", { name: "Team" });
+    await userEvent.selectOptions(screen.getByLabelText(/move to/i), "w1");
+    await userEvent.click(screen.getByRole("button", { name: /move report/i }));
+
+    await waitFor(() => {
+      const call = apiFetchMock.mock.calls.find(([url]) =>
+        String(url).includes("/move"),
+      );
+      expect(call![0]).toBe("/api/reports/r1/move");
+      expect(JSON.parse(call![1].body)).toEqual({ workspaceId: "w1" });
+    });
   });
 });
