@@ -45,12 +45,14 @@ def create_app() -> FastAPI:
     from app.auth.routes import router as auth_router
     from app.auth.dev import router as dev_router
     from app.reports.routes import router as reports_router
+    from app.workspaces.routes import router as workspaces_router
     from app.semantic.routes import router as semantic_router
 
     app.include_router(auth_router)
     app.include_router(dev_router)
     app.include_router(semantic_router)
     app.include_router(reports_router)
+    app.include_router(workspaces_router)
 
     @app.get("/healthz")
     def healthz() -> dict:
