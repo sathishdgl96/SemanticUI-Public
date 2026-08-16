@@ -35,7 +35,28 @@ class WellSpec:
 #: with a measure well can hold a fact. The function names are validated
 #: where they turn into SQL -- app/semantic/query.py -- rather than here, so
 #: there is exactly one list of them.
-COMMON_OPTIONS = frozenset({"aggregations"})
+#:
+#: The rest are presentation and row-shaping, the Format pane's territory.
+#: They are deliberately untyped here: this module decides what a visual may
+#: SAY, and a bad legend position is a cosmetic mistake, not a security or
+#: correctness one. "sort" and "topN" do reach SQL, and are validated where
+#: they become an ORDER BY and a LIMIT.
+COMMON_OPTIONS = frozenset(
+    {
+        "aggregations",
+        #: Row shaping.
+        "sort",
+        "topN",
+        #: Presentation.
+        "title",
+        "showTitle",
+        "showLegend",
+        "legendPosition",
+        "showDataLabels",
+        "showGridlines",
+        "background",
+    }
+)
 
 
 @dataclass(frozen=True)

@@ -60,9 +60,29 @@ def a_fact(detail):
 
 
 @pytest.fixture(scope="module")
-def a_dimension(detail):
-    d = detail["dimensions"][0]
-    return f"{d['table']}.{d['name']}"
+def a_dimension(detail, a_fact):
+    """A dimension from the FACT's own table.
+
+    Snowflake refuses a query that names both FACTS and DIMENSIONS from
+    different entities, so pairing them arbitrarily would test a combination
+    the API is right to reject. Discovered by running it -- the first version
+    of this fixture took dimensions[0] and passed only because that field
+    happened to share a table with facts[0]."""
+    table = a_fact.split(".")[0]
+    same = [d for d in detail["dimensions"] if d["table"] == table]
+    if not same:
+        pytest.skip(f"no dimension on {table} to group by")
+    return f"{same[0]['table']}.{same[0]['name']}"
+
+
+@pytest.fixture(scope="module")
+def a_foreign_dimension(detail, a_fact):
+    """A dimension from a DIFFERENT table than the fact."""
+    table = a_fact.split(".")[0]
+    other = [d for d in detail["dimensions"] if d["table"] != table]
+    if not other:
+        pytest.skip("this view has only one entity")
+    return f"{other[0]['table']}.{other[0]['name']}"
 
 
 def run(conn, view, detail, **payload):
@@ -140,3 +160,20 @@ def test_ordering_by_the_aggregate_runs(conn, view, detail, a_fact, a_dimension)
     # Descending means descending.
     values = [r[1] for r in rows if r[1] is not None]
     assert values == sorted(values, reverse=True)
+
+
+def test_a_fact_grouped_across_entities_is_refused_before_snowflake_sees_it(
+    conn, view, detail, a_fact, a_foreign_dimension
+):
+    """Snowflake rejects this with a message that names no field. Ours has to
+    say which table to group by instead."""
+    from app.errors import ApiError
+
+    with pytest.raises(ApiError) as exc:
+        run(
+            conn, view, detail,
+            dimensions=[a_foreign_dimension],
+            aggregations=[{"field": a_fact, "fn": "sum"}],
+        )
+    assert "own table" in exc.value.message
+    assert a_fact.split(".")[0] in exc.value.message

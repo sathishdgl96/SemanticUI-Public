@@ -102,6 +102,29 @@ def build_semantic_sql(
     if not dims and not mets and not facts:
         raise ApiError("QUERY_ERROR", 400, "Select at least one dimension or metric")
 
+    if facts and dims:
+        # Snowflake's own rule, found by running it: "All expressions
+        # referenced in the query must come from the same entity when both
+        # FACTS and DIMENSIONS are specified." A raw fact has no join path of
+        # its own -- only the model's METRICS carry one -- so it can only be
+        # grouped by dimensions of its own table.
+        #
+        # Checked here so the user gets a sentence that says what to do,
+        # rather than Snowflake's, which does not name the offending fields.
+        entities = {table.upper() for table, _ in facts} | {
+            table.upper() for table, _ in dims
+        }
+        if len(entities) > 1:
+            fact_tables = sorted({table for table, _ in facts})
+            raise ApiError(
+                "QUERY_ERROR",
+                400,
+                "A raw field can only be summarised by fields from its own "
+                f"table ({', '.join(fact_tables)}). Group by a field from "
+                "that table, or use one of the view's own metrics, which "
+                "carry the joins this does not.",
+            )
+
     parts = [f"{quote_ident(req.database)}.{quote_ident(req.schema_)}.{quote_ident(req.view)}"]
     if dims:
         parts.append(

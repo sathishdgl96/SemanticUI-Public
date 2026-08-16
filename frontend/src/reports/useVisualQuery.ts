@@ -54,6 +54,39 @@ export function splitMeasures(
   return { metrics, aggregations: aggregated };
 }
 
+export interface SortOption {
+  field: string;
+  direction: "asc" | "desc";
+}
+
+/** The ORDER BY and LIMIT a visual's own options ask for.
+ *
+ *  Both are dropped unless the sort field is actually selected: the query
+ *  API refuses to order by a field it is not returning, and a stale sort --
+ *  left behind when its field was removed from a well -- would otherwise
+ *  fail every refresh of the tile rather than being quietly ignored. */
+export function rowShapingFor(
+  options: Record<string, unknown>,
+  selected: string[],
+): { orderBy: SortOption[]; limit?: number } {
+  const sort = options.sort as SortOption | undefined;
+  const chosen = new Set(selected.map((r) => r.toUpperCase()));
+  const orderBy: SortOption[] =
+    sort?.field && chosen.has(sort.field.toUpperCase())
+      ? [{ field: sort.field, direction: sort.direction === "desc" ? "desc" : "asc" }]
+      : [];
+
+  const topN = Number(options.topN);
+  // Top N without a sort is just "some N rows", which is not an answer to
+  // any question worth asking -- PowerBI pairs them for the same reason.
+  const limit =
+    Number.isFinite(topN) && topN > 0 && orderBy.length > 0
+      ? Math.floor(topN)
+      : undefined;
+
+  return { orderBy, limit };
+}
+
 /** One query per visual, so tiles render progressively and one slow visual
  *  cannot block the page. Disabled until the wells are actually valid. */
 export function useVisualQuery(view: ViewRef, visual: Visual, options: Options = {}) {
@@ -89,6 +122,7 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
     drill,
     crossFilter,
   });
+  const { orderBy, limit } = rowShapingFor(visual.options, [...dimensions, ...measures]);
 
   return {
     problems,
@@ -109,7 +143,9 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
       // `aggregations` is in the key: changing Sum to Average changes the
       // RESULT, and leaving it out would serve the previous function's
       // numbers under the new label.
-      queryKey: ["visual-query", view, visual.type, wells, filters, aggregations],
+      queryKey: [
+        "visual-query", view, visual.type, wells, filters, aggregations, orderBy, limit,
+      ],
       enabled: ready,
       queryFn: () =>
         apiFetch<QueryResponse>("/api/query/semantic", {
@@ -122,6 +158,8 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
             metrics,
             aggregations,
             filters,
+            orderBy,
+            limit,
           }),
         }),
     }),

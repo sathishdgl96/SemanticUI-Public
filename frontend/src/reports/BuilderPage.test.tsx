@@ -28,13 +28,20 @@ vi.mock("./CanvasGrid", () => ({
     onSelect,
     onDrill,
     onCrossFilter,
+    factRefs,
   }: {
     visuals: { id: string }[];
     onSelect: (id: string) => void;
     onDrill?: (id: string, next: unknown) => void;
     onCrossFilter?: (next: unknown) => void;
+    factRefs?: string[];
   }) => (
     <div>
+      {/* Surfaced so a test can prove the builder actually hands the canvas
+          the fact list. Without it every raw fact goes out as a governed
+          metric and the API rejects the query -- a wiring gap the component
+          tests on either side both missed. */}
+      <span data-testid="canvas-fact-refs">{(factRefs ?? []).join(",")}</span>
       {visuals.map((v) => (
         <div key={v.id}>
           <button onClick={() => onSelect(v.id)}>{`select ${v.id}`}</button>
@@ -931,5 +938,25 @@ describe("BuilderPage pages", () => {
       p.visuals.map((v) => v.id),
     );
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("BuilderPage fact wiring", () => {
+  it("hands the canvas the view's fact refs", async () => {
+    // The tile is what turns a fact into an aggregation. If the list stops
+    // here, every fact is sent as a metric the view does not define and the
+    // query 400s -- which is exactly what happened.
+    apiFetchMock.mockResolvedValue({
+      tables: [],
+      relationships: [],
+      dimensions: [{ table: "C", name: "REGION", dataType: "TEXT" }],
+      metrics: [{ table: "O", name: "REVENUE", dataType: "NUMBER" }],
+      facts: [{ table: "O", name: "QUANTITY", dataType: "NUMBER" }],
+    });
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-fact-refs")).toHaveTextContent("O.QUANTITY"),
+    );
   });
 });

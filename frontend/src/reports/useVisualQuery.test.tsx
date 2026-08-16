@@ -3,7 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Hierarchy, ViewRef, Visual } from "../api/types";
-import { splitMeasures, useVisualQuery } from "./useVisualQuery";
+import { rowShapingFor, splitMeasures, useVisualQuery } from "./useVisualQuery";
 
 const VIEW: ViewRef = { database: "D", schema: "S", name: "V" };
 
@@ -225,5 +225,52 @@ describe("splitMeasures", () => {
     const out = splitMeasures(["ORDERS.REVENUE"], [], undefined);
     expect(out.metrics).toEqual(["ORDERS.REVENUE"]);
     expect(out.aggregations).toEqual([]);
+  });
+});
+
+describe("rowShapingFor", () => {
+  const selected = ["CUSTOMERS.REGION", "ORDERS.REVENUE"];
+
+  it("asks for no ordering by default", () => {
+    expect(rowShapingFor({}, selected)).toEqual({ orderBy: [], limit: undefined });
+  });
+
+  it("orders by a selected field", () => {
+    expect(
+      rowShapingFor({ sort: { field: "ORDERS.REVENUE", direction: "desc" } }, selected),
+    ).toEqual({
+      orderBy: [{ field: "ORDERS.REVENUE", direction: "desc" }],
+      limit: undefined,
+    });
+  });
+
+  it("ignores a sort on a field the visual no longer selects", () => {
+    // A stale sort left behind when its field was removed would otherwise
+    // fail every refresh of the tile rather than being quietly dropped.
+    const out = rowShapingFor({ sort: { field: "ORDERS.GONE", direction: "asc" } }, selected);
+    expect(out.orderBy).toEqual([]);
+  });
+
+  it("applies Top N only alongside a sort", () => {
+    // "Top 5" with no ordering is just "some 5 rows".
+    expect(rowShapingFor({ topN: 5 }, selected).limit).toBeUndefined();
+    expect(
+      rowShapingFor(
+        { topN: 5, sort: { field: "ORDERS.REVENUE", direction: "desc" } },
+        selected,
+      ).limit,
+    ).toBe(5);
+  });
+
+  it("refuses a nonsensical Top N", () => {
+    const sort = { field: "ORDERS.REVENUE", direction: "desc" };
+    expect(rowShapingFor({ topN: 0, sort }, selected).limit).toBeUndefined();
+    expect(rowShapingFor({ topN: -3, sort }, selected).limit).toBeUndefined();
+    expect(rowShapingFor({ topN: "abc", sort }, selected).limit).toBeUndefined();
+  });
+
+  it("floors a fractional Top N rather than sending it", () => {
+    const sort = { field: "ORDERS.REVENUE", direction: "desc" };
+    expect(rowShapingFor({ topN: 7.9, sort }, selected).limit).toBe(7);
   });
 });

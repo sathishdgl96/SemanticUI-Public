@@ -3,6 +3,7 @@ import type { VisualType } from "../../reports/catalog";
 import {
   axisChrome,
   categoricalSeries,
+  formatOptionsOf,
   type CategoricalOptionLike,
   type EChartsOptionLike,
   type Series,
@@ -101,10 +102,12 @@ export function buildVisualOption(
   // tooltip and the exported numbers all agree on what is being drawn.
   const drawn = stacked100 ? toPercentages(series) : series;
 
+  const format = formatOptionsOf(visual.options);
   const categoryAxis = axisChrome.categoryAxis(categories);
+  const baseValueAxis = axisChrome.valueAxis(format.showGridlines);
   const valueAxis = stacked100
-    ? { ...axisChrome.valueAxis(), max: 100, axisLabel: { formatter: "{value}%" } }
-    : axisChrome.valueAxis();
+    ? { ...baseValueAxis, max: 100, axisLabel: { formatter: "{value}%" } }
+    : baseValueAxis;
 
   return {
     backgroundColor: "transparent",
@@ -117,7 +120,7 @@ export function buildVisualOption(
       // as truncated data ("ustomer#0001" instead of "Customer#0001").
       confine: true,
     },
-    legend: axisChrome.legend(drawn.length),
+    legend: axisChrome.legend(drawn.length, format),
     // A horizontal bar is the same chart with its axes exchanged: the
     // categories run down the y axis and the measure along the x.
     xAxis: horizontal ? valueAxis : categoryAxis,
@@ -125,10 +128,16 @@ export function buildVisualOption(
     series: drawn.map((s, i) => {
       const color = axisChrome.color(s.colorIndex);
       const asColumn = type === "bar" || type === "hbar" || (type === "combo" && i < columnCount);
+      // Labels sit outside a column and above a line, which is where each
+      // reads without covering the mark it belongs to.
+      const label = format.showDataLabels
+        ? { show: true, position: asColumn && horizontal ? "right" : "top" }
+        : { show: false };
       if (asColumn) {
         return {
           name: s.name, type: "bar", data: s.data, barGap: "10%",
           ...(stacked ? { stack: "total" } : {}),
+          label,
           itemStyle: {
             color,
             borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0],
@@ -139,6 +148,7 @@ export function buildVisualOption(
         name: s.name, type: "line", data: s.data, showSymbol: false,
         ...(stacked ? { stack: "total" } : {}),
         ...(type === "area" ? { areaStyle: { color, opacity: 0.18 } } : {}),
+        label,
         lineStyle: { width: 2 }, itemStyle: { color },
       };
     }),

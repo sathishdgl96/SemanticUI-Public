@@ -48,7 +48,24 @@ export interface VisualSpec {
  *  ({"ORDERS.QUANTITY": "sum"}). It belongs to every type because any type
  *  with a measure well can hold a fact. Mirrors COMMON_OPTIONS in
  *  backend/app/reports/catalog.py. */
-export const COMMON_OPTIONS = ["aggregations"];
+export const COMMON_OPTIONS = [
+  "aggregations",
+  // Row shaping.
+  "sort",
+  "topN",
+  // Presentation — the Format pane's territory.
+  "title",
+  "showTitle",
+  "showLegend",
+  "legendPosition",
+  "showDataLabels",
+  "showGridlines",
+  "background",
+];
+
+/** Where a legend may sit. */
+export const LEGEND_POSITIONS = ["bottom", "top", "left", "right"] as const;
+export type LegendPosition = (typeof LEGEND_POSITIONS)[number];
 
 /** Every option key this type accepts, its own plus the shared ones. */
 export function optionsFor(type: VisualType): string[] {

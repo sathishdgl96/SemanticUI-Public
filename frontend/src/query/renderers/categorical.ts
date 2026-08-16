@@ -129,6 +129,27 @@ export function categoricalSeries(
   return { categories, series };
 }
 
+/** How a visual's Format options translate into chart chrome. Read once and
+ *  passed around, so "does this chart show a legend?" is answered in exactly
+ *  one place. */
+export interface FormatOptions {
+  showLegend: boolean;
+  legendPosition: string;
+  showDataLabels: boolean;
+  showGridlines: boolean;
+}
+
+export function formatOptionsOf(options: Record<string, unknown>): FormatOptions {
+  return {
+    // Absent means "the default this build applies", not false: a report
+    // saved before the Format pane existed must keep its legend.
+    showLegend: options.showLegend !== false,
+    legendPosition: (options.legendPosition as string) ?? "bottom",
+    showDataLabels: options.showDataLabels === true,
+    showGridlines: options.showGridlines !== false,
+  };
+}
+
 export const axisChrome = {
   grid: (hasLegend: boolean) => ({
     left: 48, right: 16, top: 16, bottom: hasLegend ? 48 : 28,
@@ -140,15 +161,25 @@ export const axisChrome = {
     axisLabel: { color: CHART_INK.muted },
     axisTick: { show: false },
   }),
-  valueAxis: () => ({
+  valueAxis: (showGridlines = true) => ({
     type: "value" as const,
-    splitLine: { lineStyle: { color: CHART_INK.grid } },
+    splitLine: { show: showGridlines, lineStyle: { color: CHART_INK.grid } },
     axisLabel: { color: CHART_INK.muted },
   }),
-  legend: (count: number) => ({
-    show: count > 1,
-    bottom: 0,
-    textStyle: { color: CHART_INK.secondary },
-  }),
+  /** A legend is only worth the space when there is more than one series to
+   *  tell apart -- unless the author asked for it explicitly. */
+  legend: (count: number, format?: FormatOptions) => {
+    const show = (format ? format.showLegend : true) && count > 1;
+    const position = format?.legendPosition ?? "bottom";
+    const anchor =
+      position === "top"
+        ? { top: 0 }
+        : position === "left"
+          ? { left: 0, orient: "vertical" as const }
+          : position === "right"
+            ? { right: 0, orient: "vertical" as const }
+            : { bottom: 0 };
+    return { show, ...anchor, textStyle: { color: CHART_INK.secondary } };
+  },
   color: (index: number) => SERIES_COLORS[index % SERIES_COLORS.length],
 };

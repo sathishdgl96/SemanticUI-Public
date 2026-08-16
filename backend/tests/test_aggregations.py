@@ -14,6 +14,7 @@ DETAIL = {
     "dimensions": [{"table": "CUSTOMERS", "name": "REGION"}],
     "facts": [
         {"table": "CUSTOMERS", "name": "BALANCE"},
+        {"table": "CUSTOMERS", "name": "CREDIT"},
         {"table": "ORDERS", "name": "QUANTITY"},
     ],
     "metrics": [{"table": "ORDERS", "name": "REVENUE"}],
@@ -119,13 +120,13 @@ def test_several_aggregations_pair_with_their_own_fields():
         dimensions=["CUSTOMERS.REGION"],
         aggregations=[
             {"field": "CUSTOMERS.BALANCE", "fn": "sum"},
-            {"field": "ORDERS.QUANTITY", "fn": "avg"},
+            {"field": "CUSTOMERS.CREDIT", "fn": "avg"},
         ],
     )
     # Pairing is positional; a crossed pair would aggregate the wrong column
     # with the right name, which no error would ever surface.
     assert 'SUM("BALANCE") AS "BALANCE"' in sql
-    assert 'AVG("QUANTITY") AS "QUANTITY"' in sql
+    assert 'AVG("CREDIT") AS "CREDIT"' in sql
 
 
 def test_filters_still_apply_inside_the_semantic_view():
@@ -151,3 +152,59 @@ def test_ordering_by_an_aggregated_field_is_allowed():
         orderBy=[{"field": "CUSTOMERS.BALANCE", "direction": "desc"}],
     )
     assert 'ORDER BY "BALANCE" DESC' in sql
+
+
+def test_a_fact_may_only_be_grouped_by_its_own_table():
+    """Snowflake's rule, found by running it: "All expressions referenced in
+    the query must come from the same entity when both FACTS and DIMENSIONS
+    are specified." A raw fact carries no join path -- only the model's
+    metrics do."""
+    detail = {
+        "dimensions": [
+            {"table": "CUSTOMERS", "name": "REGION"},
+            {"table": "ORDERS", "name": "STATUS"},
+        ],
+        "facts": [{"table": "ORDERS", "name": "TOTAL"}],
+        "metrics": [],
+    }
+    request = SemanticQueryRequest(
+        database="D", schema="S", view="V",
+        dimensions=["CUSTOMERS.REGION"],
+        aggregations=[{"field": "ORDERS.TOTAL", "fn": "sum"}],
+    )
+    with pytest.raises(ApiError) as exc:
+        build_semantic_sql(detail, request, max_rows=100)
+    # The message has to name the table to group by; Snowflake's own does
+    # not name the offending fields at all.
+    assert "ORDERS" in exc.value.message
+    assert "own table" in exc.value.message
+
+
+def test_a_fact_grouped_by_its_own_table_is_allowed():
+    detail = {
+        "dimensions": [{"table": "ORDERS", "name": "STATUS"}],
+        "facts": [{"table": "ORDERS", "name": "TOTAL"}],
+        "metrics": [],
+    }
+    request = SemanticQueryRequest(
+        database="D", schema="S", view="V",
+        dimensions=["ORDERS.STATUS"],
+        aggregations=[{"field": "ORDERS.TOTAL", "fn": "sum"}],
+    )
+    sql, _, _ = build_semantic_sql(detail, request, max_rows=100)
+    assert 'GROUP BY "STATUS"' in sql
+
+
+def test_an_aggregate_with_no_dimension_spans_any_table():
+    # The rule only bites when both clauses are present.
+    detail = {
+        "dimensions": [{"table": "CUSTOMERS", "name": "REGION"}],
+        "facts": [{"table": "ORDERS", "name": "TOTAL"}],
+        "metrics": [],
+    }
+    request = SemanticQueryRequest(
+        database="D", schema="S", view="V",
+        aggregations=[{"field": "ORDERS.TOTAL", "fn": "sum"}],
+    )
+    sql, _, _ = build_semantic_sql(detail, request, max_rows=100)
+    assert 'SUM("TOTAL")' in sql

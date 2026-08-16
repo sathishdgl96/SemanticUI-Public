@@ -42,6 +42,7 @@ import {
 import CanvasGrid from "./CanvasGrid";
 import ExportPanel from "./ExportPanel";
 import FilterPane, { PAGE_DROP_ID, REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
+import FormatPane from "./FormatPane";
 import PageBar from "./PageBar";
 import {
   HIERARCHY_PREFIX,
@@ -285,6 +286,8 @@ export default function BuilderPage() {
   // Which page tab is open. Ephemeral like the selection: a saved report
   // always opens on its first page.
   const [activePageId, setActivePageId] = useState<string | null>(null);
+  // PowerBI's Build / Format toggle on the Visualizations pane.
+  const [paneTab, setPaneTab] = useState<"build" | "format">("build");
   // On narrower desktops PowerBI shows two panes open; Filters starts tucked
   // away. Guarded: jsdom has no matchMedia.
   const [startFiltersCollapsed] = useState(
@@ -890,6 +893,7 @@ export default function BuilderPage() {
               }
               crossFilter={crossFilter}
               onCrossFilter={setCrossFilter}
+              factRefs={factRefs}
               slicerSelections={slicerSelections}
               onSlicerChange={(field, values) =>
                 setSlicerSelections((current) => {
@@ -941,11 +945,44 @@ export default function BuilderPage() {
                   Add visual
                 </button>
                 {selected ? (
-                  <VisualWells
-                    visual={selected}
-                    onChange={replaceVisual}
-                    factRefs={factRefs}
-                  />
+                  <>
+                    {/* Build is what the visual SHOWS, Format is how it
+                        LOOKS -- PowerBI's split, and the reason the two do
+                        not compete for the same strip of pane. */}
+                    <div className="pane-tabs" role="tablist" aria-label="Visual settings">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={paneTab === "build"}
+                        className={paneTab === "build" ? "pane-tab active" : "pane-tab"}
+                        onClick={() => setPaneTab("build")}
+                      >
+                        Build
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={paneTab === "format"}
+                        className={paneTab === "format" ? "pane-tab active" : "pane-tab"}
+                        onClick={() => setPaneTab("format")}
+                      >
+                        Format
+                      </button>
+                    </div>
+                    {paneTab === "build" ? (
+                      <VisualWells
+                        visual={selected}
+                        onChange={replaceVisual}
+                        factRefs={factRefs}
+                      />
+                    ) : (
+                      <FormatPane
+                        visual={selected}
+                        onChange={replaceVisual}
+                        fields={[...dimensions, ...metrics]}
+                      />
+                    )}
+                  </>
                 ) : (
                   <p className="tile-hint">Select a visual on the canvas to edit its fields.</p>
                 )}

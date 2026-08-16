@@ -142,6 +142,9 @@ export default function VisualTile({
   };
 
   const interactive = drillable || Boolean(onCrossFilter);
+  // Absent means shown: a report saved before the Format pane existed must
+  // keep the heading it has always had.
+  const showTitle = visual.options.showTitle !== false;
 
   let body: React.ReactNode;
   if (isSlicer) {
@@ -217,7 +220,12 @@ export default function VisualTile({
       }}
     >
       <header className="tile-head">
-        <h3>{title || "Untitled visual"}</h3>
+        {/* Hidden by Format, but the heading element stays in the tree with
+            its text: the tile is still addressable by name to a screen
+            reader and to a test, which "no title" should not cost. */}
+        <h3 className={showTitle ? undefined : "sr-only"}>
+          {title || "Untitled visual"}
+        </h3>
         {drill && drill.path.length > 0 && (
           <nav className="drill-path" aria-label="Drill path">
             <button type="button" className="link" onClick={drillUp}>
