@@ -16,8 +16,10 @@ from app.reports.catalog import CATALOG, HIERARCHY_PREFIX, validate_wells
 from app.reports.filters import FilterList
 from app.reports.migrate import migrate_definition
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_VISUALS = 50
+MAX_PAGES = 20
+MAX_PAGE_NAME = 100
 MAX_DEFINITION_BYTES = 65536
 MAX_HIERARCHIES = 20
 MAX_HIERARCHY_LEVELS = 10
@@ -72,6 +74,13 @@ class Visual(_Strict):
     filters: FilterList = Field(default_factory=list)
 
 
+class Page(_Strict):
+    id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=MAX_PAGE_NAME)
+    visuals: list[Visual] = Field(default_factory=list)
+    filters: FilterList = Field(default_factory=list)
+
+
 class CanvasSettings(_Strict):
     columns: int = Field(default=12, ge=1, le=24)
     rowHeight: int = Field(default=40, ge=10, le=200)
@@ -82,11 +91,16 @@ class ReportDefinition(_Strict):
     name: str = Field(min_length=1, max_length=200)
     view: ViewRef
     canvas: CanvasSettings = Field(default_factory=CanvasSettings)
-    visuals: list[Visual] = Field(default_factory=list)
+    pages: list[Page] = Field(min_length=1, max_length=MAX_PAGES)
+    #: The all-pages scope. Page and visual scopes live on their owners.
     filters: FilterList = Field(default_factory=list)
     hierarchies: list[Hierarchy] = Field(
         default_factory=list, max_length=MAX_HIERARCHIES
     )
+
+    def all_visuals(self):
+        for page in self.pages:
+            yield from page.visuals
 
 
 def _invalid(message: str, detail: str | None = None) -> ApiError:
@@ -116,9 +130,15 @@ def parse_definition(raw: dict) -> ReportDefinition:
             f"{SCHEMA_VERSION}"
         )
 
-    visuals = raw.get("visuals")
-    if isinstance(visuals, list) and len(visuals) > MAX_VISUALS:
-        raise _invalid(f"A report may hold at most {MAX_VISUALS} visuals")
+    pages = raw.get("pages")
+    if isinstance(pages, list):
+        total = sum(
+            len(p["visuals"])
+            for p in pages
+            if isinstance(p, dict) and isinstance(p.get("visuals"), list)
+        )
+        if total > MAX_VISUALS:
+            raise _invalid(f"A report may hold at most {MAX_VISUALS} visuals")
 
     try:
         definition = ReportDefinition.model_validate(raw)
@@ -134,14 +154,26 @@ def parse_definition(raw: dict) -> ReportDefinition:
 
     view = definition.view
     is_unbound = not view.database or not view.schema_ or not view.name
-    if is_unbound and definition.visuals:
+    if is_unbound and any(page.visuals for page in definition.pages):
         raise _invalid(
             "This report must be bound to a semantic view before it can hold "
             "visuals. Pick a semantic view first, or remove its visuals."
         )
 
+    seen_page_ids: set[str] = set()
+    seen_page_names: set[str] = set()
+    for page in definition.pages:
+        if page.id in seen_page_ids:
+            raise _invalid(f"Duplicate page id {page.id!r}")
+        seen_page_ids.add(page.id)
+        # Names too: tabs are addressed by name, and PowerBI refuses
+        # duplicates for the same reason.
+        if page.name in seen_page_names:
+            raise _invalid(f"Duplicate page name {page.name!r}")
+        seen_page_names.add(page.name)
+
     seen_ids: set[str] = set()
-    for visual in definition.visuals:
+    for visual in definition.all_visuals():
         if visual.id in seen_ids:
             raise _invalid(f"Duplicate visual id {visual.id!r}")
         seen_ids.add(visual.id)
@@ -170,7 +202,10 @@ def parse_definition(raw: dict) -> ReportDefinition:
 def _check_unique_filter_ids(definition: ReportDefinition) -> None:
     """Filter ids must be unique within their scope, so the UI can address one."""
     scopes: list[tuple[str, list]] = [("report", list(definition.filters))]
-    scopes += [(f"visual {v.id!r}", list(v.filters)) for v in definition.visuals]
+    scopes += [(f"page {p.id!r}", list(p.filters)) for p in definition.pages]
+    scopes += [
+        (f"visual {v.id!r}", list(v.filters)) for v in definition.all_visuals()
+    ]
     for scope, filters in scopes:
         seen: set[str] = set()
         for f in filters:
@@ -198,7 +233,7 @@ def _check_hierarchies(definition: ReportDefinition) -> None:
             seen_levels.add(level.upper())
         by_id[hierarchy.id] = hierarchy
 
-    for visual in definition.visuals:
+    for visual in definition.all_visuals():
         spec = CATALOG[visual.type]
         for well_key, refs in visual.wells.items():
             for ref in refs:

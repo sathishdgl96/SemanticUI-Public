@@ -7,6 +7,7 @@ from app.db.base import get_db
 from app.db.models import DbSession, Report, Workspace
 from app.reports import service
 from app.workspaces.access import membership, require_access
+from app.reports.migrate import migrate_definition
 from app.reports.schema import parse_definition, to_export_document
 
 router = APIRouter()
@@ -42,7 +43,16 @@ def _summary(report: Report, *, workspace: Workspace | None, role: str) -> dict:
 
 
 def _detail(report: Report, *, workspace: Workspace | None, role: str) -> dict:
-    return {**_summary(report, workspace=workspace, role=role), "definition": report.definition}
+    return {
+        **_summary(report, workspace=workspace, role=role),
+        #: Migrated on the way OUT, not only on save: v3 is the first
+        #: structurally breaking version (`visuals` moved inside `pages`), and
+        #: a row stored before the bump must not reach the frontend in a shape
+        #: it no longer reads. Migrate only -- running the full validator here
+        #: could turn a stored document into an error on read, locking its
+        #: owner out of the very screen where they could fix it.
+        "definition": migrate_definition(report.definition),
+    }
 
 
 def _context(db: Session, user_id, report: Report) -> tuple[Workspace | None, str]:

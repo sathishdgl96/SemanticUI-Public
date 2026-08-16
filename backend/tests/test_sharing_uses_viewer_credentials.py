@@ -133,7 +133,7 @@ def test_a_viewer_whose_role_cannot_read_gets_no_data(client, db, shared):
     report_id = shared["report"].id
     detail = as_user(client, shared["bob"]).get(f"/api/reports/{report_id}")
     assert detail.status_code == 200
-    assert detail.json()["definition"]["visuals"]
+    assert detail.json()["definition"]["pages"][0]["visuals"]
 
     query = client.post("/api/query/semantic", json=QUERY)
     assert query.status_code == 403

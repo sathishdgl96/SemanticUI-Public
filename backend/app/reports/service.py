@@ -162,19 +162,24 @@ def import_report(
     for f in definition.filters:
         if f.field.upper() not in known:
             missing.append(f.field)
-    for visual in definition.visuals:
-        # Passing the hierarchy map expands "hierarchy:h1" into every level,
-        # so a level the importer cannot see fails the import now rather than
-        # lying dormant until someone drills into it.
-        dimensions, metrics = wells_to_query(
-            visual.type, visual.wells, hierarchies=hierarchy_levels
-        )
-        for ref in dimensions + metrics:
-            if ref.upper() not in known:
-                missing.append(ref)
-        for f in visual.filters:
+    for page in definition.pages:
+        # A page filter names a field exactly as a well or visual filter does.
+        for f in page.filters:
             if f.field.upper() not in known:
                 missing.append(f.field)
+        for visual in page.visuals:
+            # Passing the hierarchy map expands "hierarchy:h1" into every level,
+            # so a level the importer cannot see fails the import now rather than
+            # lying dormant until someone drills into it.
+            dimensions, metrics = wells_to_query(
+                visual.type, visual.wells, hierarchies=hierarchy_levels
+            )
+            for ref in dimensions + metrics:
+                if ref.upper() not in known:
+                    missing.append(ref)
+            for f in visual.filters:
+                if f.field.upper() not in known:
+                    missing.append(f.field)
     if missing:
         unique = sorted(set(missing))
         raise ApiError(

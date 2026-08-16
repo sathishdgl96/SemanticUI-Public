@@ -33,7 +33,7 @@ def test_import_creates_a_new_report(client, signed_in):
     )
     assert response.status_code == 201
     assert response.json()["name"] == "Sales overview"
-    assert response.json()["definition"]["visuals"][0]["id"] == "v1"
+    assert response.json()["definition"]["pages"][0]["visuals"][0]["id"] == "v1"
 
 
 def test_import_rejects_a_field_the_user_cannot_see(client, signed_in):
@@ -167,7 +167,8 @@ def test_import_accepts_a_hierarchy_whose_levels_all_exist(
     doc["visuals"][0]["wells"]["axis"] = ["hierarchy:h1"]
     response = client.post("/api/reports/import", json={"definition": doc})
     assert response.status_code == 201, response.json()
-    assert response.json()["definition"]["visuals"][0]["wells"]["axis"] == ["hierarchy:h1"]
+    visual = response.json()["definition"]["pages"][0]["visuals"][0]
+    assert visual["wells"]["axis"] == ["hierarchy:h1"]
 
 
 def test_import_validates_report_scope_filter_fields(client, signed_in):
@@ -197,7 +198,41 @@ def test_import_accepts_a_filter_on_a_visible_field(client, signed_in):
     )
     response = client.post("/api/reports/import", json={"definition": doc})
     assert response.status_code == 201, response.json()
-    assert response.json()["definition"]["filters"][0]["field"] == "C.REGION"
+    # A pre-pages document's filters were the page scope, so that is where the
+    # migration puts them -- the all-pages scope starts empty.
+    definition = response.json()["definition"]
+    assert definition["pages"][0]["filters"][0]["field"] == "C.REGION"
+    assert definition["filters"] == []
+
+
+def test_import_validates_fields_on_every_page(client, signed_in):
+    """Page two is exactly as sensitive as page one: a reference nobody
+    checked is a reference that leaks."""
+    doc = _v2_doc()
+    visual = doc.pop("visuals")[0]
+    doc["schemaVersion"] = 3
+    doc["pages"] = [
+        {"id": "p1", "name": "First", "visuals": [visual], "filters": []},
+        {
+            "id": "p2",
+            "name": "Second",
+            "visuals": [
+                {
+                    **visual,
+                    "id": "v2",
+                    "wells": {"axis": ["C.REGION"], "legend": [], "values": ["A.GHOST"]},
+                }
+            ],
+            "filters": [
+                {"id": "f9", "field": "C.PHANTOM", "op": "is", "values": ["X"]}
+            ],
+        },
+    ]
+    response = client.post("/api/reports/import", json={"definition": doc})
+    assert response.status_code == 400
+    message = response.json()["message"]
+    assert "A.GHOST" in message
+    assert "C.PHANTOM" in message
 
 
 def test_importing_a_v1_document_still_works(client, signed_in):
@@ -208,4 +243,5 @@ def test_importing_a_v1_document_still_works(client, signed_in):
     doc.pop("hierarchies", None)
     response = client.post("/api/reports/import", json={"definition": doc})
     assert response.status_code == 201, response.json()
-    assert response.json()["definition"]["schemaVersion"] == 2
+    assert response.json()["definition"]["schemaVersion"] == 3
+    assert response.json()["definition"]["pages"][0]["visuals"][0]["id"] == "v1"

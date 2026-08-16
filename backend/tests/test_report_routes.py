@@ -87,7 +87,11 @@ def test_create_list_get_update_delete(client, db):
 
     detail = client.get(f"/api/reports/{report_id}")
     assert detail.status_code == 200
-    assert detail.json()["definition"]["visuals"][0]["id"] == "v1"
+    # `valid_definition` is deliberately still a v1 document: every route test
+    # therefore exercises the whole migration chain end to end, and what comes
+    # back is the current shape.
+    assert detail.json()["definition"]["schemaVersion"] == 3
+    assert detail.json()["definition"]["pages"][0]["visuals"][0]["id"] == "v1"
 
     renamed = valid_definition(name="Renamed")
     updated = client.put(f"/api/reports/{report_id}", json={"definition": renamed})
@@ -166,8 +170,42 @@ def test_report_row_stores_no_query_results(client, db):
     # An exact set, not a subset: the point is that the row holds the
     # definition and NOTHING else -- no cached rows, no query results.
     assert set(row.definition) == {
-        "schemaVersion", "name", "view", "canvas", "visuals", "filters", "hierarchies",
+        "schemaVersion", "name", "view", "canvas", "pages", "filters", "hierarchies",
     }
+    # Visuals live inside pages now, and still carry nothing but their own
+    # definition -- no rows, no results.
+    assert set(row.definition["pages"][0]) == {"id", "name", "visuals", "filters"}
+
+
+def test_get_serves_a_row_stored_before_the_pages_bump_as_v3(client, db):
+    """Rows written by an older build must not reach the frontend in a shape
+    it no longer reads -- migrating only on save would strand them."""
+    sign_in(client, db)
+    report_id = client.post(
+        "/api/reports", json={"definition": valid_definition()}
+    ).json()["id"]
+
+    # Overwrite the stored JSON with a genuine v2 document, exactly as a
+    # pre-bump build would have written it.
+    row = db.scalars(select(Report)).one()
+    row.definition = {
+        "schemaVersion": 2,
+        "name": "Older report",
+        "view": {"database": "ANALYTICS", "schema": "PUBLIC", "name": "SALES"},
+        "canvas": {"columns": 12, "rowHeight": 40},
+        "visuals": [],
+        "filters": [
+            {"id": "f1", "field": "C.REGION", "op": "is", "values": ["EAST"]}
+        ],
+        "hierarchies": [],
+    }
+    db.commit()
+
+    definition = client.get(f"/api/reports/{report_id}").json()["definition"]
+    assert definition["schemaVersion"] == 3
+    assert "visuals" not in definition
+    assert definition["pages"][0]["name"] == "Page 1"
+    assert definition["pages"][0]["filters"][0]["field"] == "C.REGION"
 
 
 # --- workspace-scoped access ----------------------------------------------
