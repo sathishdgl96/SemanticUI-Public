@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.errors import ApiError
 from app.reports.filters import FilterList
 from app.semantic.discovery import quote_ident
+from app.semantic.joins import plan_join
 from app.semantic.predicates import build_filter_predicates
 
 
@@ -75,6 +76,88 @@ def _resolve_fields(detail: dict, refs: list[str], kind: str) -> list[tuple[str,
     return resolved
 
 
+def _listed(refs: list[str]) -> str:
+    """"A", "B" and "C" -- for a sentence, not a clause."""
+    if len(refs) == 1:
+        return refs[0]
+    return f"{', '.join(refs[:-1])} and {refs[-1]}"
+
+
+def _plan_and_repair_join(
+    detail: dict, dims: list[tuple[str, str]], mets: list[tuple[str, str]]
+) -> tuple[str, str] | None:
+    """Return a bridging metric to add, or raise with an actionable message.
+
+    Snowflake roots a SEMANTIC_VIEW query at a base entity and rejects
+    anything it cannot reach, with an error that names entities rather than
+    fields ("The dimension entity 'ORDERS' has a higher level of granularity
+    than the base metric entity 'CUSTOMERS'"). Reaching that error means the
+    user has already waited for a round trip to be told, in the model's
+    vocabulary rather than their own, that the two things they picked do not
+    go together. Both outcomes here are better than that: repair it silently
+    where the graph allows, and where it does not, say which field to drop
+    and what to measure instead.
+    """
+    plan = plan_join(
+        detail, {t.upper() for t, _ in dims}, {t.upper() for t, _ in mets}
+    )
+    if plan.bridge:
+        selected = {name.upper() for _, name in dims}
+        for metric in detail.get("metrics") or []:
+            if (metric.get("table") or "").upper() != plan.bridge:
+                continue
+            # A bridge whose bare name collides with a selected field would
+            # take that field out of the projection along with itself, since
+            # EXCLUDE matches output names and those are bare.
+            if metric["name"].upper() not in selected:
+                return (metric["table"], metric["name"])
+        plan = plan.__class__(blocked=tuple(sorted({t.upper() for t, _ in dims})))
+
+    if not plan.blocked:
+        return None
+
+    blocked_fields = [f"{t}.{n}" for t, n in dims if t.upper() in plan.blocked]
+    if plan.base:
+        base_metrics = [f"{t}.{n}" for t, n in mets if t.upper() == plan.base]
+        advice = (
+            f" Measure it with {_listed(list(plan.alternatives[:3]))} instead, "
+            f"or remove {blocked_fields[0]}."
+            if plan.alternatives
+            else f" Remove {blocked_fields[0]}, or group by a field from {plan.base}."
+        )
+        raise ApiError(
+            "QUERY_ERROR",
+            400,
+            f"{_listed(base_metrics)} is measured per {plan.base}, so it cannot be "
+            f"broken down by {_listed(blocked_fields)}.{advice}",
+        )
+    raise ApiError(
+        "QUERY_ERROR",
+        400,
+        f"{_listed(blocked_fields)} belong to entities this view does not connect, "
+        "and it has no measure on an entity that would join them. Drop one of "
+        "them, or pick fields that share a table.",
+    )
+
+
+def bridged_through(detail: dict, req: SemanticQueryRequest) -> str | None:
+    """The entity a query had to be routed through, if any.
+
+    Read by the query route so the answer can say so. Joining two unrelated
+    entities through a third narrows the result to combinations that actually
+    occur there, which is the only answer the model can give -- but it is a
+    real change in meaning, and one the user did not ask for. Disclosing it
+    costs a line of UI; not disclosing it costs someone's trust in a number.
+    """
+    try:
+        dims = _resolve_fields(detail, req.dimensions, "dimensions")
+        mets = _resolve_fields(detail, req.metrics, "metrics")
+    except ApiError:
+        return None
+    plan = plan_join(detail, {t.upper() for t, _ in dims}, {t.upper() for t, _ in mets})
+    return plan.bridge
+
+
 def build_semantic_sql(
     detail: dict, req: SemanticQueryRequest, *, max_rows: int, today: date | None = None
 ) -> tuple[str, list[Any], int]:
@@ -125,15 +208,18 @@ def build_semantic_sql(
                 "carry the joins this does not.",
             )
 
+    bridge_metric = _plan_and_repair_join(detail, dims, mets)
+
     parts = [f"{quote_ident(req.database)}.{quote_ident(req.schema_)}.{quote_ident(req.view)}"]
     if dims:
         parts.append(
             "DIMENSIONS " + ", ".join(f"{quote_ident(t)}.{quote_ident(n)}" for t, n in dims)
         )
-    if mets:
-        parts.append(
-            "METRICS " + ", ".join(f"{quote_ident(t)}.{quote_ident(n)}" for t, n in mets)
-        )
+    if mets or bridge_metric:
+        clause = [f"{quote_ident(t)}.{quote_ident(n)}" for t, n in mets]
+        if bridge_metric:
+            clause.append(f"{quote_ident(bridge_metric[0])}.{quote_ident(bridge_metric[1])}")
+        parts.append("METRICS " + ", ".join(clause))
     if facts:
         # FACTS is its own clause -- verified against a real account. Facts
         # come back row-level here; the outer SELECT below is what aggregates
@@ -208,6 +294,14 @@ def build_semantic_sql(
         group_sql = (
             " GROUP BY " + ", ".join(quote_ident(name) for _, name in dims) if dims else ""
         )
+    elif bridge_metric:
+        # The bridge exists to make the join legal, not to be read. EXCLUDE
+        # rather than an explicit column list so the shape stays "everything
+        # you asked for, in the order you asked for it" -- an explicit list
+        # would have to name columns whose bare names can repeat across
+        # entities.
+        select_sql = f"* EXCLUDE ({quote_ident(bridge_metric[1])})"
+        group_sql = ""
     else:
         select_sql = "*"
         group_sql = ""

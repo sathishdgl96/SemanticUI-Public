@@ -532,6 +532,38 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* A field the current selection has ruled out — see explorer/joins.ts. Dimmed
+   rather than hidden: knowing a field exists but is unavailable, and why, is
+   more useful than watching the list silently change length. */
+.field-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.field-row:disabled:hover {
+  background: none;
+}
+
+/* Said once at the head of the group, however many rows it accounts for. */
+.field-blocked {
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* Said above the results, not inside a tile: it qualifies the whole answer. */
+.explore-note {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .field-glyph,
 .chip-glyph {
   flex: 0 0 auto;

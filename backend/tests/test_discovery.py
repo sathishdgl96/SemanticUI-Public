@@ -48,7 +48,9 @@ DESCRIBE_DESC = [
 DESCRIBE_ROWS = [
     ("TABLE", "ORDERS", None, None, None),
     ("TABLE", "CUSTOMERS", None, None, None),
-    ("RELATIONSHIP", "ORDERS_TO_CUSTOMERS", None, None, None),
+    ("RELATIONSHIP", "ORDERS_TO_CUSTOMERS", "ORDERS", "TABLE", "ORDERS"),
+    ("RELATIONSHIP", "ORDERS_TO_CUSTOMERS", "ORDERS", "REF_TABLE", "CUSTOMERS"),
+    ("RELATIONSHIP", "ORDERS_TO_CUSTOMERS", "ORDERS", "FOREIGN_KEY", '["O_CUSTKEY"]'),
     ("DIMENSION", "ORDER_DATE", "ORDERS", "DATA_TYPE", "DATE"),
     ("DIMENSION", "ORDER_DATE", "ORDERS", "EXPRESSION", "o_orderdate"),
     ("DIMENSION", "REGION", "CUSTOMERS", "DATA_TYPE", "VARCHAR(16777216)"),
@@ -86,7 +88,12 @@ def test_describe_semantic_view_parses_shape():
     detail = describe_semantic_view(conn, "ANALYTICS", "PUBLIC", "SALES")
     assert cur.executed == ['DESCRIBE SEMANTIC VIEW "ANALYTICS"."PUBLIC"."SALES"']
     assert detail["tables"] == [{"name": "ORDERS"}, {"name": "CUSTOMERS"}]
-    assert detail["relationships"] == ["ORDERS_TO_CUSTOMERS"]
+    # The endpoints, not just the name: they are the only description of the
+    # join graph Snowflake gives us, and without them a query across two
+    # entities can only be checked by running it and reading the error.
+    assert detail["relationships"] == [
+        {"name": "ORDERS_TO_CUSTOMERS", "table": "ORDERS", "refTable": "CUSTOMERS"}
+    ]
     assert detail["dimensions"] == [
         {"table": "ORDERS", "name": "ORDER_DATE", "dataType": "DATE"},
         {"table": "CUSTOMERS", "name": "REGION", "dataType": "VARCHAR(16777216)"},

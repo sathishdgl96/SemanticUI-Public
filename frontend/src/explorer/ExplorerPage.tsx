@@ -415,6 +415,12 @@ export default function ExplorerPage() {
                 {run.error instanceof ApiError ? run.error.message : "Query failed"}
               </p>
             )}
+            {run.data?.bridgedThrough && (
+              <p className="explore-note">
+                {`Joined through ${run.data.bridgedThrough}. These fields have no direct
+                relationship, so the rows are the combinations that actually occur there.`}
+              </p>
+            )}
             {run.data && detail.data && (
               <QueryPanel result={run.data} detail={detail.data} wells={wells} />
             )}

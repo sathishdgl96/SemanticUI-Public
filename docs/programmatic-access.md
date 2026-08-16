@@ -97,8 +97,8 @@ Reach it through any Snowflake client: the Python connector (what this
 backend uses), the SQL REST API, SnowSQL, or a driver in your language of
 choice.
 
-Three grammar rules inside `SEMANTIC_VIEW(...)` that cost us time to learn,
-recorded so they cost nobody else any:
+Four rules inside `SEMANTIC_VIEW(...)` that cost us time to learn, recorded
+so they cost nobody else any:
 
 1. **`WHERE` goes inside the call**, after `METRICS`, not after the closing
    paren. The predicate has to apply before aggregation.
@@ -107,6 +107,15 @@ recorded so they cost nobody else any:
 3. **`FACTS` is its own clause**, and when both `FACTS` and `DIMENSIONS`
    appear, every field must come from the same entity — a raw fact carries
    no join path, only `METRICS` do.
+4. **The query is rooted at a base entity, and everything else must be
+   reachable from it** by following relationships from the foreign-key side
+   to the primary-key side. Break it and you get one of three
+   "Invalid dimension specified" errors. With metrics selected, every
+   metric's entity is a base, so one coarse measure can make an otherwise
+   sensible grouping impossible. `DESCRIBE SEMANTIC VIEW` gives you the graph
+   to check this yourself: each relationship carries `TABLE` and `REF_TABLE`
+   properties. Full findings, including which failures are repairable, are in
+   `docs/superpowers/specs/2026-08-16-join-graph-findings.md`.
 
 Snowflake also offers **Cortex** server-side. This codebase calls
 `SNOWFLAKE.CORTEX.COMPLETE` for the Ask feature; Snowflake additionally

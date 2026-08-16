@@ -56,7 +56,7 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
     rows = _execute_dicts(conn, f"DESCRIBE SEMANTIC VIEW {fqn}")
 
     tables: list[dict] = []
-    relationships: list[str] = []
+    relationships: dict[str, dict] = {}
     fields: dict[tuple[str, str, str], dict] = {}
     hierarchies: dict[tuple[str, str], dict] = {}
 
@@ -64,12 +64,24 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
         kind = (row.get("object_kind") or "").upper()
         obj_name = row.get("object_name")
         parent = row.get("parent_entity")
+        prop = (row.get("property") or "").upper()
         if kind == "TABLE" and obj_name:
             if not any(t["name"] == obj_name for t in tables):
                 tables.append({"name": obj_name})
         elif kind == "RELATIONSHIP" and obj_name:
-            if obj_name not in relationships:
-                relationships.append(obj_name)
+            # `TABLE` is the foreign-key side, `REF_TABLE` the primary-key
+            # side, so the pair is directed: it always points from finer grain
+            # to coarser. That direction is what app.semantic.joins reasons
+            # over, and dropping it (as this parser used to) is why an
+            # unanswerable field combination could only be discovered by
+            # sending it to Snowflake and reading the error.
+            entry = relationships.setdefault(
+                obj_name, {"name": obj_name, "table": parent, "refTable": None}
+            )
+            if prop == "TABLE":
+                entry["table"] = row.get("property_value")
+            elif prop == "REF_TABLE":
+                entry["refTable"] = row.get("property_value")
         elif kind == "HIERARCHY" and obj_name:
             # Collected verbatim; detect_hierarchies below decides what, if
             # anything, is usable. No account seen so far emits these rows.
@@ -89,7 +101,7 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
 
     detail: dict = {
         "tables": tables,
-        "relationships": relationships,
+        "relationships": list(relationships.values()),
         "dimensions": [],
         "metrics": [],
         "facts": [],

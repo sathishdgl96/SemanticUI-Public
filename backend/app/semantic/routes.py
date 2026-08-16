@@ -6,7 +6,7 @@ from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import DbSession
 from app.semantic import discovery
-from app.semantic.query import SemanticQueryRequest, build_semantic_sql
+from app.semantic.query import SemanticQueryRequest, bridged_through, build_semantic_sql
 from app.snowflake import gateway
 from app.snowflake.provider import get_cache
 
@@ -125,4 +125,8 @@ def query_semantic(
         "truncated": result.truncated,
         "sfqid": result.sfqid,
         "sql": sql,
+        # Non-null when the selected entities had no join path of their own
+        # and the query was routed through a third. The rows are then limited
+        # to combinations that occur there, so the UI says which entity.
+        "bridgedThrough": bridged_through(detail, req),
     }

@@ -56,6 +56,32 @@ describe("FieldPanel", () => {
     expect(onAdd).toHaveBeenCalledWith("axis", "ORDERS.ORDER_DATE", "dimension");
   });
 
+  it("does not offer a field the selected measure cannot break down", async () => {
+    // Snowflake refuses this combination at compile time, and its error names
+    // entities rather than fields. Not offering it at all is the difference
+    // between a tool that guides and one that lets you find out.
+    const JOINED = {
+      tables: [{ name: "CUSTOMERS" }, { name: "ORDERS" }],
+      relationships: [
+        { name: "ORDERS_TO_CUSTOMERS", table: "ORDERS", refTable: "CUSTOMERS" },
+      ],
+      dimensions: [{ table: "ORDERS", name: "ORDER_DATE", dataType: "DATE" }],
+      metrics: [{ table: "CUSTOMERS", name: "CUSTOMER_COUNT", dataType: "NUMBER" }],
+      facts: [],
+    };
+    const onAdd = vi.fn();
+    const wells = addToWell(emptyWells(), "values", "CUSTOMERS.CUSTOMER_COUNT", "metric");
+    render(<FieldPanel detail={JOINED} wells={wells} onAdd={onAdd} />);
+
+    const row = screen.getByRole("button", { name: /ORDERS\.ORDER_DATE/ });
+    expect(row).toBeDisabled();
+    // The reason travels with the control, so hovering explains it rather
+    // than leaving a dead row with no account of itself.
+    expect(row).toHaveAccessibleDescription(/CUSTOMERS\.CUSTOMER_COUNT/);
+    await userEvent.click(row);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
   it("adds a field on Enter for keyboard-only users — drag is never the only path", async () => {
     const onAdd = vi.fn();
     render(<KeyboardHarness onAdd={onAdd} />);

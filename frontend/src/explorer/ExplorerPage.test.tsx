@@ -171,6 +171,37 @@ describe("ExplorerPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("says so when the answer had to be joined through a third entity", async () => {
+    // Bridging narrows the result to combinations that occur in the joining
+    // entity. That is the only answer the model can give, but it is not the
+    // one the user literally asked for -- so it is stated, not assumed.
+    apiFetchMock.mockImplementation((...args: unknown[]) => {
+      const path = String(args[0]);
+      if (path === "/api/me") return Promise.resolve(ME);
+      if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
+      if (path.startsWith("/api/semantic-views/")) return Promise.resolve(DETAIL);
+      if (path.startsWith("/api/explores")) return Promise.resolve({ explores: [] });
+      if (path === "/api/query/semantic") {
+        return Promise.resolve({
+          columns: [{ name: "REGION", type: "TEXT" }],
+          rows: [["EAST"]],
+          truncated: false,
+          sfqid: "q1",
+          sql: "SELECT ...",
+          bridgedThrough: "LINEITEMS",
+        });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    expect(await screen.findByText(/joined through LINEITEMS/i)).toBeInTheDocument();
+  });
+
   it("creates a report from the current view and wells, then navigates to its builder", async () => {
     mockRoutes(() => Promise.resolve(DETAIL));
     createReportMock.mockResolvedValue({

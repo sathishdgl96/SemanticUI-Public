@@ -22,9 +22,19 @@ export interface FieldInfo {
   dataType: string | null;
 }
 
+/** One declared join, directed. `table` is the foreign-key side and
+ *  `refTable` the primary-key side, so following one always moves from
+ *  finer grain to coarser -- which is what makes the graph in joins.ts
+ *  able to say whether two fields can be asked for together. */
+export interface Relationship {
+  name: string;
+  table: string | null;
+  refTable: string | null;
+}
+
 export interface SemanticViewDetail {
   tables: { name: string }[];
-  relationships: string[];
+  relationships: Relationship[];
   dimensions: FieldInfo[];
   metrics: FieldInfo[];
   facts: FieldInfo[];
@@ -44,6 +54,11 @@ export interface QueryResponse {
   truncated: boolean;
   sfqid: string | null;
   sql: string;
+  /** Set when the selected entities had no join path of their own and the
+   *  query was routed through a third. Rows are then limited to combinations
+   *  that occur there, which the UI says out loud rather than leaving the
+   *  reader to wonder why a pair is missing. */
+  bridgedThrough?: string | null;
 }
 
 export interface SemanticQueryBody {
