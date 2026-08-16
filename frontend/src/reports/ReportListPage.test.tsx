@@ -36,6 +36,17 @@ const listMock = vi.mocked(listReports);
 const deleteMock = vi.mocked(deleteReport);
 const createMock = vi.mocked(createReport);
 
+function renderPageAt(path: string) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[path]}>
+        <ReportListPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -181,5 +192,15 @@ describe("ReportListPage workspaces", () => {
     await waitFor(() => expect(listMock).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: /new report/i }));
     expect(createMock).toHaveBeenCalledWith(expect.anything(), "w0");
+  });
+});
+
+describe("ReportListPage URL scoping", () => {
+  it("scopes the listing to the workspace named in the URL", async () => {
+    // The rail's flyout navigates to /reports?workspace=<id>; the page must
+    // honor that rather than its own default.
+    listMock.mockResolvedValue({ reports: [] });
+    renderPageAt("/reports?workspace=w0");
+    await waitFor(() => expect(listMock).toHaveBeenCalledWith("w0"));
   });
 });

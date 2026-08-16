@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportDefinition, ReportDetail } from "../api/types";
@@ -30,9 +30,11 @@ export default function ReportListPage() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  //: null means "every workspace I belong to", which is what the page shows
-  //: before a workspace has been chosen.
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  // Selection lives in the URL, so the rail's workspaces flyout and this
+  // page share one source of truth and a workspace view is linkable.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const workspaceId = searchParams.get("workspace");
+  const setWorkspaceId = (id: string) => setSearchParams({ workspace: id });
   const [showMembers, setShowMembers] = useState(false);
 
   const workspaces = useWorkspaces();
@@ -93,7 +95,16 @@ export default function ReportListPage() {
   return (
     <main className="reports">
       <header className="reports-head">
-        <h1>Reports</h1>
+        <div className="ws-title">
+          <h1 className="page-title">{selected?.name ?? "Reports"}</h1>
+          {selected && (
+            <p className="ws-subtitle">
+              {selected.kind === "personal" ? "Personal workspace" : "Shared workspace"}
+              {" · "}You are {selected.myRole === "admin" ? "an" : "a"} {selected.myRole}{" "}
+              here
+            </p>
+          )}
+        </div>
         <WorkspaceSwitcher
           value={selectedId}
           onChange={setWorkspaceId}
@@ -139,31 +150,55 @@ export default function ReportListPage() {
       )}
 
       {reports.data && reports.data.reports.length > 0 && (
-        <ul className="report-list">
-          {reports.data.reports.map((report) => (
-            <li key={report.id}>
-              <Link className="report-name" to={`/reports/${report.id}`}>
-                {report.name}
-              </Link>
-              <span className="report-view">
-                {`${report.view.database}.${report.view.schema}.${report.view.name}`}
-              </span>
-              <span className="report-updated">
-                {new Date(report.updatedAt).toLocaleString()}
-              </span>
-              <button
-                className="link"
-                aria-label={`Delete ${report.name}`}
-                onClick={() => {
-                  setPendingDelete(report.id);
-                  setDeleteError(null);
-                }}
-              >
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
+        <table className="content-table">
+          <thead>
+            <tr>
+              <th aria-hidden="true"></th>
+              <th>Name</th>
+              <th>Semantic view</th>
+              <th>Your role</th>
+              <th>Modified</th>
+              <th>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.data.reports.map((report) => (
+              <tr key={report.id}>
+                <td className="type-glyph" aria-hidden="true">
+                  ▦
+                </td>
+                <td>
+                  <Link className="report-name" to={`/reports/${report.id}`}>
+                    {report.name}
+                  </Link>
+                </td>
+                <td className="report-view">
+                  {report.view.database
+                    ? `${report.view.database}.${report.view.schema}.${report.view.name}`
+                    : "—"}
+                </td>
+                <td>{report.myRole}</td>
+                <td className="report-updated">
+                  {new Date(report.updatedAt).toLocaleString()}
+                </td>
+                <td className="row-actions">
+                  <button
+                    className="link"
+                    aria-label={`Delete ${report.name}`}
+                    onClick={() => {
+                      setPendingDelete(report.id);
+                      setDeleteError(null);
+                    }}
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       {pendingDelete && (
