@@ -57,7 +57,7 @@ def _metric_refs(detail: dict) -> set[tuple[str, str]]:
     }
 
 
-def _resolve(detail: dict, ref: str) -> tuple[str, str]:
+def resolve_field(detail: dict, ref: str) -> tuple[str, str]:
     if "." not in ref:
         raise ApiError("QUERY_ERROR", 400, f"Filter field must be TABLE.NAME: {ref}")
     table, name = ref.split(".", 1)
@@ -122,7 +122,7 @@ def build_filter_predicates(
         # Resolve first, then skip: an inactive filter still names a field,
         # and being unfinished is not a way to smuggle an unvalidated
         # reference past the catalog check into a saved report.
-        table, name = _resolve(detail, f.field)
+        table, name = resolve_field(detail, f.field)
         if not is_active(f):
             # Both the fragment and its params are skipped together. Dropping
             # one without the other would bind every later value to the wrong

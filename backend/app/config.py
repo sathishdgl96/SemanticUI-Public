@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     #: Kill switch, so an operator can turn Q&A off without a deploy.
     ask_enabled: bool = True
 
+    #: Rows per exported sheet. Deliberately far above the 10,000 display cap:
+    #: an export is meant to be complete, a screen is not.
+    export_row_cap: int = 100000
+
     # oauth mode only
     snowflake_account: str | None = None  # e.g. "myorg-myaccount"
     oauth_client_id: str | None = None

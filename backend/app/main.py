@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     from app.reports.routes import router as reports_router
     from app.workspaces.routes import router as workspaces_router
     from app.cortex.routes import router as ask_router
+    from app.export.routes import router as export_router
     from app.semantic.routes import router as semantic_router
 
     app.include_router(auth_router)
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(reports_router)
     app.include_router(workspaces_router)
     app.include_router(ask_router)
+    app.include_router(export_router)
 
     @app.get("/healthz")
     def healthz() -> dict:
