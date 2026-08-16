@@ -64,10 +64,31 @@ export interface IsFilter {
   values: string[];
 }
 
+export interface TextFilter {
+  id: string;
+  field: string;
+  op: "contains" | "notContains" | "startsWith" | "endsWith";
+  value: string;
+}
+
+export interface CompareFilter {
+  id: string;
+  field: string;
+  op: "gt" | "gte" | "lt" | "lte";
+  value: string | number;
+}
+
+/** Presence tests. No value by design — see BlankFilter in filters.py. */
+export interface BlankFilter {
+  id: string;
+  field: string;
+  op: "isBlank" | "isNotBlank";
+}
+
 export interface BetweenFilter {
   id: string;
   field: string;
-  op: "between";
+  op: "between" | "notBetween";
   from: string | number;
   to: string | number;
 }
@@ -82,7 +103,13 @@ export interface RelativeDateFilter {
 }
 
 /** Mirrors the discriminated union in backend/app/reports/filters.py. */
-export type Filter = IsFilter | BetweenFilter | RelativeDateFilter;
+export type Filter =
+  | IsFilter
+  | TextFilter
+  | CompareFilter
+  | BlankFilter
+  | BetweenFilter
+  | RelativeDateFilter;
 
 export interface Hierarchy {
   id: string;

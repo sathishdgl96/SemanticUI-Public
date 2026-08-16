@@ -41,20 +41,46 @@ beforeEach(() => stubValues(["EAST", "NORTH", "SOUTH", "WEST"]));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("operatorsFor", () => {
-  it("offers equality and range on a date", () => {
-    expect(operatorsFor("DATE")).toEqual(["is", "isNot", "between", "relativeDate"]);
+  it("offers ranges and relative windows on a date", () => {
+    const ops = operatorsFor("DATE");
+    for (const op of ["is", "isNot", "between", "notBetween", "gt", "lte", "relativeDate"]) {
+      expect(ops).toContain(op);
+    }
+    // Substring matching on a date would compile and mean nothing.
+    expect(ops).not.toContain("contains");
   });
 
-  it("offers no relative-date option on text", () => {
-    expect(operatorsFor("VARCHAR(16777216)")).toEqual(["is", "isNot"]);
+  it("offers substring matching on text, but no ranges", () => {
+    const ops = operatorsFor("VARCHAR(16777216)");
+    for (const op of ["is", "isNot", "contains", "notContains", "startsWith", "endsWith"]) {
+      expect(ops).toContain(op);
+    }
+    // Lexical ordering on free text invites wrong answers.
+    expect(ops).not.toContain("gt");
+    expect(ops).not.toContain("between");
+    expect(ops).not.toContain("relativeDate");
   });
 
-  it("offers between on a number but not relativeDate", () => {
-    expect(operatorsFor("NUMBER(38,2)")).toEqual(["is", "isNot", "between"]);
+  it("offers ordered comparison on a number, but not relative dates", () => {
+    const ops = operatorsFor("NUMBER(38,2)");
+    for (const op of ["between", "notBetween", "gt", "gte", "lt", "lte"]) {
+      expect(ops).toContain(op);
+    }
+    expect(ops).not.toContain("relativeDate");
+    expect(ops).not.toContain("contains");
   });
 
-  it("falls back to equality when the type is unknown", () => {
-    expect(operatorsFor(null)).toEqual(["is", "isNot"]);
+  it("offers the presence tests on every type", () => {
+    // Any column of any type can be empty.
+    for (const type of ["DATE", "NUMBER(38,2)", "VARCHAR(16777216)", null]) {
+      expect(operatorsFor(type)).toContain("isBlank");
+      expect(operatorsFor(type)).toContain("isNotBlank");
+    }
+  });
+
+  it("falls back to the text operators when the type is unknown", () => {
+    expect(operatorsFor(null)).toContain("contains");
+    expect(operatorsFor(null)).not.toContain("gt");
   });
 });
 
@@ -73,7 +99,76 @@ describe("FilterEditor", () => {
       />,
     );
     const select = screen.getByLabelText(/operator/i) as HTMLSelectElement;
-    expect([...select.options].map((o) => o.value)).toEqual(["is", "isNot"]);
+    const offered = [...select.options].map((o) => o.value);
+    expect(offered).toEqual(operatorsFor(REGION.dataType));
+    // A text field gets substring matching and no numeric ordering.
+    expect(offered).toContain("contains");
+    expect(offered).not.toContain("gt");
+  });
+
+  it("shows one value box for a text operator", async () => {
+    const onChange = vi.fn();
+    const filter: Filter = {
+      id: "f1",
+      field: "CUSTOMERS.REGION",
+      op: "contains",
+      value: "",
+    };
+    wrap(
+      <FilterEditor
+        field={REGION}
+        filter={filter}
+        view={VIEW}
+        onChange={onChange}
+        onRemove={noop}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText(/^value$/i), "AC");
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ op: "contains", value: "C" }),
+    );
+  });
+
+  it("shows no value box for a presence test, and says why", () => {
+    const filter: Filter = { id: "f1", field: "CUSTOMERS.REGION", op: "isBlank" };
+    wrap(
+      <FilterEditor
+        field={REGION}
+        filter={filter}
+        view={VIEW}
+        onChange={noop}
+        onRemove={noop}
+      />,
+    );
+    expect(screen.queryByLabelText(/^value$/i)).toBeNull();
+    expect(screen.getByText(/needs no value/i)).toBeInTheDocument();
+  });
+
+  it("rebuilds the filter on an operator change rather than carrying keys over", async () => {
+    const onChange = vi.fn();
+    const filter: Filter = {
+      id: "f1",
+      field: "CUSTOMERS.REGION",
+      op: "is",
+      values: ["EAST"],
+    };
+    wrap(
+      <FilterEditor
+        field={REGION}
+        filter={filter}
+        view={VIEW}
+        onChange={onChange}
+        onRemove={noop}
+      />,
+    );
+    await userEvent.selectOptions(screen.getByLabelText(/operator/i), "contains");
+    // `values` must NOT survive: the backend union forbids extra keys.
+    expect(onChange).toHaveBeenCalledWith({
+      id: "f1",
+      field: "CUSTOMERS.REGION",
+      op: "contains",
+      value: "",
+    });
   });
 
   it("summarises what the filter currently means", () => {

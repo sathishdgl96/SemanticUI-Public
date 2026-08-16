@@ -361,3 +361,54 @@ describe("sheetRequestsFor", () => {
     expect(sheets[0].filters).toEqual([REGION_IS_EAST]);
   });
 });
+
+describe("the wider operator set", () => {
+  const at = (op: string, extra: Record<string, unknown> = {}) =>
+    ({ id: "f1", field: "C.NAME", op, ...extra }) as unknown as Filter;
+
+  it("treats an empty text pattern as not filtering yet", () => {
+    // An empty LIKE pattern matches every row, which reads as no filter.
+    expect(isActive(at("contains", { value: "" }))).toBe(false);
+    expect(isActive(at("contains", { value: "ACME" }))).toBe(true);
+  });
+
+  it("treats zero as a real comparison bound", () => {
+    expect(isActive(at("gt", { value: 0 }))).toBe(true);
+    expect(isActive(at("gt", { value: "" }))).toBe(false);
+  });
+
+  it("counts a presence test as complete the moment it is chosen", () => {
+    expect(isActive(at("isBlank"))).toBe(true);
+    expect(isActive(at("isNotBlank"))).toBe(true);
+  });
+
+  it("needs both ends of a negated range", () => {
+    expect(isActive(at("notBetween", { from: 1, to: "" }))).toBe(false);
+    expect(isActive(at("notBetween", { from: 1, to: 9 }))).toBe(true);
+  });
+
+  it("describes every operator in a sentence", () => {
+    expect(describeFilter(at("contains", { value: "ACME" }))).toBe(
+      "C.NAME contains ACME",
+    );
+    expect(describeFilter(at("startsWith", { value: "A" }))).toBe(
+      "C.NAME starts with A",
+    );
+    expect(describeFilter(at("gte", { value: 5 }))).toBe(
+      "C.NAME is greater than or equal to 5",
+    );
+    expect(describeFilter(at("isBlank"))).toBe("C.NAME is blank");
+    expect(describeFilter(at("notBetween", { from: 1, to: 9 }))).toBe(
+      "C.NAME is not between 1 and 9",
+    );
+  });
+
+  it("keeps an unfinished new-operator filter out of the composed set", () => {
+    const out = effectiveFilters({
+      reportFilters: [at("contains", { value: "" }), at("isBlank")],
+      visual: visual(),
+    });
+    // The blank test survives; the empty pattern does not.
+    expect(out.map((f) => f.op)).toEqual(["isBlank"]);
+  });
+});

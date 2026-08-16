@@ -16,9 +16,12 @@ from typing import Any
 from app.errors import ApiError
 from app.reports.filters import (
     BetweenFilter,
+    BlankFilter,
+    CompareFilter,
     Filter,
     InFilter,
     RelativeDateFilter,
+    TextFilter,
     is_active,
 )
 from app.semantic.discovery import quote_ident
@@ -73,6 +76,29 @@ def resolve_field(detail: dict, ref: str) -> tuple[str, str]:
             "here. Filter on a dimension instead.",
         )
     raise ApiError("QUERY_ERROR", 400, f"Unknown filter field: {ref}")
+
+
+# Snowflake's literal substring functions, not LIKE.
+#
+# Two reasons, one of them found the hard way against a real account:
+#
+#   1. `LIKE ... ESCAPE '\'` is a syntax error inside SEMANTIC_VIEW(). The
+#      grammar there is narrower than a plain WHERE and rejects the ESCAPE
+#      clause outright ("unexpected 'ESCAPE'").
+#   2. These functions have no wildcard semantics AT ALL, so a user searching
+#      for "50%" gets rows containing "50%" with nothing to escape. Escaping
+#      is not a step that can be got wrong here; it is a step that does not
+#      exist. Without that, a stray "%" would silently widen the filter and
+#      return more rows than the person asked for -- a wrong answer that
+#      looks like a right one.
+#
+# The value is still BOUND: these take a placeholder like any other operator.
+TEXT_FUNCTION = {
+    "contains": "CONTAINS",
+    "notContains": "CONTAINS",
+    "startsWith": "STARTSWITH",
+    "endsWith": "ENDSWITH",
+}
 
 
 def _add_months(anchor: date, delta: int) -> date:
@@ -138,8 +164,25 @@ def build_filter_predicates(
                 holders = ", ".join(PLACEHOLDER for _ in f.values)
                 fragments.append(f"{column} {'NOT IN' if negated else 'IN'} ({holders})")
             params.extend(f.values)
+        elif isinstance(f, TextFilter):
+            call = f"{TEXT_FUNCTION[f.op]}({column}, {PLACEHOLDER})"
+            fragments.append(f"NOT {call}" if f.op == "notContains" else call)
+            params.append(f.value)
+        elif isinstance(f, CompareFilter):
+            operator = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[f.op]
+            fragments.append(f"{column} {operator} {PLACEHOLDER}")
+            params.append(f.value)
+        elif isinstance(f, BlankFilter):
+            # "Blank" covers both NULL and the empty string: to the person
+            # reading the report they are the same absence, and PowerBI
+            # treats them the same way. No value is bound -- there is none.
+            if f.op == "isBlank":
+                fragments.append(f"({column} IS NULL OR {column} = '')")
+            else:
+                fragments.append(f"({column} IS NOT NULL AND {column} <> '')")
         elif isinstance(f, BetweenFilter):
-            fragments.append(f"{column} BETWEEN {PLACEHOLDER} AND {PLACEHOLDER}")
+            keyword = "NOT BETWEEN" if f.op == "notBetween" else "BETWEEN"
+            fragments.append(f"{column} {keyword} {PLACEHOLDER} AND {PLACEHOLDER}")
             params.extend([f.from_, f.to])
         elif isinstance(f, RelativeDateFilter):
             start, end = resolve_relative_date(f, clock)

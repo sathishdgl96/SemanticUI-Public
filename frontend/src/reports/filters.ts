@@ -3,11 +3,14 @@
 // directly, without rendering anything.
 
 import type {
+  BetweenFilter,
+  CompareFilter,
   Filter,
   Hierarchy,
   IsFilter,
   Page,
   SheetRequest,
+  TextFilter,
   Visual,
 } from "../api/types";
 
@@ -121,6 +124,32 @@ export function drillFilters(drill: DrillState | undefined): Filter[] {
   }));
 }
 
+const ONE_VALUE_OPS: readonly string[] = [
+  "contains",
+  "notContains",
+  "startsWith",
+  "endsWith",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+];
+
+/** Takes a list of picked values. */
+export function takesValues(filter: Filter): filter is IsFilter {
+  return filter.op === "is" || filter.op === "isNot";
+}
+
+/** Takes two endpoints. */
+export function takesRange(filter: Filter): filter is BetweenFilter {
+  return filter.op === "between" || filter.op === "notBetween";
+}
+
+/** Takes exactly one free-typed value. */
+export function takesOneValue(filter: Filter): filter is TextFilter | CompareFilter {
+  return ONE_VALUE_OPS.includes(filter.op);
+}
+
 /** Does this filter actually constrain anything yet?
  *
  *  A half-built filter — just added from the field picker, or whose operator
@@ -129,10 +158,19 @@ export function drillFilters(drill: DrillState | undefined): Filter[] {
  *  every tile on the report. Mirrors `is_active` in
  *  backend/app/reports/filters.py. */
 export function isActive(filter: Filter): boolean {
-  if (filter.op === "is" || filter.op === "isNot")
-    return filter.values.length > 0;
+  // Written as guards rather than a chain of `op ===` checks. Narrowing by
+  // ELIMINATION does not work on this union: several members have a union
+  // for their own discriminant (BetweenFilter is "between" | "notBetween"),
+  // and TypeScript will not rule such a member out in a negative branch. The
+  // same trap is documented in describeFilter below.
+  if (takesValues(filter)) return filter.values.length > 0;
   // Compared against "" rather than tested for truthiness: 0 is a real bound.
-  if (filter.op === "between") return filter.from !== "" && filter.to !== "";
+  if (takesRange(filter)) return filter.from !== "" && filter.to !== "";
+  // Text and comparison alike: an empty box is "not filtering yet". An empty
+  // LIKE pattern would match every row, which reads as no filter at all.
+  if (takesOneValue(filter)) return filter.value !== "";
+  // What is left -- a presence test, a relative window -- is complete the
+  // moment it is chosen.
   return true;
 }
 
@@ -184,6 +222,27 @@ const UNIT_LABEL: Record<string, string> = {
   year: "years",
 };
 
+/** How each operator reads in a sentence. Shared by the summary below and by
+ *  the editor's operator menu, so the two can never describe the same
+ *  operator differently. */
+export const OPERATOR_LABEL: Record<Filter["op"], string> = {
+  is: "is",
+  isNot: "is not",
+  contains: "contains",
+  notContains: "does not contain",
+  startsWith: "starts with",
+  endsWith: "ends with",
+  gt: "is greater than",
+  gte: "is greater than or equal to",
+  lt: "is less than",
+  lte: "is less than or equal to",
+  isBlank: "is blank",
+  isNotBlank: "is not blank",
+  between: "is between",
+  notBetween: "is not between",
+  relativeDate: "is in the last",
+};
+
 /** A short human summary, for filter rows and chips. */
 export function describeFilter(filter: Filter): string {
   // Each specific op is narrowed POSITIVELY, and the is/isNot pair is left
@@ -191,14 +250,22 @@ export function describeFilter(filter: Filter): string {
   // through does not narrow: IsFilter's own discriminant is a union, so
   // TypeScript cannot rule the member out in the negative branch, and the
   // later `filter.preset` reads fail to compile.
-  if (filter.op === "between") {
-    return `${filter.field} is between ${filter.from} and ${filter.to}`;
+  if (takesRange(filter)) {
+    const verb = filter.op === "between" ? "is between" : "is not between";
+    return `${filter.field} ${verb} ${filter.from} and ${filter.to}`;
+  }
+  if (filter.op === "isBlank" || filter.op === "isNotBlank") {
+    return `${filter.field} ${OPERATOR_LABEL[filter.op]}`;
+  }
+  if (takesOneValue(filter)) {
+    return `${filter.field} ${OPERATOR_LABEL[filter.op]} ${filter.value}`;
   }
   if (filter.op === "relativeDate") {
     if (filter.preset === "monthToDate") return `${filter.field} month to date`;
     if (filter.preset === "yearToDate") return `${filter.field} year to date`;
     return `${filter.field} in the last ${filter.count} ${UNIT_LABEL[filter.unit ?? "day"]}`;
   }
+  if (!takesValues(filter)) return filter.field;
   const verb = filter.op === "is" ? "is" : "is not";
   const what =
     filter.values.length === 1

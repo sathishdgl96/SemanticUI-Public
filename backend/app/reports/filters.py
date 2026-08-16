@@ -39,8 +39,38 @@ class InFilter(_StrictFilter):
     values: list[FilterValue] = Field(default_factory=list, max_length=MAX_FILTER_VALUES)
 
 
+class TextFilter(_StrictFilter):
+    """Substring matching: PowerBI's "contains", "starts with", "ends with".
+
+    The value stays a plain string here. `predicates.py` is what turns it into
+    a LIKE pattern, and it does so by binding -- the wildcards it adds are the
+    only ones in the statement, and any the user typed are escaped so they
+    match literally rather than silently widening the filter.
+    """
+
+    op: Literal["contains", "notContains", "startsWith", "endsWith"]
+    value: FilterValue = ""
+
+
+class CompareFilter(_StrictFilter):
+    """Ordered comparison against a single bound value: > >= < <=."""
+
+    op: Literal["gt", "gte", "lt", "lte"]
+    # A number or an ISO date string; Snowflake compares either against the
+    # column's own type. "" is the unfinished state, kept savable.
+    value: Union[str, float] = ""
+
+
+class BlankFilter(_StrictFilter):
+    """Presence tests. These take no value at all, which is exactly why they
+    need their own member: an operator that ignored a `value` field would let
+    a stale one linger in the document and confuse the next reader."""
+
+    op: Literal["isBlank", "isNotBlank"]
+
+
 class BetweenFilter(_StrictFilter):
-    op: Literal["between"]
+    op: Literal["between", "notBetween"]
     # `from` is a Python keyword, so the attribute is `from_` and the wire
     # name stays `from` via the alias.
     from_: Union[str, float] = Field(alias="from")
@@ -83,7 +113,10 @@ class RelativeDateFilter(_StrictFilter):
         return self
 
 
-def is_active(f: "InFilter | BetweenFilter | RelativeDateFilter") -> bool:
+def is_active(
+    f: "InFilter | TextFilter | CompareFilter | BlankFilter | BetweenFilter "
+    "| RelativeDateFilter",
+) -> bool:
     """Does this filter actually constrain anything yet?
 
     A half-built filter -- one just added from the field picker, or one whose
@@ -94,9 +127,17 @@ def is_active(f: "InFilter | BetweenFilter | RelativeDateFilter") -> bool:
     """
     if isinstance(f, InFilter):
         return bool(f.values)
+    if isinstance(f, TextFilter):
+        # An empty pattern would match every row, which reads as "no filter"
+        # far more often than it reads as "rows containing nothing".
+        return f.value != ""
+    if isinstance(f, CompareFilter):
+        # An explicit "" check rather than truthiness: 0 is a real bound.
+        return f.value != ""
+    if isinstance(f, BlankFilter):
+        # A presence test is complete the moment it is chosen.
+        return True
     if isinstance(f, BetweenFilter):
-        # `is not None` and an explicit "" check rather than truthiness: 0 is
-        # a perfectly good bound.
         return f.from_ != "" and f.to != ""
     # A relative window always has a resolved unit+count or a preset; the
     # model validator guarantees one of them.
@@ -107,7 +148,14 @@ def is_active(f: "InFilter | BetweenFilter | RelativeDateFilter") -> bool:
 # rather than falling through to whichever member happens to accept the
 # payload.
 Filter = Annotated[
-    Union[InFilter, BetweenFilter, RelativeDateFilter],
+    Union[
+        InFilter,
+        TextFilter,
+        CompareFilter,
+        BlankFilter,
+        BetweenFilter,
+        RelativeDateFilter,
+    ],
     Field(discriminator="op"),
 ]
 
