@@ -326,6 +326,17 @@ describe("ExplorerPage saved explores", () => {
     expect(await screen.findByText(/no saved explores yet/i)).toBeInTheDocument();
   });
 
+  it("lists a saved explore by name alone", async () => {
+    // The view used to sit under every row. In a workspace built on one
+    // semantic view that is the same word repeated down the list, competing
+    // with the only thing that tells the rows apart.
+    mockWithExplores([SAVED]);
+    renderPage();
+    const row = await screen.findByRole("button", { name: /revenue by region/i });
+    expect(row).toHaveTextContent("Revenue by region");
+    expect(row).not.toHaveTextContent("My View");
+  });
+
   it("saves the current query, filters included", async () => {
     mockWithExplores([]);
     renderPage();

@@ -34,8 +34,11 @@ export default function SavedExplores({ explores, openId, onOpen, onError }: Pro
                 .catch(() => onError(`Could not open "${explore.name}".`))
             }
           >
+            {/* The name, and nothing else. The view was under every row,
+                which in a workspace built on one semantic view meant the same
+                word repeated down the list -- the one thing that told the
+                rows apart was competing with the one thing that did not. */}
             <span className="saved-explore-name">{explore.name}</span>
-            <small>{explore.view.name}</small>
           </button>
         </li>
       ))}

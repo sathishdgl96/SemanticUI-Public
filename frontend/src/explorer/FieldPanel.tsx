@@ -122,6 +122,11 @@ export default function FieldPanel({ detail, wells, onAdd }: Props) {
   const blocked = useMemo(() => availability(detail, wells), [detail, wells]);
   return (
     <aside className="field-panel">
+      {/* Keyboard instructions, which only a keyboard user needs. Always in
+          the accessibility tree; shown on screen only once a field row has
+          focus, which is exactly when the two keys mean anything. It used to
+          sit above the list permanently, explaining a drag to the many people
+          who were about to click. */}
       <p className="field-hint">
         Enter adds to the default well · Space picks up to drag
       </p>
