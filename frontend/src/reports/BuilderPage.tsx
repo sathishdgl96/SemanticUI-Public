@@ -276,6 +276,10 @@ export default function BuilderPage() {
   const exportSheetsRef = useRef<() => SheetRequest[]>(() => []);
   const [drill, setDrill] = useState<Record<string, DrillState>>({});
   const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
+  // Slicer ticks, keyed by field ref. Ephemeral like drill and cross-filter:
+  // never written to the definition, so a viewer who cannot save can still
+  // slice a shared report.
+  const [slicerSelections, setSlicerSelections] = useState<Record<string, string[]>>({});
   const [moving, setMoving] = useState(false);
   // Which page tab is open. Ephemeral like the selection: a saved report
   // always opens on its first page.
@@ -316,6 +320,7 @@ export default function BuilderPage() {
     setPanel(null);
     setDrill({});
     setCrossFilter(null);
+    setSlicerSelections({});
     setMoving(false);
     save.reset();
     refreshFields.reset();
@@ -427,6 +432,8 @@ export default function BuilderPage() {
     setActivePageId(id);
     setSelectedId(null);
     setCrossFilter(null);
+    // Slicers live on a page too, so their ticks leave with it.
+    setSlicerSelections({});
   };
 
   const switchPage = (id: string) => {
@@ -869,6 +876,18 @@ export default function BuilderPage() {
               }
               crossFilter={crossFilter}
               onCrossFilter={setCrossFilter}
+              slicerSelections={slicerSelections}
+              onSlicerChange={(field, values) =>
+                setSlicerSelections((current) => {
+                  // An emptied slicer drops its key rather than keeping an
+                  // empty array, so "is anything sliced?" stays one check.
+                  if (values.length === 0) {
+                    const { [field]: _cleared, ...rest } = current;
+                    return rest;
+                  }
+                  return { ...current, [field]: values };
+                })
+              }
             />
               <PageBar
                 pages={definition.pages}

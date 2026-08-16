@@ -100,7 +100,10 @@ export function categoricalSeries(
 ): { categories: string[]; series: Series[] } {
   const axisRef = (visual.wells.axis ?? [])[0];
   const legendRef = (visual.wells.legend ?? [])[0];
-  const metricRefs = visual.wells.values ?? [];
+  // Column values first, then line values: `combo` draws the leading
+  // `values.length` series as bars and the rest as lines, so the order here
+  // is what tells them apart downstream.
+  const metricRefs = [...(visual.wells.values ?? []), ...(visual.wells.lineValues ?? [])];
   if (!axisRef || metricRefs.length === 0) return { categories: [], series: [] };
 
   if (legendRef) {

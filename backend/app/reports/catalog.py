@@ -46,18 +46,50 @@ _CATEGORICAL = (
     WellSpec("values", "Values", "metric", 1, None),
 )
 
+#: A single categorical dimension against a single measure. Pie, donut,
+#: treemap and funnel all take exactly this shape.
+_ONE_BY_ONE = (
+    WellSpec("legend", "Legend", "dimension", 1, 1),
+    WellSpec("values", "Values", "metric", 1, 1),
+)
+
+#: Stacking options shared by the cartesian categorical types. "stacked100"
+#: is stacking normalised to 100%, which PowerBI offers as its own gallery
+#: tile rather than a toggle -- the frontend does the same.
+_STACKING = frozenset({"stacked", "stacked100"})
+
 CATALOG: dict[str, VisualSpec] = {
-    "bar": VisualSpec("bar", "Bar", _CATEGORICAL, frozenset({"stacked"})),
+    "bar": VisualSpec("bar", "Column", _CATEGORICAL, _STACKING),
+    #: Horizontal bars. A separate type rather than an option on "bar",
+    #: because PowerBI treats bar and column as distinct visuals and users
+    #: pick between them by shape, not by a setting.
+    "hbar": VisualSpec("hbar", "Bar", _CATEGORICAL, _STACKING),
     "line": VisualSpec("line", "Line", _CATEGORICAL, frozenset()),
-    "area": VisualSpec("area", "Area", _CATEGORICAL, frozenset({"stacked"})),
-    "pie": VisualSpec(
-        "pie",
-        "Pie",
+    "area": VisualSpec("area", "Area", _CATEGORICAL, _STACKING),
+    #: Line and clustered column: two measure wells drawn with different
+    #: marks against one shared axis.
+    "combo": VisualSpec(
+        "combo",
+        "Line and column",
         (
-            WellSpec("legend", "Legend", "dimension", 1, 1),
-            WellSpec("values", "Values", "metric", 1, 1),
+            WellSpec("axis", "Axis", "dimension", 1, 1),
+            WellSpec("values", "Column values", "metric", 1, None),
+            WellSpec("lineValues", "Line values", "metric", 0, None),
         ),
-        frozenset({"donut"}),
+        frozenset(),
+    ),
+    "pie": VisualSpec("pie", "Pie", _ONE_BY_ONE, frozenset({"donut"})),
+    "donut": VisualSpec("donut", "Donut", _ONE_BY_ONE, frozenset()),
+    "treemap": VisualSpec("treemap", "Treemap", _ONE_BY_ONE, frozenset()),
+    "funnel": VisualSpec("funnel", "Funnel", _ONE_BY_ONE, frozenset()),
+    "gauge": VisualSpec(
+        "gauge",
+        "Gauge",
+        (
+            WellSpec("value", "Value", "metric", 1, 1),
+            WellSpec("target", "Target", "metric", 0, 1),
+        ),
+        frozenset(),
     ),
     "scatter": VisualSpec(
         "scatter",
@@ -78,11 +110,40 @@ CATALOG: dict[str, VisualSpec] = {
         ),
         frozenset(),
     ),
+    "matrix": VisualSpec(
+        "matrix",
+        "Matrix",
+        (
+            WellSpec("rows", "Rows", "dimension", 1, None),
+            #: One column grouping only: a second would need a nested header
+            #: the pivot renderer does not draw.
+            WellSpec("columns", "Columns", "dimension", 0, 1),
+            WellSpec("values", "Values", "metric", 1, None),
+        ),
+        frozenset({"subtotals"}),
+    ),
     "kpi": VisualSpec(
         "kpi",
-        "KPI card",
+        "Card",
         (WellSpec("value", "Value", "metric", 1, 1),),
         frozenset({"format"}),
+    ),
+    "multiCard": VisualSpec(
+        "multiCard",
+        "Multi-row card",
+        (
+            WellSpec("dimensions", "Fields", "dimension", 0, None),
+            WellSpec("metrics", "Values", "metric", 1, None),
+        ),
+        frozenset({"format"}),
+    ),
+    #: A slicer queries its own field's distinct values and writes a filter;
+    #: it draws no measure at all.
+    "slicer": VisualSpec(
+        "slicer",
+        "Slicer",
+        (WellSpec("field", "Field", "dimension", 1, 1),),
+        frozenset({"multiSelect"}),
     ),
 }
 

@@ -29,6 +29,9 @@ interface Props {
   onDrill?: (visualId: string, next: DrillState | undefined) => void;
   crossFilter?: CrossFilter | null;
   onCrossFilter?: (next: CrossFilter | null) => void;
+  /** Ticked slicer values, keyed by field ref. Ephemeral, like drill. */
+  slicerSelections?: Record<string, string[]>;
+  onSlicerChange?: (field: string, values: string[]) => void;
 }
 
 /** Width is measured rather than assumed so the grid tracks the pane it sits in. */
@@ -49,6 +52,7 @@ export default function CanvasGrid({
   visuals, canvas, view, selectedId, onSelect, onLayoutChange, readOnly = false,
   reportFilters = [], pageFilters = [], hierarchies = [], drill = {}, onDrill,
   crossFilter = null, onCrossFilter,
+  slicerSelections = {}, onSlicerChange,
 }: Props) {
   const { ref, width } = useMeasuredWidth();
 
@@ -99,6 +103,8 @@ export default function CanvasGrid({
               onDrill={onDrill ? (next) => onDrill(visual.id, next) : undefined}
               crossFilter={crossFilter}
               onCrossFilter={onCrossFilter}
+              slicerSelections={slicerSelections}
+              onSlicerChange={onSlicerChange}
             />
           </div>
         ))}

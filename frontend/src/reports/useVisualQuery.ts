@@ -13,9 +13,13 @@ interface Options {
   reportFilters?: Filter[];
   /** The scope of the page this visual sits on. */
   pageFilters?: Filter[];
+  /** Filters contributed by on-canvas slicers. */
+  slicerFilters?: Filter[];
   hierarchies?: Hierarchy[];
   drill?: DrillState;
   crossFilter?: CrossFilter | null;
+  /** Set false for visual types that draw without a semantic query. */
+  enabled?: boolean;
 }
 
 /** One query per visual, so tiles render progressively and one slow visual
@@ -24,9 +28,11 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
   const {
     reportFilters = [],
     pageFilters = [],
+    slicerFilters = [],
     hierarchies = [],
     drill,
     crossFilter = null,
+    enabled = true,
   } = options;
   const type = visual.type as VisualType;
 
@@ -35,11 +41,12 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
   // never sees a hierarchy at all.
   const wells = resolveWells(visual.wells, hierarchies, drill);
   const problems = validateWells(type, wells);
-  const ready = problems.length === 0 && Boolean(view.name);
+  const ready = enabled && problems.length === 0 && Boolean(view.name);
   const { dimensions, metrics } = wellsToQuery(type, wells);
   const filters = effectiveFilters({
     reportFilters,
     pageFilters,
+    slicerFilters,
     visual,
     drill,
     crossFilter,

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Visual } from "../api/types";
+import { CATALOG } from "./catalog";
 import VisualPicker, { changeVisualType } from "./VisualPicker";
 
 const visual: Visual = {
@@ -13,15 +14,27 @@ const visual: Visual = {
 };
 
 describe("VisualPicker", () => {
-  it("offers all seven types and marks the current one", async () => {
+  it("offers every catalog type and marks the current one", async () => {
     const onChange = vi.fn();
     render(<VisualPicker value="bar" onChange={onChange} />);
-    expect(screen.getAllByRole("button")).toHaveLength(7);
-    expect(screen.getByRole("button", { name: /bar/i })).toHaveAttribute(
+    expect(screen.getAllByRole("button")).toHaveLength(Object.keys(CATALOG).length);
+    expect(screen.getByRole("button", { name: /^column$/i })).toHaveAttribute(
       "aria-pressed", "true",
     );
-    await userEvent.click(screen.getByRole("button", { name: /pie/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^pie$/i }));
     expect(onChange).toHaveBeenCalledWith("pie");
+  });
+
+  it("offers the visuals a PowerBI author looks for", () => {
+    render(<VisualPicker value="bar" onChange={vi.fn()} />);
+    for (const name of [
+      /^column$/i, /^bar$/i, /^line$/i, /^area$/i, /line and column/i,
+      /^pie$/i, /^donut$/i, /^treemap$/i, /^funnel$/i, /^gauge$/i,
+      /^scatter$/i, /^table$/i, /^matrix$/i, /^card$/i, /multi-row card/i,
+      /^slicer$/i,
+    ]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
   });
 });
 

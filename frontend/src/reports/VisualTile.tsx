@@ -10,6 +10,10 @@ import type {
 import ResultsTable from "../query/ResultsTable";
 import { buildVisualOption, visualTitle } from "../query/renderers";
 import AutoChartAdapter from "./AutoChartAdapter";
+import MatrixTable from "./MatrixTable";
+import MultiRowCard from "./MultiRowCard";
+import SlicerControl from "./SlicerControl";
+import { slicerFiltersFrom } from "./filters";
 import {
   canDrillDown,
   currentLevel,
@@ -32,6 +36,9 @@ interface Props {
   onDrill?: (next: DrillState | undefined) => void;
   crossFilter?: CrossFilter | null;
   onCrossFilter?: (next: CrossFilter | null) => void;
+  /** Ticked slicer values, keyed by field ref. Ephemeral, like drill. */
+  slicerSelections?: Record<string, string[]>;
+  onSlicerChange?: (field: string, values: string[]) => void;
 }
 
 function kpiText(result: QueryResponse, format: unknown): string {
@@ -59,13 +66,26 @@ export default function VisualTile({
   onDrill,
   crossFilter = null,
   onCrossFilter,
+  slicerSelections = {},
+  onSlicerChange,
 }: Props) {
+  const isSlicer = visual.type === "slicer";
+  const ownField = isSlicer ? ((visual.wells.field ?? [])[0] ?? "") : "";
+
+  // A slicer never filters itself, or ticking one value would hide the rest.
+  const slicerFilters = slicerFiltersFrom(slicerSelections, ownField);
+
   const { problems, ready, wells, query } = useVisualQuery(view, visual, {
     reportFilters,
     pageFilters,
+    slicerFilters,
     hierarchies,
     drill,
     crossFilter,
+    // A slicer draws its own distinct values from the field-values endpoint;
+    // it has no measure, so running the semantic query would be a round trip
+    // whose result nothing reads.
+    enabled: !isSlicer,
   });
 
   // The heading names the level currently on screen, not "hierarchy:h1".
@@ -119,7 +139,16 @@ export default function VisualTile({
   const interactive = drillable || Boolean(onCrossFilter);
 
   let body: React.ReactNode;
-  if (hierarchyId && !hierarchy) {
+  if (isSlicer) {
+    body = (
+      <SlicerControl
+        visual={visual}
+        view={view}
+        selected={slicerSelections[ownField] ?? []}
+        onChange={(field, values) => onSlicerChange?.(field, values)}
+      />
+    );
+  } else if (hierarchyId && !hierarchy) {
     // Reported on the tile rather than blanking the canvas: the report is
     // still openable and the Axis well is still editable.
     body = (
@@ -147,6 +176,10 @@ export default function VisualTile({
       );
     } else if (visual.type === "table") {
       body = <ResultsTable result={query.data} />;
+    } else if (visual.type === "matrix") {
+      body = <MatrixTable visual={visual} result={query.data} />;
+    } else if (visual.type === "multiCard") {
+      body = <MultiRowCard visual={visual} result={query.data} />;
     } else if (option) {
       body = (
         <AutoChartAdapter

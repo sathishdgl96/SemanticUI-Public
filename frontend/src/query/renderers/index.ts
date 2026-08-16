@@ -5,9 +5,23 @@ import {
   categoricalSeries,
   type CategoricalOptionLike,
   type EChartsOptionLike,
+  type Series,
 } from "./categorical";
 import { pieOption } from "./pie";
+import { funnelOption, gaugeOption, treemapOption } from "./proportional";
 import { scatterOption } from "./scatter";
+
+/** Types whose ECharts option is built by the categorical (cartesian) path. */
+const CARTESIAN = new Set<VisualType>(["bar", "hbar", "line", "area", "combo"]);
+
+/** Types drawn from the DOM rather than ECharts. */
+const DOM_RENDERED = new Set<VisualType>([
+  "table",
+  "matrix",
+  "kpi",
+  "multiCard",
+  "slicer",
+]);
 
 function fieldName(ref: string): string {
   return ref.split(".", 2)[1] ?? ref;
@@ -17,18 +31,29 @@ function fieldName(ref: string): string {
 export function visualTitle(visual: Visual): string {
   if (visual.title) return visual.title;
   const type = visual.type as VisualType;
-  if (type === "kpi") return fieldName((visual.wells.value ?? [])[0] ?? "");
+  if (type === "kpi" || type === "gauge") {
+    return fieldName((visual.wells.value ?? [])[0] ?? "");
+  }
+  if (type === "slicer") return fieldName((visual.wells.field ?? [])[0] ?? "");
   if (type === "scatter") {
     const x = fieldName((visual.wells.x ?? [])[0] ?? "");
     const y = fieldName((visual.wells.y ?? [])[0] ?? "");
     return x && y ? `${y} against ${x}` : "";
   }
-  if (type === "pie") {
+  if (type === "pie" || type === "donut" || type === "treemap" || type === "funnel") {
     const value = fieldName((visual.wells.values ?? [])[0] ?? "");
     const legend = fieldName((visual.wells.legend ?? [])[0] ?? "");
     return value && legend ? `${value} by ${legend}` : value;
   }
   if (type === "table") return "Table";
+  if (type === "multiCard") {
+    return (visual.wells.metrics ?? []).map(fieldName).join(", ");
+  }
+  if (type === "matrix") {
+    const values = (visual.wells.values ?? []).map(fieldName).join(", ");
+    const rows = fieldName((visual.wells.rows ?? [])[0] ?? "");
+    return rows ? `${values} by ${rows}` : values;
+  }
   const values = (visual.wells.values ?? []).map(fieldName).join(", ");
   const axis = fieldName((visual.wells.axis ?? [])[0] ?? "");
   return axis ? `${values} by ${axis}` : values;
@@ -40,13 +65,29 @@ export function buildVisualOption(
   result: QueryResponse,
 ): EChartsOptionLike | null {
   const type = visual.type as VisualType;
-  if (type === "table" || type === "kpi") return null;
+  if (DOM_RENDERED.has(type)) return null;
+  // Donut is a pie with a hole; keeping it a distinct type is a gallery
+  // decision, not a rendering one.
   if (type === "pie") return pieOption(visual, result);
+  if (type === "donut") {
+    return pieOption({ ...visual, options: { ...visual.options, donut: true } }, result);
+  }
+  if (type === "treemap") return treemapOption(visual, result);
+  if (type === "funnel") return funnelOption(visual, result);
+  if (type === "gauge") return gaugeOption(visual, result);
   if (type === "scatter") return scatterOption(visual, result);
+  if (!CARTESIAN.has(type)) return null;
 
   const { categories, series } = categoricalSeries(visual, result);
   if (series.length === 0) return null;
-  const stacked = type !== "line" && visual.options.stacked === true;
+  const stackable = type !== "line" && type !== "combo";
+  const stacked100 = stackable && visual.options.stacked100 === true;
+  const stacked = stacked100 || (stackable && visual.options.stacked === true);
+  const horizontal = type === "hbar";
+  // How many leading series come from the Column values well; the rest were
+  // read from Line values and are drawn as lines. Only `combo` splits them.
+  const columnCount =
+    type === "combo" ? (visual.wells.values ?? []).length : series.length;
 
   // The one remaining cast in this module (per the type comment in
   // categorical.ts): CategoricalSeriesItemLike requires lineStyle so line's
@@ -55,20 +96,39 @@ export function buildVisualOption(
   // pie's xAxis/yAxis, which ECharts renders as visible empty components if
   // present at all. That asymmetry is why pie/scatter need no cast but this
   // categorical branch still does.
+  // 100% stacking is a rescale of the data, not an ECharts flag: each point
+  // becomes its share of that category's total. Done here so the axis, the
+  // tooltip and the exported numbers all agree on what is being drawn.
+  const drawn = stacked100 ? toPercentages(series) : series;
+
+  const categoryAxis = axisChrome.categoryAxis(categories);
+  const valueAxis = stacked100
+    ? { ...axisChrome.valueAxis(), max: 100, axisLabel: { formatter: "{value}%" } }
+    : axisChrome.valueAxis();
+
   return {
     backgroundColor: "transparent",
-    grid: axisChrome.grid(series.length > 1),
-    tooltip: { trigger: "axis", axisPointer: { type: type === "bar" ? "shadow" : "line" } },
-    legend: axisChrome.legend(series.length),
-    xAxis: axisChrome.categoryAxis(categories),
-    yAxis: axisChrome.valueAxis(),
-    series: series.map((s) => {
+    grid: axisChrome.grid(drawn.length > 1),
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: type === "line" ? "line" : "shadow" },
+    },
+    legend: axisChrome.legend(drawn.length),
+    // A horizontal bar is the same chart with its axes exchanged: the
+    // categories run down the y axis and the measure along the x.
+    xAxis: horizontal ? valueAxis : categoryAxis,
+    yAxis: horizontal ? categoryAxis : valueAxis,
+    series: drawn.map((s, i) => {
       const color = axisChrome.color(s.colorIndex);
-      if (type === "bar") {
+      const asColumn = type === "bar" || type === "hbar" || (type === "combo" && i < columnCount);
+      if (asColumn) {
         return {
           name: s.name, type: "bar", data: s.data, barGap: "10%",
           ...(stacked ? { stack: "total" } : {}),
-          itemStyle: { color, borderRadius: [4, 4, 0, 0] },
+          itemStyle: {
+            color,
+            borderRadius: horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0],
+          },
         };
       }
       return {
@@ -79,4 +139,21 @@ export function buildVisualOption(
       };
     }),
   } as unknown as CategoricalOptionLike;
+}
+
+/** Restate each series as its percentage share of its category's total.
+ *  A category whose series sum to zero stays null rather than becoming a
+ *  division by zero drawn as NaN. */
+function toPercentages(series: Series[]): Series[] {
+  const length = series[0]?.data.length ?? 0;
+  const totals: number[] = [];
+  for (let i = 0; i < length; i++) {
+    totals[i] = series.reduce((sum, s) => sum + (s.data[i] ?? 0), 0);
+  }
+  return series.map((s) => ({
+    ...s,
+    data: s.data.map((value, i) =>
+      value === null || !totals[i] ? null : (value / totals[i]) * 100,
+    ),
+  }));
 }

@@ -1,7 +1,23 @@
 // Mirrors backend/app/reports/catalog.py. Both files are covered by tests
 // asserting the same rules, so they cannot drift apart silently.
 
-export type VisualType = "bar" | "line" | "area" | "pie" | "scatter" | "table" | "kpi";
+export type VisualType =
+  | "bar"
+  | "hbar"
+  | "line"
+  | "area"
+  | "combo"
+  | "pie"
+  | "donut"
+  | "treemap"
+  | "funnel"
+  | "gauge"
+  | "scatter"
+  | "table"
+  | "matrix"
+  | "kpi"
+  | "multiCard"
+  | "slicer";
 export type FieldKind = "dimension" | "metric";
 
 // Mirrors MAX_PAGES / MAX_VISUALS in backend/app/reports/schema.py. Enforced
@@ -31,17 +47,39 @@ const CATEGORICAL: WellSpec[] = [
   { key: "values", label: "Values", kind: "metric", min: 1, max: null },
 ];
 
+/** One categorical dimension against one measure — pie, donut, treemap, funnel. */
+const ONE_BY_ONE: WellSpec[] = [
+  { key: "legend", label: "Legend", kind: "dimension", min: 1, max: 1 },
+  { key: "values", label: "Values", kind: "metric", min: 1, max: 1 },
+];
+
+const STACKING = ["stacked", "stacked100"];
+
 export const CATALOG: Record<VisualType, VisualSpec> = {
-  bar: { type: "bar", label: "Bar", glyph: "▦", wells: CATEGORICAL, options: ["stacked"] },
+  bar: { type: "bar", label: "Column", glyph: "▥", wells: CATEGORICAL, options: STACKING },
+  hbar: { type: "hbar", label: "Bar", glyph: "▤", wells: CATEGORICAL, options: STACKING },
   line: { type: "line", label: "Line", glyph: "📈", wells: CATEGORICAL, options: [] },
-  area: { type: "area", label: "Area", glyph: "▨", wells: CATEGORICAL, options: ["stacked"] },
-  pie: {
-    type: "pie", label: "Pie", glyph: "◕",
+  area: { type: "area", label: "Area", glyph: "▨", wells: CATEGORICAL, options: STACKING },
+  combo: {
+    type: "combo", label: "Line and column", glyph: "⎍",
     wells: [
-      { key: "legend", label: "Legend", kind: "dimension", min: 1, max: 1 },
-      { key: "values", label: "Values", kind: "metric", min: 1, max: 1 },
+      { key: "axis", label: "Axis", kind: "dimension", min: 1, max: 1 },
+      { key: "values", label: "Column values", kind: "metric", min: 1, max: null },
+      { key: "lineValues", label: "Line values", kind: "metric", min: 0, max: null },
     ],
-    options: ["donut"],
+    options: [],
+  },
+  pie: { type: "pie", label: "Pie", glyph: "◕", wells: ONE_BY_ONE, options: ["donut"] },
+  donut: { type: "donut", label: "Donut", glyph: "◍", wells: ONE_BY_ONE, options: [] },
+  treemap: { type: "treemap", label: "Treemap", glyph: "▦", wells: ONE_BY_ONE, options: [] },
+  funnel: { type: "funnel", label: "Funnel", glyph: "⧨", wells: ONE_BY_ONE, options: [] },
+  gauge: {
+    type: "gauge", label: "Gauge", glyph: "◑",
+    wells: [
+      { key: "value", label: "Value", kind: "metric", min: 1, max: 1 },
+      { key: "target", label: "Target", kind: "metric", min: 0, max: 1 },
+    ],
+    options: [],
   },
   scatter: {
     type: "scatter", label: "Scatter", glyph: "⁘",
@@ -60,10 +98,32 @@ export const CATALOG: Record<VisualType, VisualSpec> = {
     ],
     options: [],
   },
+  matrix: {
+    type: "matrix", label: "Matrix", glyph: "⊞",
+    wells: [
+      { key: "rows", label: "Rows", kind: "dimension", min: 1, max: null },
+      { key: "columns", label: "Columns", kind: "dimension", min: 0, max: 1 },
+      { key: "values", label: "Values", kind: "metric", min: 1, max: null },
+    ],
+    options: ["subtotals"],
+  },
   kpi: {
-    type: "kpi", label: "KPI card", glyph: "Σ",
+    type: "kpi", label: "Card", glyph: "Σ",
     wells: [{ key: "value", label: "Value", kind: "metric", min: 1, max: 1 }],
     options: ["format"],
+  },
+  multiCard: {
+    type: "multiCard", label: "Multi-row card", glyph: "▤",
+    wells: [
+      { key: "dimensions", label: "Fields", kind: "dimension", min: 0, max: null },
+      { key: "metrics", label: "Values", kind: "metric", min: 1, max: null },
+    ],
+    options: ["format"],
+  },
+  slicer: {
+    type: "slicer", label: "Slicer", glyph: "⛃",
+    wells: [{ key: "field", label: "Field", kind: "dimension", min: 1, max: 1 }],
+    options: ["multiSelect"],
   },
 };
 

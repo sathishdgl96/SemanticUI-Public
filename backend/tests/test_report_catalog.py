@@ -7,8 +7,44 @@ from app.reports.catalog import (
 )
 
 
-def test_catalog_contains_the_core_seven():
-    assert set(CATALOG) == {"bar", "line", "area", "pie", "scatter", "table", "kpi"}
+def test_catalog_offers_the_full_gallery():
+    assert set(CATALOG) == {
+        "bar", "hbar", "line", "area", "combo",
+        "pie", "donut", "treemap", "funnel", "gauge",
+        "scatter", "table", "matrix", "kpi", "multiCard", "slicer",
+    }
+
+
+def test_every_type_declares_wells_and_a_label():
+    for name, spec in CATALOG.items():
+        assert spec.wells, f"{name} has no wells"
+        assert spec.label, f"{name} has no label"
+        assert spec.type == name
+
+
+def test_combo_maps_both_measure_wells_columns_first():
+    dims, mets = wells_to_query(
+        "combo",
+        {"axis": ["A.DATE"], "values": ["A.REV"], "lineValues": ["A.MARGIN"]},
+    )
+    assert dims == ["A.DATE"]
+    assert mets == ["A.REV", "A.MARGIN"]
+
+
+def test_matrix_maps_rows_then_columns():
+    dims, mets = wells_to_query(
+        "matrix",
+        {"rows": ["C.REGION"], "columns": ["C.SEGMENT"], "values": ["A.REV"]},
+    )
+    assert dims == ["C.REGION", "C.SEGMENT"]
+    assert mets == ["A.REV"]
+
+
+def test_a_slicer_has_a_dimension_and_no_measure():
+    dims, mets = wells_to_query("slicer", {"field": ["C.REGION"]})
+    assert dims == ["C.REGION"]
+    assert mets == []
+    assert validate_wells("slicer", {"field": []})
 
 
 def test_bar_maps_axis_and_legend_to_dimensions():

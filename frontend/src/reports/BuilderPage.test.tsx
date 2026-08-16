@@ -235,9 +235,9 @@ describe("BuilderPage", () => {
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
     await userEvent.click(screen.getByRole("button", { name: "select v1" }));
-    // A KPI card has one metric well and no dimension well at all, so the
+    // A card has one metric well and no dimension well at all, so the
     // dimension genuinely has nowhere to go.
-    await userEvent.click(screen.getByRole("button", { name: /kpi card/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^card$/i }));
     expect(await screen.findByText(/has no room for C\.REGION/i)).toBeInTheDocument();
   });
 

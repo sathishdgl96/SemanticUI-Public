@@ -2,7 +2,14 @@
 // React-free: what a visual's effective filter set IS can then be asserted
 // directly, without rendering anything.
 
-import type { Filter, Hierarchy, Page, SheetRequest, Visual } from "../api/types";
+import type {
+  Filter,
+  Hierarchy,
+  IsFilter,
+  Page,
+  SheetRequest,
+  Visual,
+} from "../api/types";
 
 /** A well entry of this shape stands in for a whole drill path, not a field.
  *  Mirrors HIERARCHY_PREFIX in backend/app/reports/catalog.py. */
@@ -29,8 +36,32 @@ export interface CrossFilter {
   value: string;
 }
 
+/** Turn ticked slicer values into filters.
+ *
+ *  `exceptField` is the field of the slicer asking: a slicer must not filter
+ *  itself, or ticking one value would hide every other option and leave no
+ *  way back. Empty selections are skipped, so an untouched slicer constrains
+ *  nothing -- the same rule `isActive` applies to half-built filters. */
+export function slicerFiltersFrom(
+  selections: Record<string, string[]>,
+  exceptField = "",
+): Filter[] {
+  return Object.entries(selections)
+    .filter(([field, values]) => field !== exceptField && values.length > 0)
+    .map(([field, values]) => ({
+      // Derived from the field, not random: this id lands in the query key,
+      // and a fresh one each render would defeat caching entirely.
+      id: `slicer:${field}`,
+      field,
+      op: "is" as const,
+      values,
+    }));
+}
+
 export function hierarchyIdOf(ref: string): string | null {
-  return ref.startsWith(HIERARCHY_PREFIX) ? ref.slice(HIERARCHY_PREFIX.length) : null;
+  return ref.startsWith(HIERARCHY_PREFIX)
+    ? ref.slice(HIERARCHY_PREFIX.length)
+    : null;
 }
 
 export function hierarchyById(
@@ -98,7 +129,8 @@ export function drillFilters(drill: DrillState | undefined): Filter[] {
  *  every tile on the report. Mirrors `is_active` in
  *  backend/app/reports/filters.py. */
 export function isActive(filter: Filter): boolean {
-  if (filter.op === "is" || filter.op === "isNot") return filter.values.length > 0;
+  if (filter.op === "is" || filter.op === "isNot")
+    return filter.values.length > 0;
   // Compared against "" rather than tested for truthiness: 0 is a real bound.
   if (filter.op === "between") return filter.from !== "" && filter.to !== "";
   return true;
@@ -110,12 +142,15 @@ export function isActive(filter: Filter): boolean {
 export function effectiveFilters({
   reportFilters,
   pageFilters = [],
+  slicerFilters = [],
   visual,
   drill,
   crossFilter,
 }: {
   reportFilters: Filter[];
   pageFilters?: Filter[];
+  /** On-canvas slicer selections. Ephemeral, like drill and cross-filter. */
+  slicerFilters?: Filter[];
   visual: Visual;
   drill?: DrillState;
   crossFilter?: CrossFilter | null;
@@ -123,6 +158,7 @@ export function effectiveFilters({
   const composed: Filter[] = [
     ...reportFilters,
     ...pageFilters,
+    ...slicerFilters,
     ...(visual.filters ?? []),
     ...drillFilters(drill),
     // Filtered at the end so an unfinished filter never reaches the API, and
@@ -165,7 +201,9 @@ export function describeFilter(filter: Filter): string {
   }
   const verb = filter.op === "is" ? "is" : "is not";
   const what =
-    filter.values.length === 1 ? filter.values[0] : `${filter.values.length} values`;
+    filter.values.length === 1
+      ? filter.values[0]
+      : `${filter.values.length} values`;
   return `${filter.field} ${verb} ${what}`;
 }
 
@@ -184,6 +222,7 @@ export function newFilterId(): string {
 export function sheetRequestsFor({
   pages,
   reportFilters,
+  slicerSelections = {},
   hierarchies,
   drill,
   crossFilter,
@@ -192,6 +231,8 @@ export function sheetRequestsFor({
 }: {
   pages: Page[];
   reportFilters: Filter[];
+  /** Ticked slicer values. Included so an export matches the screen. */
+  slicerSelections?: Record<string, string[]>;
   hierarchies: Hierarchy[];
   drill: Record<string, DrillState>;
   crossFilter: CrossFilter | null;
@@ -205,41 +246,60 @@ export function sheetRequestsFor({
   // Cross-filtering is page-local, as it is in PowerBI: a selection made on
   // one page must not silently constrain a sheet taken from another.
   const sourcePage = crossFilter
-    ? pages.find((p) => p.visuals.some((v) => v.id === crossFilter.sourceVisualId))
+    ? pages.find((p) =>
+        p.visuals.some((v) => v.id === crossFilter.sourceVisualId),
+      )
     : undefined;
+
+  const sliced = slicerFiltersFrom(slicerSelections);
 
   return pages.flatMap((page) => {
     const pageCross = page === sourcePage ? crossFilter : null;
-    return page.visuals.map((visual) => {
-      const own = drill[visual.id];
-      const wells = resolveWells(visual.wells, hierarchies, own);
-      const { dimensions, metrics } = wellsToQuery(visual.type, wells);
+    // Slicers only constrain the page they sit on, exactly as they do on
+    // screen -- a sheet from another page must not inherit their ticks.
+    const pageSlicers = page.visuals.some((v) => v.type === "slicer")
+      ? sliced
+      : [];
+    return page.visuals
+      .filter((visual) => visual.type !== "slicer")
+      .map((visual) => {
+        const own = drill[visual.id];
+        const wells = resolveWells(visual.wells, hierarchies, own);
+        const { dimensions, metrics } = wellsToQuery(visual.type, wells);
 
-      const context: string[] = [];
-      // Only worth saying when there is more than one page to be on.
-      if (multi) context.push(`Page: ${page.name}`);
-      if (own?.path.length) {
-        context.push(`Drilled into ${own.path.map((s) => s.value).join(" > ")}`);
-      }
-      if (pageCross && pageCross.sourceVisualId !== visual.id) {
-        context.push(`Filtered by ${pageCross.field} = ${pageCross.value}`);
-      }
+        const context: string[] = [];
+        // Only worth saying when there is more than one page to be on.
+        if (multi) context.push(`Page: ${page.name}`);
+        if (own?.path.length) {
+          context.push(
+            `Drilled into ${own.path.map((s) => s.value).join(" > ")}`,
+          );
+        }
+        if (pageCross && pageCross.sourceVisualId !== visual.id) {
+          context.push(`Filtered by ${pageCross.field} = ${pageCross.value}`);
+        }
+        for (const f of pageSlicers) {
+          context.push(
+            `Sliced by ${f.field} = ${(f as IsFilter).values.join(", ")}`,
+          );
+        }
 
-      const title = titleOf(visual, wells);
-      return {
-        title: multi ? `${page.name} — ${title}` : title,
-        dimensions,
-        metrics,
-        filters: effectiveFilters({
-          reportFilters,
-          pageFilters: page.filters,
-          visual,
-          drill: own,
-          crossFilter: pageCross,
-        }),
-        orderBy: [],
-        context: context.join("; "),
-      };
-    });
+        const title = titleOf(visual, wells);
+        return {
+          title: multi ? `${page.name} — ${title}` : title,
+          dimensions,
+          metrics,
+          filters: effectiveFilters({
+            reportFilters,
+            pageFilters: page.filters,
+            slicerFilters: pageSlicers,
+            visual,
+            drill: own,
+            crossFilter: pageCross,
+          }),
+          orderBy: [],
+          context: context.join("; "),
+        };
+      });
   });
 }

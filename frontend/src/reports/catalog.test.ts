@@ -8,10 +8,64 @@ import {
 } from "./catalog";
 
 describe("visual catalog", () => {
-  it("contains the core seven", () => {
-    expect(Object.keys(CATALOG).sort()).toEqual(
-      ["area", "bar", "kpi", "line", "pie", "scatter", "table"],
-    );
+  it("offers the full gallery", () => {
+    expect(Object.keys(CATALOG).sort()).toEqual([
+      "area",
+      "bar",
+      "combo",
+      "donut",
+      "funnel",
+      "gauge",
+      "hbar",
+      "kpi",
+      "line",
+      "matrix",
+      "multiCard",
+      "pie",
+      "scatter",
+      "slicer",
+      "table",
+      "treemap",
+    ]);
+  });
+
+  it("gives every type at least one well of a kind it can be built from", () => {
+    // A type with no well at all could be added from the gallery and then
+    // never accept a field, which reads as a broken tile rather than an
+    // empty one.
+    for (const [type, spec] of Object.entries(CATALOG)) {
+      expect(spec.wells.length, `${type} has no wells`).toBeGreaterThan(0);
+      expect(spec.label, `${type} has no label`).toBeTruthy();
+      expect(spec.glyph, `${type} has no glyph`).toBeTruthy();
+    }
+  });
+
+  it("maps combo's two measure wells into one metric list, columns first", () => {
+    expect(
+      wellsToQuery("combo", {
+        axis: ["A.DATE"],
+        values: ["A.REV"],
+        lineValues: ["A.MARGIN"],
+      }),
+    ).toEqual({ dimensions: ["A.DATE"], metrics: ["A.REV", "A.MARGIN"] });
+  });
+
+  it("treats a matrix as rows then columns, then its measures", () => {
+    expect(
+      wellsToQuery("matrix", {
+        rows: ["C.REGION"],
+        columns: ["C.SEGMENT"],
+        values: ["A.REV"],
+      }),
+    ).toEqual({ dimensions: ["C.REGION", "C.SEGMENT"], metrics: ["A.REV"] });
+  });
+
+  it("gives a slicer one dimension well and no measure", () => {
+    expect(wellsToQuery("slicer", { field: ["C.REGION"] })).toEqual({
+      dimensions: ["C.REGION"],
+      metrics: [],
+    });
+    expect(validateWells("slicer", { field: [] })[0]).toMatch(/at least 1/);
   });
 
   it("maps bar wells to dimensions then metrics", () => {
