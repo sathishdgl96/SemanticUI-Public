@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Filter, Hierarchy, Visual } from "../api/types";
+import type { Filter, Hierarchy, Page, Visual } from "../api/types";
 import {
   canDrillDown,
   currentLevel,
@@ -279,6 +279,12 @@ describe("effectiveFilters drops unfinished filters", () => {
 });
 
 describe("sheetRequestsFor", () => {
+  const page = (visuals: Visual[], filters: Filter[] = [], name = "Page 1"): Page => ({
+    id: "p1",
+    name,
+    visuals,
+    filters,
+  });
   const wellsToQuery = (_type: string, wells: Record<string, string[]>) => ({
     dimensions: wells.axis ?? [],
     metrics: wells.values ?? [],
@@ -287,7 +293,7 @@ describe("sheetRequestsFor", () => {
 
   it("produces one sheet per visual", () => {
     const sheets = sheetRequestsFor({
-      visuals: [visual({ id: "v1", title: "A" }), visual({ id: "v2", title: "B" })],
+      pages: [page([visual({ id: "v1", title: "A" }), visual({ id: "v2", title: "B" })])],
       reportFilters: [],
       hierarchies: [],
       drill: {},
@@ -301,12 +307,14 @@ describe("sheetRequestsFor", () => {
   it("carries the drilled level and names the path in context", () => {
     // The export must match the screen it was taken from.
     const sheets = sheetRequestsFor({
-      visuals: [
-        visual({
-          id: "v1",
-          title: "Geo",
-          wells: { axis: ["hierarchy:h1"], legend: [], values: ["ORDERS.TOTAL"] },
-        }),
+      pages: [
+        page([
+          visual({
+            id: "v1",
+            title: "Geo",
+            wells: { axis: ["hierarchy:h1"], legend: [], values: ["ORDERS.TOTAL"] },
+          }),
+        ]),
       ],
       reportFilters: [],
       hierarchies: [GEO],
@@ -324,7 +332,9 @@ describe("sheetRequestsFor", () => {
 
   it("does not apply a cross-filter to the visual it came from", () => {
     const sheets = sheetRequestsFor({
-      visuals: [visual({ id: "v1", title: "Source" }), visual({ id: "v2", title: "Other" })],
+      pages: [
+        page([visual({ id: "v1", title: "Source" }), visual({ id: "v2", title: "Other" })]),
+      ],
       reportFilters: [],
       hierarchies: [],
       drill: {},
@@ -340,7 +350,7 @@ describe("sheetRequestsFor", () => {
 
   it("carries report-scope filters onto every sheet", () => {
     const sheets = sheetRequestsFor({
-      visuals: [visual({ id: "v1", title: "A" })],
+      pages: [page([visual({ id: "v1", title: "A" })])],
       reportFilters: [REGION_IS_EAST],
       hierarchies: [],
       drill: {},

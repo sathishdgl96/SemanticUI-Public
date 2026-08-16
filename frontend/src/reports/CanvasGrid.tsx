@@ -22,6 +22,7 @@ interface Props {
   onLayoutChange: (next: Record<string, VisualLayout>) => void;
   readOnly?: boolean;
   reportFilters?: Filter[];
+  pageFilters?: Filter[];
   hierarchies?: Hierarchy[];
   /** Drill position per visual id. Ephemeral -- see DrillState. */
   drill?: Record<string, DrillState>;
@@ -46,7 +47,7 @@ function useMeasuredWidth() {
 
 export default function CanvasGrid({
   visuals, canvas, view, selectedId, onSelect, onLayoutChange, readOnly = false,
-  reportFilters = [], hierarchies = [], drill = {}, onDrill,
+  reportFilters = [], pageFilters = [], hierarchies = [], drill = {}, onDrill,
   crossFilter = null, onCrossFilter,
 }: Props) {
   const { ref, width } = useMeasuredWidth();
@@ -92,6 +93,7 @@ export default function CanvasGrid({
               selected={selectedId === visual.id}
               onSelect={onSelect}
               reportFilters={reportFilters}
+              pageFilters={pageFilters}
               hierarchies={hierarchies}
               drill={drill[visual.id]}
               onDrill={onDrill ? (next) => onDrill(visual.id, next) : undefined}

@@ -26,6 +26,7 @@ interface Props {
   selected: boolean;
   onSelect: (id: string) => void;
   reportFilters?: Filter[];
+  pageFilters?: Filter[];
   hierarchies?: Hierarchy[];
   drill?: DrillState;
   onDrill?: (next: DrillState | undefined) => void;
@@ -52,6 +53,7 @@ export default function VisualTile({
   selected,
   onSelect,
   reportFilters = [],
+  pageFilters = [],
   hierarchies = [],
   drill,
   onDrill,
@@ -60,6 +62,7 @@ export default function VisualTile({
 }: Props) {
   const { problems, ready, wells, query } = useVisualQuery(view, visual, {
     reportFilters,
+    pageFilters,
     hierarchies,
     drill,
     crossFilter,

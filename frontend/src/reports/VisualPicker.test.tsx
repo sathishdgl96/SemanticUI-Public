@@ -26,13 +26,50 @@ describe("VisualPicker", () => {
 });
 
 describe("changeVisualType", () => {
-  it("keeps wells the new type still has, and reports the rest", () => {
+  it("carries the fields into the new type's wells by kind", () => {
+    // Bar's Axis holds a dimension and Values a metric; pie's wells are named
+    // differently (Legend/Values) but want exactly the same two kinds, so
+    // nothing should be lost just because the keys disagree.
     const { visual: next, dropped } = changeVisualType(visual, "pie");
-    // pie has legend + values; axis does not survive.
     expect(next.type).toBe("pie");
+    expect(next.wells.legend).toEqual(["C.REGION"]);
     expect(next.wells.values).toEqual(["A.REV"]);
-    expect(next.wells.legend).toEqual([]);
-    expect(dropped).toContain("Axis");
+    expect(dropped).toEqual([]);
+  });
+
+  it("keeps every field when switching to a type with roomier wells", () => {
+    const wide: Visual = {
+      ...visual,
+      wells: { axis: ["C.REGION"], legend: ["C.SEGMENT"], values: ["A.REV", "A.COST"] },
+    };
+    const { visual: next, dropped } = changeVisualType(wide, "table");
+    // Table's wells are unbounded, so a switch there can never lose anything.
+    expect(next.wells.dimensions).toEqual(["C.REGION", "C.SEGMENT"]);
+    expect(next.wells.metrics).toEqual(["A.REV", "A.COST"]);
+    expect(dropped).toEqual([]);
+  });
+
+  it("fills wells in catalog order so the first field stays first", () => {
+    const wide: Visual = {
+      ...visual,
+      type: "table",
+      wells: { dimensions: ["C.REGION", "C.SEGMENT"], metrics: ["A.REV"] },
+    };
+    const { visual: next } = changeVisualType(wide, "bar");
+    expect(next.wells.axis).toEqual(["C.REGION"]);
+    expect(next.wells.legend).toEqual(["C.SEGMENT"]);
+    expect(next.wells.values).toEqual(["A.REV"]);
+  });
+
+  it("names the refs that genuinely had nowhere to go", () => {
+    const wide: Visual = {
+      ...visual,
+      wells: { axis: ["C.REGION"], legend: [], values: ["A.REV", "A.COST"] },
+    };
+    // A KPI card has one metric well and no dimension well at all.
+    const { visual: next, dropped } = changeVisualType(wide, "kpi");
+    expect(next.wells.value).toEqual(["A.REV"]);
+    expect(dropped).toEqual(["C.REGION", "A.COST"]);
   });
 
   it("drops options the new type does not understand", () => {

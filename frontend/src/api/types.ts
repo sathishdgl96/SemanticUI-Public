@@ -180,12 +180,21 @@ export interface CanvasSettings {
   rowHeight: number;
 }
 
+export interface Page {
+  id: string;
+  name: string;
+  visuals: Visual[];
+  /** The page scope: applies to every visual on this page. */
+  filters: Filter[];
+}
+
 export interface ReportDefinition {
   schemaVersion: number;
   name: string;
   view: ViewRef;
   canvas: CanvasSettings;
-  visuals: Visual[];
+  pages: Page[];
+  /** The all-pages scope. Page and visual scopes live on their owners. */
   filters: Filter[];
   hierarchies: Hierarchy[];
 }

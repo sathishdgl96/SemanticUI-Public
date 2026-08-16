@@ -12,13 +12,13 @@ import { atLeast } from "../api/workspaces";
 
 function blankDefinition(name: string): ReportDefinition {
   return {
-    // Bumped with the backend. A v1 document would still be accepted --
+    // Bumped with the backend. An older document would still be accepted --
     // parse_definition migrates it -- but there is no reason to write one.
-    schemaVersion: 2,
+    schemaVersion: 3,
     name,
     view: { database: "", schema: "", name: "" },
     canvas: { columns: 12, rowHeight: 40 },
-    visuals: [],
+    pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
     filters: [],
     hierarchies: [],
   };

@@ -11,6 +11,8 @@ import {
 
 interface Options {
   reportFilters?: Filter[];
+  /** The scope of the page this visual sits on. */
+  pageFilters?: Filter[];
   hierarchies?: Hierarchy[];
   drill?: DrillState;
   crossFilter?: CrossFilter | null;
@@ -19,7 +21,13 @@ interface Options {
 /** One query per visual, so tiles render progressively and one slow visual
  *  cannot block the page. Disabled until the wells are actually valid. */
 export function useVisualQuery(view: ViewRef, visual: Visual, options: Options = {}) {
-  const { reportFilters = [], hierarchies = [], drill, crossFilter = null } = options;
+  const {
+    reportFilters = [],
+    pageFilters = [],
+    hierarchies = [],
+    drill,
+    crossFilter = null,
+  } = options;
   const type = visual.type as VisualType;
 
   // Hierarchy references resolve to a single field first: well validation and
@@ -29,7 +37,13 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
   const problems = validateWells(type, wells);
   const ready = problems.length === 0 && Boolean(view.name);
   const { dimensions, metrics } = wellsToQuery(type, wells);
-  const filters = effectiveFilters({ reportFilters, visual, drill, crossFilter });
+  const filters = effectiveFilters({
+    reportFilters,
+    pageFilters,
+    visual,
+    drill,
+    crossFilter,
+  });
 
   return {
     problems,

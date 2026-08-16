@@ -178,11 +178,11 @@ describe("ExplorerPage", () => {
       workspaceName: "My reports",
       myRole: "admin" as const,
       definition: {
-        schemaVersion: 1,
+        schemaVersion: 3,
         name: "My View",
         view: { database: "DB", schema: "SCH", name: "My View" },
         canvas: { columns: 12, rowHeight: 40 },
-        visuals: [],
+        pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
         filters: [],
         hierarchies: [],
       },
@@ -206,8 +206,8 @@ describe("ExplorerPage", () => {
     await waitFor(() => expect(createReportMock).toHaveBeenCalledTimes(1));
     const [definition] = createReportMock.mock.calls[0];
     expect(definition.view).toEqual({ database: "DB", schema: "SCH", name: "My View" });
-    expect(definition.visuals).toHaveLength(1);
-    expect(definition.visuals[0]).toMatchObject({
+    expect(definition.pages[0].visuals).toHaveLength(1);
+    expect(definition.pages[0].visuals[0]).toMatchObject({
       type: "bar",
       layout: { x: 0, y: 0, w: 6, h: 6 },
       wells: { axis: ["T.REGION"], legend: [], values: ["T.REVENUE"] },

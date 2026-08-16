@@ -76,16 +76,23 @@ const detail = {
   workspaceName: "My reports",
   myRole: "admin" as const,
   definition: {
-    schemaVersion: 1,
+    schemaVersion: 3,
     name: "Sales overview",
     view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
     canvas: { columns: 12, rowHeight: 40 },
-    visuals: [
+    pages: [
       {
-        id: "v1", type: "bar", title: "",
-        layout: { x: 0, y: 0, w: 6, h: 6 },
-        wells: { axis: ["C.REGION"], legend: [], values: ["A.REV"] },
-        options: {},
+        id: "p1",
+        name: "Page 1",
+        visuals: [
+          {
+            id: "v1", type: "bar", title: "",
+            layout: { x: 0, y: 0, w: 6, h: 6 },
+            wells: { axis: ["C.REGION"], legend: [], values: ["A.REV"] },
+            options: {},
+            filters: [],
+          },
+        ],
         filters: [],
       },
     ],
@@ -106,11 +113,11 @@ const detail2 = {
   workspaceName: "My reports",
   myRole: "admin" as const,
   definition: {
-    schemaVersion: 1,
+    schemaVersion: 3,
     name: "Marketing overview",
     view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
     canvas: { columns: 12, rowHeight: 40 },
-    visuals: [],
+    pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
     filters: [],
     hierarchies: [],
   },
@@ -166,7 +173,7 @@ describe("BuilderPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const [, savedDefinition] = updateMock.mock.calls[0];
-    expect(savedDefinition.visuals[0].wells.axis).toEqual([]);
+    expect(savedDefinition.pages[0].visuals[0].wells.axis).toEqual([]);
   });
 
   it("prompts to pick a semantic view for a brand-new, unbound report", async () => {
@@ -182,11 +189,11 @@ describe("BuilderPage", () => {
       view: { database: "", schema: "", name: "" },
       updatedAt: "2026-08-15T10:00:00+00:00",
       definition: {
-        schemaVersion: 1,
+        schemaVersion: 3,
         name: "Untitled report",
         view: { database: "", schema: "", name: "" },
         canvas: { columns: 12, rowHeight: 40 },
-        visuals: [],
+        pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
         filters: [],
         hierarchies: [],
       },
@@ -209,12 +216,29 @@ describe("BuilderPage", () => {
     expect(screen.getByRole("button", { name: /choose another view/i })).toBeInTheDocument();
   });
 
-  it("reports wells dropped by a type change", async () => {
+  it("carries the fields across a type change instead of emptying the visual", async () => {
+    // The whole point of the kind-based remap: bar's Axis dimension belongs
+    // in pie's Legend, even though the wells have different names.
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
     await userEvent.click(screen.getByRole("button", { name: "select v1" }));
     await userEvent.click(screen.getByRole("button", { name: /^pie$/i }));
-    expect(await screen.findByText(/axis/i)).toBeInTheDocument();
+
+    const legend = await screen.findByRole("region", { name: "Legend" });
+    expect(within(legend).getByText("C.REGION")).toBeInTheDocument();
+    const values = screen.getByRole("region", { name: "Values" });
+    expect(within(values).getByText("A.REV")).toBeInTheDocument();
+    expect(screen.queryByText(/has no room for/i)).not.toBeInTheDocument();
+  });
+
+  it("says what a narrower type had no room for", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+    // A KPI card has one metric well and no dimension well at all, so the
+    // dimension genuinely has nowhere to go.
+    await userEvent.click(screen.getByRole("button", { name: /kpi card/i }));
+    expect(await screen.findByText(/has no room for C\.REGION/i)).toBeInTheDocument();
   });
 
   it("shows an error instead of loading forever when the report fails to load", async () => {
@@ -421,7 +445,7 @@ describe("BuilderPage filters", () => {
     ).toBeInTheDocument();
   });
 
-  it("adding a report filter marks the report dirty and saves it", async () => {
+  it("adding a page filter marks the report dirty and saves it on that page", async () => {
     updateMock.mockResolvedValue(detail);
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
@@ -436,9 +460,29 @@ describe("BuilderPage filters", () => {
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const [, saved] = updateMock.mock.calls[0];
+    expect(saved.pages[0].filters).toEqual([
+      expect.objectContaining({ field: "C.REGION", op: "is", values: [] }),
+    ]);
+    // The page scope is not the all-pages scope.
+    expect(saved.filters).toEqual([]);
+  });
+
+  it("adding an all-pages filter saves it at report scope", async () => {
+    updateMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a filter on all pages/i),
+      "C.REGION",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls[0];
     expect(saved.filters).toEqual([
       expect.objectContaining({ field: "C.REGION", op: "is", values: [] }),
     ]);
+    expect(saved.pages[0].filters).toEqual([]);
   });
 
   it("does not offer a hierarchy until one is defined, then lists it", async () => {
@@ -570,7 +614,7 @@ describe("BuilderPage hierarchy placement", () => {
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const [, saved] = updateMock.mock.calls.at(-1)!;
-    expect(saved.visuals[0].wells.axis[0]).toMatch(/^hierarchy:/);
+    expect(saved.pages[0].visuals[0].wells.axis[0]).toMatch(/^hierarchy:/);
   });
 });
 
@@ -716,7 +760,10 @@ describe("BuilderPage PBI panes", () => {
     updateMock.mockResolvedValue(detail);
     getMock.mockResolvedValue({
       ...detail,
-      definition: { ...detail.definition, visuals: [] },
+      definition: {
+        ...detail.definition,
+        pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
+      },
     });
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
@@ -727,8 +774,8 @@ describe("BuilderPage PBI panes", () => {
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const [, saved] = updateMock.mock.calls.at(-1)!;
-    expect(saved.visuals).toHaveLength(1);
-    expect(saved.visuals[0].wells.axis).toEqual(["C.REGION"]);
+    expect(saved.pages[0].visuals).toHaveLength(1);
+    expect(saved.pages[0].visuals[0].wells.axis).toEqual(["C.REGION"]);
   });
 
   it("unchecking removes the field from the selected visual", async () => {
@@ -744,6 +791,145 @@ describe("BuilderPage PBI panes", () => {
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const [, saved] = updateMock.mock.calls.at(-1)!;
-    expect(saved.visuals[0].wells.axis).toEqual([]);
+    expect(saved.pages[0].visuals[0].wells.axis).toEqual([]);
+  });
+});
+
+describe("BuilderPage pages", () => {
+  // Two pages, each holding one visual, so "which page am I on" is visible
+  // from the canvas alone.
+  const twoPages = {
+    ...detail,
+    definition: {
+      ...detail.definition,
+      pages: [
+        detail.definition.pages[0],
+        {
+          id: "p2",
+          name: "Costs",
+          visuals: [
+            {
+              id: "v2",
+              type: "bar",
+              title: "Cost tile",
+              layout: { x: 0, y: 0, w: 6, h: 6 },
+              wells: { axis: ["C.REGION"], legend: [], values: ["A.COST"] },
+              options: {},
+              filters: [],
+            },
+          ],
+          filters: [],
+        },
+      ],
+    },
+  };
+
+  it("shows only the active page's visuals, and switches with the tab", async () => {
+    getMock.mockResolvedValue(twoPages);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    expect(screen.getByRole("button", { name: "select v1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "select v2" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Costs" }));
+    expect(await screen.findByRole("button", { name: "select v2" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "select v1" })).toBeNull();
+  });
+
+  it("clears the selection when switching pages", async () => {
+    getMock.mockResolvedValue(twoPages);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: "select v1" }));
+    expect(await screen.findByRole("region", { name: "Axis" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Costs" }));
+    // A selection belongs to the page it was made on.
+    expect(await screen.findByText(/select a visual/i)).toBeInTheDocument();
+  });
+
+  it("adds a page and puts a newly checked field's visual on it", async () => {
+    updateMock.mockResolvedValue(detail);
+    getMock.mockResolvedValue(twoPages);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: /new page/i }));
+    expect(await screen.findByRole("button", { name: "Page 3" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await userEvent.click(await screen.findByRole("checkbox", { name: "A.REV" }));
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.pages).toHaveLength(3);
+    // The new visual landed on the new page, and nowhere else.
+    expect(saved.pages[2].visuals).toHaveLength(1);
+    expect(saved.pages[0].visuals).toHaveLength(1);
+    expect(saved.pages[1].visuals).toHaveLength(1);
+  });
+
+  it("keeps a page filter on its own page", async () => {
+    updateMock.mockResolvedValue(detail);
+    getMock.mockResolvedValue(twoPages);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: "Costs" }));
+    await userEvent.selectOptions(
+      await screen.findByLabelText(/add a filter on this page/i),
+      "C.REGION",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.pages[1].filters).toHaveLength(1);
+    expect(saved.pages[0].filters).toEqual([]);
+  });
+
+  it("deletes a page and falls back to the first one", async () => {
+    updateMock.mockResolvedValue(detail);
+    getMock.mockResolvedValue(twoPages);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: "Costs" }));
+    await userEvent.click(screen.getByRole("button", { name: /page actions for costs/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /delete page/i }));
+
+    expect(screen.queryByRole("button", { name: "Costs" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "select v1" })).toBeInTheDocument();
+  });
+
+  it("duplicates a page with fresh visual ids", async () => {
+    updateMock.mockResolvedValue(detail);
+    getMock.mockResolvedValue(twoPages);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: /page actions for page 1/i }));
+    await userEvent.click(screen.getByRole("button", { name: /duplicate/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    expect(saved.pages.map((p: { name: string }) => p.name)).toEqual([
+      "Page 1",
+      "Duplicate of Page 1",
+      "Costs",
+    ]);
+    // Visual ids are unique across the whole report, so the copy minted a
+    // new one rather than colliding with its source.
+    const ids = saved.pages.flatMap((p: { visuals: { id: string }[] }) =>
+      p.visuals.map((v) => v.id),
+    );
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

@@ -1,5 +1,5 @@
 import type { Visual } from "../api/types";
-import { CATALOG, type VisualType } from "./catalog";
+import { CATALOG, type FieldKind, type VisualType } from "./catalog";
 
 interface Props {
   value: VisualType;
@@ -29,8 +29,18 @@ export default function VisualPicker({ value, onChange }: Props) {
   );
 }
 
-/** Switch a visual's type, carrying over what the new type can still hold.
- *  Returns the labels of any wells that had to be dropped so the UI can say so. */
+/** Switch a visual's type, carrying the fields over.
+ *
+ *  Matching is by KIND and position, not by well key. Keying on the name was
+ *  the old behaviour and it silently emptied the visual on most switches: no
+ *  chart type shares "axis" with `table` (which calls it "dimensions") or with
+ *  `kpi` (which has only "value"), so bar → table dropped every field the user
+ *  had placed. PowerBI refills the new type's wells from what you already had,
+ *  and so does this: dimensions go to dimension wells and metrics to metric
+ *  wells, in catalog order, each taking as many as it accepts.
+ *
+ *  Returns the refs that genuinely had nowhere to go, so the UI can name what
+ *  was lost rather than claiming a well label the user never sees. */
 export function changeVisualType(
   visual: Visual,
   nextType: VisualType,
@@ -39,21 +49,23 @@ export function changeVisualType(
   const from = CATALOG[visual.type as VisualType];
   const to = CATALOG[nextType];
 
-  const wells: Record<string, string[]> = {};
-  for (const well of to.wells) wells[well.key] = [];
-
-  const dropped: string[] = [];
+  // Read the outgoing wells in catalog order so the field the user thought of
+  // as "first" stays first -- an axis field must not arrive behind a legend one.
+  const queue: Record<FieldKind, string[]> = { dimension: [], metric: [] };
   for (const well of from.wells) {
-    const refs = visual.wells[well.key] ?? [];
-    if (refs.length === 0) continue;
-    const target = to.wells.find((w) => w.key === well.key && w.kind === well.kind);
-    if (!target) {
-      dropped.push(well.label);
-      continue;
+    for (const ref of visual.wells[well.key] ?? []) {
+      if (!queue[well.kind].includes(ref)) queue[well.kind].push(ref);
     }
-    wells[target.key] = target.max === null ? refs : refs.slice(0, target.max);
-    if (target.max !== null && refs.length > target.max) dropped.push(well.label);
   }
+
+  const wells: Record<string, string[]> = {};
+  for (const well of to.wells) {
+    const room = well.max === null ? queue[well.kind].length : well.max;
+    wells[well.key] = queue[well.kind].splice(0, room);
+  }
+
+  // Whatever is still queued had no well of its kind with room left.
+  const dropped = [...queue.dimension, ...queue.metric];
 
   const options = Object.fromEntries(
     Object.entries(visual.options).filter(([key]) => to.options.includes(key)),

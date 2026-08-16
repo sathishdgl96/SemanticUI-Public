@@ -2,7 +2,7 @@
 // React-free: what a visual's effective filter set IS can then be asserted
 // directly, without rendering anything.
 
-import type { Filter, Hierarchy, SheetRequest, Visual } from "../api/types";
+import type { Filter, Hierarchy, Page, SheetRequest, Visual } from "../api/types";
 
 /** A well entry of this shape stands in for a whole drill path, not a field.
  *  Mirrors HIERARCHY_PREFIX in backend/app/reports/catalog.py. */
@@ -104,21 +104,25 @@ export function isActive(filter: Filter): boolean {
   return true;
 }
 
-/** The composed filter set for one visual: report scope AND its own AND the
- *  drill path AND any active cross-filter. Intersection, in that order. */
+/** The composed filter set for one visual: all-pages scope AND its page's AND
+ *  its own AND the drill path AND any active cross-filter. Intersection, in
+ *  that order. */
 export function effectiveFilters({
   reportFilters,
+  pageFilters = [],
   visual,
   drill,
   crossFilter,
 }: {
   reportFilters: Filter[];
+  pageFilters?: Filter[];
   visual: Visual;
   drill?: DrillState;
   crossFilter?: CrossFilter | null;
 }): Filter[] {
   const composed: Filter[] = [
     ...reportFilters,
+    ...pageFilters,
     ...(visual.filters ?? []),
     ...drillFilters(drill),
     // Filtered at the end so an unfinished filter never reaches the API, and
@@ -178,7 +182,7 @@ export function newFilterId(): string {
  *  tile's own query, so an export can never quietly disagree with the screen
  *  it was taken from. */
 export function sheetRequestsFor({
-  visuals,
+  pages,
   reportFilters,
   hierarchies,
   drill,
@@ -186,7 +190,7 @@ export function sheetRequestsFor({
   titleOf,
   wellsToQuery,
 }: {
-  visuals: Visual[];
+  pages: Page[];
   reportFilters: Filter[];
   hierarchies: Hierarchy[];
   drill: Record<string, DrillState>;
@@ -197,26 +201,45 @@ export function sheetRequestsFor({
     wells: Record<string, string[]>,
   ) => { dimensions: string[]; metrics: string[] };
 }): SheetRequest[] {
-  return visuals.map((visual) => {
-    const own = drill[visual.id];
-    const wells = resolveWells(visual.wells, hierarchies, own);
-    const { dimensions, metrics } = wellsToQuery(visual.type, wells);
+  const multi = pages.length > 1;
+  // Cross-filtering is page-local, as it is in PowerBI: a selection made on
+  // one page must not silently constrain a sheet taken from another.
+  const sourcePage = crossFilter
+    ? pages.find((p) => p.visuals.some((v) => v.id === crossFilter.sourceVisualId))
+    : undefined;
 
-    const context: string[] = [];
-    if (own?.path.length) {
-      context.push(`Drilled into ${own.path.map((s) => s.value).join(" > ")}`);
-    }
-    if (crossFilter && crossFilter.sourceVisualId !== visual.id) {
-      context.push(`Filtered by ${crossFilter.field} = ${crossFilter.value}`);
-    }
+  return pages.flatMap((page) => {
+    const pageCross = page === sourcePage ? crossFilter : null;
+    return page.visuals.map((visual) => {
+      const own = drill[visual.id];
+      const wells = resolveWells(visual.wells, hierarchies, own);
+      const { dimensions, metrics } = wellsToQuery(visual.type, wells);
 
-    return {
-      title: titleOf(visual, wells),
-      dimensions,
-      metrics,
-      filters: effectiveFilters({ reportFilters, visual, drill: own, crossFilter }),
-      orderBy: [],
-      context: context.join("; "),
-    };
+      const context: string[] = [];
+      // Only worth saying when there is more than one page to be on.
+      if (multi) context.push(`Page: ${page.name}`);
+      if (own?.path.length) {
+        context.push(`Drilled into ${own.path.map((s) => s.value).join(" > ")}`);
+      }
+      if (pageCross && pageCross.sourceVisualId !== visual.id) {
+        context.push(`Filtered by ${pageCross.field} = ${pageCross.value}`);
+      }
+
+      const title = titleOf(visual, wells);
+      return {
+        title: multi ? `${page.name} — ${title}` : title,
+        dimensions,
+        metrics,
+        filters: effectiveFilters({
+          reportFilters,
+          pageFilters: page.filters,
+          visual,
+          drill: own,
+          crossFilter: pageCross,
+        }),
+        orderBy: [],
+        context: context.join("; "),
+      };
+    });
   });
 }

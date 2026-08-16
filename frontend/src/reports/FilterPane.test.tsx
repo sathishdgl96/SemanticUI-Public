@@ -26,9 +26,11 @@ const props = {
   view: VIEW,
   fields: FIELDS,
   reportFilters: [] as Filter[],
+  pageFilters: [] as Filter[],
   visualFilters: null as Filter[] | null,
   selectedVisualTitle: null as string | null,
   onChangeReport: () => {},
+  onChangePage: () => {},
   onChangeVisual: () => {},
 };
 
@@ -49,16 +51,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("FilterPane", () => {
-  it("says the report has no filters yet", () => {
+  it("says the page has no filters yet", () => {
     wrap(<FilterPane {...props} />);
     expect(screen.getByText(/no filters on this page/i)).toBeInTheDocument();
   });
 
-  it("adds a report-scope filter for a chosen field", async () => {
+  it("adds a page-scope filter for a chosen field", async () => {
+    const onChangePage = vi.fn();
+    wrap(<FilterPane {...props} onChangePage={onChangePage} />);
+    await userEvent.selectOptions(
+      screen.getByLabelText(/add a filter on this page/i),
+      "CUSTOMERS.REGION",
+    );
+    expect(onChangePage).toHaveBeenCalledWith([
+      expect.objectContaining({ field: "CUSTOMERS.REGION", op: "is", values: [] }),
+    ]);
+  });
+
+  it("adds an all-pages filter for a chosen field", async () => {
     const onChangeReport = vi.fn();
     wrap(<FilterPane {...props} onChangeReport={onChangeReport} />);
     await userEvent.selectOptions(
-      screen.getByLabelText(/add a filter on this page/i),
+      screen.getByLabelText(/add a filter on all pages/i),
       "CUSTOMERS.REGION",
     );
     expect(onChangeReport).toHaveBeenCalledWith([
@@ -66,11 +80,33 @@ describe("FilterPane", () => {
     ]);
   });
 
-  it("labels the two scopes distinctly", () => {
+  it("renders the three scopes in PowerBI order: visual, page, all pages", () => {
     wrap(
       <FilterPane
         {...props}
-        reportFilters={[
+        visualFilters={[]}
+        selectedVisualTitle="Revenue by region"
+      />,
+    );
+    expect(
+      screen.getAllByRole("heading", { level: 4 }).map((h) => h.textContent),
+    ).toEqual([
+      'Filters on "Revenue by region"',
+      "Filters on this page",
+      "Filters on all pages",
+    ]);
+  });
+
+  it("exposes the page scope as its own drop target", () => {
+    wrap(<FilterPane {...props} />);
+    expect(screen.getByTestId("filter-drop-page")).toBeInTheDocument();
+  });
+
+  it("labels the scopes distinctly", () => {
+    wrap(
+      <FilterPane
+        {...props}
+        pageFilters={[
           { id: "f1", field: "CUSTOMERS.REGION", op: "is", values: ["EAST"] },
         ]}
         visualFilters={[]}
@@ -91,25 +127,25 @@ describe("FilterPane", () => {
   });
 
   it("removes a filter", async () => {
-    const onChangeReport = vi.fn();
+    const onChangePage = vi.fn();
     wrap(
       <FilterPane
         {...props}
-        reportFilters={[
+        pageFilters={[
           { id: "f1", field: "CUSTOMERS.REGION", op: "is", values: ["EAST"] },
         ]}
-        onChangeReport={onChangeReport}
+        onChangePage={onChangePage}
       />,
     );
     await userEvent.click(screen.getByRole("button", { name: /remove filter/i }));
-    expect(onChangeReport).toHaveBeenCalledWith([]);
+    expect(onChangePage).toHaveBeenCalledWith([]);
   });
 
   it("does not offer a field that is already filtered at this scope", () => {
     wrap(
       <FilterPane
         {...props}
-        reportFilters={[{ id: "f1", field: "CUSTOMERS.REGION", op: "is", values: [] }]}
+        pageFilters={[{ id: "f1", field: "CUSTOMERS.REGION", op: "is", values: [] }]}
       />,
     );
     const select = screen.getByLabelText(
@@ -123,11 +159,11 @@ describe("FilterPane", () => {
     wrap(
       <FilterPane
         {...props}
-        reportFilters={[
+        pageFilters={[
           { id: "f1", field: "ORDERS.ORDER_DATE", op: "is", values: [] },
           { id: "f2", field: "CUSTOMERS.REGION", op: "is", values: [] },
         ]}
-        onChangeReport={onChangeReport}
+        onChangePage={onChangeReport}
       />,
     );
     const operators = screen.getAllByLabelText(/operator/i);

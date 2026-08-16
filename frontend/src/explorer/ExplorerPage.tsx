@@ -113,7 +113,7 @@ export default function ExplorerPage() {
   function handleAddToReport() {
     if (!selectedView) return;
     const definition: ReportDefinition = {
-      schemaVersion: 1,
+      schemaVersion: 3,
       name: selectedView.name,
       view: {
         database: selectedView.database,
@@ -121,14 +121,21 @@ export default function ExplorerPage() {
         name: selectedView.name,
       },
       canvas: { columns: 12, rowHeight: 40 },
-      visuals: [
+      pages: [
         {
-          id: `v${crypto.randomUUID().slice(0, 8)}`,
-          type: "bar",
-          title: "",
-          layout: { x: 0, y: 0, w: 6, h: 6 },
-          wells: { axis: wells.axis, legend: wells.legend, values: wells.values },
-          options: {},
+          id: "p1",
+          name: "Page 1",
+          visuals: [
+            {
+              id: `v${crypto.randomUUID().slice(0, 8)}`,
+              type: "bar",
+              title: "",
+              layout: { x: 0, y: 0, w: 6, h: 6 },
+              wells: { axis: wells.axis, legend: wells.legend, values: wells.values },
+              options: {},
+              filters: [],
+            },
+          ],
           filters: [],
         },
       ],

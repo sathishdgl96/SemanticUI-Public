@@ -6,16 +6,21 @@ import { newFilterId } from "./filters";
 /** Droppable ids. BuilderPage's `onDragEnd` matches on these, so they live
  *  here next to the components that register them. */
 export const REPORT_DROP_ID = "filter:report";
+export const PAGE_DROP_ID = "filter:page";
 export const VISUAL_DROP_ID = "filter:visual";
 
 interface Props {
   view: ViewRef;
   fields: FieldInfo[];
+  /** The all-pages scope. */
   reportFilters: Filter[];
+  /** The active page's own scope. */
+  pageFilters: Filter[];
   /** null when no visual is selected — the visual scope is then hidden. */
   visualFilters: Filter[] | null;
   selectedVisualTitle: string | null;
   onChangeReport: (next: Filter[]) => void;
+  onChangePage: (next: Filter[]) => void;
   onChangeVisual: (next: Filter[]) => void;
 }
 
@@ -92,29 +97,22 @@ export default function FilterPane({
   view,
   fields,
   reportFilters,
+  pageFilters,
   visualFilters,
   selectedVisualTitle,
   onChangeReport,
+  onChangePage,
   onChangeVisual,
 }: Props) {
+  // Narrowest scope first, widest last -- PowerBI's order, and the one that
+  // reads as a sentence: this visual, then this page, then everywhere.
   return (
     <section className="filter-pane">
       <h3>Filters</h3>
-      <FilterScope
-        heading="Filters on this page"
-        emptyText="No filters on this page. Every visual shows all its data."
-        addLabel="Add a filter on this page"
-        dropId={REPORT_DROP_ID}
-        testId="filter-drop-report"
-        filters={reportFilters}
-        fields={fields}
-        view={view}
-        onChange={onChangeReport}
-      />
       {visualFilters !== null && (
         <FilterScope
           heading={`Filters on "${selectedVisualTitle || "this visual"}"`}
-          emptyText="No filters on this visual. It shows everything the report filters allow."
+          emptyText="No filters on this visual. It shows everything the page and report filters allow."
           addLabel="Add a filter on this visual"
           dropId={VISUAL_DROP_ID}
           testId="filter-drop-visual"
@@ -124,6 +122,28 @@ export default function FilterPane({
           onChange={onChangeVisual}
         />
       )}
+      <FilterScope
+        heading="Filters on this page"
+        emptyText="No filters on this page. Every visual shows all its data."
+        addLabel="Add a filter on this page"
+        dropId={PAGE_DROP_ID}
+        testId="filter-drop-page"
+        filters={pageFilters}
+        fields={fields}
+        view={view}
+        onChange={onChangePage}
+      />
+      <FilterScope
+        heading="Filters on all pages"
+        emptyText="No filters across pages."
+        addLabel="Add a filter on all pages"
+        dropId={REPORT_DROP_ID}
+        testId="filter-drop-report"
+        filters={reportFilters}
+        fields={fields}
+        view={view}
+        onChange={onChangeReport}
+      />
     </section>
   );
 }

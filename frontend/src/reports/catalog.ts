@@ -4,6 +4,11 @@
 export type VisualType = "bar" | "line" | "area" | "pie" | "scatter" | "table" | "kpi";
 export type FieldKind = "dimension" | "metric";
 
+// Mirrors MAX_PAGES / MAX_VISUALS in backend/app/reports/schema.py. Enforced
+// there; carried here so the builder can refuse before a save round-trips.
+export const MAX_PAGES = 20;
+export const MAX_VISUALS = 50;
+
 export interface WellSpec {
   key: string;
   label: string;

@@ -17,6 +17,7 @@ import type {
   SheetRequest,
   Filter,
   Hierarchy,
+  Page,
   ReportDefinition,
   ReportDetail,
   SemanticViewDetail,
@@ -30,6 +31,8 @@ import ViewTree from "../explorer/ViewTree";
 import { visualTitle } from "../query/renderers";
 import {
   CATALOG,
+  MAX_PAGES,
+  MAX_VISUALS,
   defaultWellFor,
   emptyWellsFor,
   wellsToQuery,
@@ -38,7 +41,8 @@ import {
 } from "./catalog";
 import CanvasGrid from "./CanvasGrid";
 import ExportPanel from "./ExportPanel";
-import FilterPane, { REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
+import FilterPane, { PAGE_DROP_ID, REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
+import PageBar from "./PageBar";
 import {
   HIERARCHY_PREFIX,
   newFilterId,
@@ -273,6 +277,9 @@ export default function BuilderPage() {
   const [drill, setDrill] = useState<Record<string, DrillState>>({});
   const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
   const [moving, setMoving] = useState(false);
+  // Which page tab is open. Ephemeral like the selection: a saved report
+  // always opens on its first page.
+  const [activePageId, setActivePageId] = useState<string | null>(null);
   // On narrower desktops PowerBI shows two panes open; Filters starts tucked
   // away. Guarded: jsdom has no matchMedia.
   const [startFiltersCollapsed] = useState(
@@ -304,6 +311,7 @@ export default function BuilderPage() {
     setDefinition(null);
     setSavedJson(null);
     setSelectedId(null);
+    setActivePageId(null);
     setNotice(null);
     setPanel(null);
     setDrill({});
@@ -386,7 +394,10 @@ export default function BuilderPage() {
   const canEdit = atLeast(myRole, "editor");
 
   const dirty = JSON.stringify(definition) !== savedJson;
-  const selected = definition.visuals.find((v) => v.id === selectedId) ?? null;
+  // A stale or absent id degrades to the first page rather than crashing:
+  // pages can be deleted out from under the selection.
+  const activePage = definition.pages.find((p) => p.id === activePageId) ?? definition.pages[0];
+  const selected = activePage.visuals.find((v) => v.id === selectedId) ?? null;
   const needsBind = !view.name || (viewDetail.isError && isMissingView(viewDetail.error));
 
   // Declared as `const ... = (...) => {}` (function expressions), not hoisted
@@ -396,16 +407,118 @@ export default function BuilderPage() {
   // (visible before their narrowing point) don't qualify for. That's what
   // lets every reference to `definition` below stay typed as `ReportDefinition`
   // (not `| null`) without a non-null assertion.
-  const replaceVisual = (next: Visual) => {
+  const replacePage = (next: Page) => {
     setDefinition({
       ...definition,
-      visuals: definition.visuals.map((v) => (v.id === next.id ? next : v)),
+      pages: definition.pages.map((p) => (p.id === next.id ? next : p)),
     });
   };
 
-  const addFilterAt = (scope: "report" | "visual", ref: string) => {
+  const replaceVisual = (next: Visual) => {
+    replacePage({
+      ...activePage,
+      visuals: activePage.visuals.map((v) => (v.id === next.id ? next : v)),
+    });
+  };
+
+  /** Selection and cross-filter are page-local, as they are in PowerBI: a
+   *  selection on one page must not keep constraining another. */
+  const focusPage = (id: string) => {
+    setActivePageId(id);
+    setSelectedId(null);
+    setCrossFilter(null);
+  };
+
+  const switchPage = (id: string) => {
+    if (id !== activePage.id) focusPage(id);
+  };
+
+  const addPage = () => {
+    if (definition.pages.length >= MAX_PAGES) {
+      setNotice(`A report can hold at most ${MAX_PAGES} pages.`);
+      return;
+    }
+    const used = new Set(definition.pages.map((p) => p.name));
+    let n = definition.pages.length + 1;
+    while (used.has(`Page ${n}`)) n++;
+    const page: Page = {
+      id: `p${crypto.randomUUID().slice(0, 8)}`,
+      name: `Page ${n}`,
+      visuals: [],
+      filters: [],
+    };
+    setDefinition({ ...definition, pages: [...definition.pages, page] });
+    focusPage(page.id);
+  };
+
+  const renamePage = (id: string, name: string) => {
+    setDefinition({
+      ...definition,
+      pages: definition.pages.map((p) => (p.id === id ? { ...p, name } : p)),
+    });
+  };
+
+  const duplicatePage = (id: string) => {
+    const source = definition.pages.find((p) => p.id === id);
+    if (!source) return;
+    if (definition.pages.length >= MAX_PAGES) {
+      setNotice(`A report can hold at most ${MAX_PAGES} pages.`);
+      return;
+    }
+    const total = definition.pages.reduce((sum, p) => sum + p.visuals.length, 0);
+    if (total + source.visuals.length > MAX_VISUALS) {
+      setNotice(
+        `Duplicating this page would exceed ${MAX_VISUALS} visuals per report.`,
+      );
+      return;
+    }
+    const used = new Set(definition.pages.map((p) => p.name));
+    let name = `Duplicate of ${source.name}`.slice(0, 100);
+    for (let n = 2; used.has(name); n++) {
+      name = `Duplicate of ${source.name} ${n}`.slice(0, 100);
+    }
+    const copy: Page = {
+      id: `p${crypto.randomUUID().slice(0, 8)}`,
+      name,
+      // Visual ids must be unique across the WHOLE report, so a copy mints
+      // fresh ones. Filter ids only have to be unique within their scope.
+      visuals: source.visuals.map((v) => ({
+        ...structuredClone(v),
+        id: `v${crypto.randomUUID().slice(0, 8)}`,
+      })),
+      filters: source.filters.map((f) => ({ ...f })),
+    };
+    const at = definition.pages.findIndex((p) => p.id === id) + 1;
+    const pages = [...definition.pages];
+    pages.splice(at, 0, copy);
+    setDefinition({ ...definition, pages });
+    focusPage(copy.id);
+  };
+
+  const deletePage = (id: string) => {
+    if (definition.pages.length <= 1) return;
+    const remaining = definition.pages.filter((p) => p.id !== id);
+    setDefinition({ ...definition, pages: remaining });
+    if (activePage.id === id) focusPage(remaining[0].id);
+  };
+
+  const movePage = (id: string, direction: -1 | 1) => {
+    const from = definition.pages.findIndex((p) => p.id === id);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= definition.pages.length) return;
+    const pages = [...definition.pages];
+    const [page] = pages.splice(from, 1);
+    pages.splice(to, 0, page);
+    setDefinition({ ...definition, pages });
+  };
+
+  const addFilterAt = (scope: "report" | "page" | "visual", ref: string) => {
     const current =
-      scope === "report" ? (definition.filters ?? []) : (selected?.filters ?? []);
+      scope === "report"
+        ? (definition.filters ?? [])
+        : scope === "page"
+          ? (activePage.filters ?? [])
+          : (selected?.filters ?? []);
     // Already filtered at this scope: a second filter on the same field would
     // AND two conditions on one column, which is almost never what dropping
     // it again meant.
@@ -415,17 +528,18 @@ export default function BuilderPage() {
       { id: newFilterId(), field: ref, op: "is", values: [] },
     ];
     if (scope === "report") setDefinition({ ...definition, filters: next });
+    else if (scope === "page") replacePage({ ...activePage, filters: next });
     else if (selected) replaceVisual({ ...selected, filters: next });
   };
 
   const selectVisual = (visualId: string) => {
     setSelectedId(visualId);
-    const visual = definition.visuals.find((v) => v.id === visualId);
+    const visual = activePage.visuals.find((v) => v.id === visualId);
     if (visual) setSelectedType(visual.type as VisualType);
   };
 
   const addVisual = (type: VisualType) => {
-    const nextY = definition.visuals.reduce(
+    const nextY = activePage.visuals.reduce(
       (max, v) => Math.max(max, v.layout.y + v.layout.h),
       0,
     );
@@ -438,7 +552,7 @@ export default function BuilderPage() {
       options: {},
       filters: [],
     };
-    setDefinition({ ...definition, visuals: [...definition.visuals, visual] });
+    replacePage({ ...activePage, visuals: [...activePage.visuals, visual] });
     setSelectedId(visual.id);
     setSelectedType(type);
   };
@@ -470,7 +584,7 @@ export default function BuilderPage() {
     const wells = emptyWellsFor(type);
     const wellKey = defaultWellFor(type, kind, wells);
     if (wellKey) wells[wellKey] = [ref];
-    const nextY = definition.visuals.reduce(
+    const nextY = activePage.visuals.reduce(
       (max, v) => Math.max(max, v.layout.y + v.layout.h),
       0,
     );
@@ -483,12 +597,12 @@ export default function BuilderPage() {
       options: {},
       filters: [],
     };
-    setDefinition({ ...definition, visuals: [...definition.visuals, visual] });
+    replacePage({ ...activePage, visuals: [...activePage.visuals, visual] });
     setSelectedId(visual.id);
   };
 
   const addFieldToSelected = (ref: string, kind: FieldKind) => {
-    const visual = definition.visuals.find((v) => v.id === selectedId);
+    const visual = activePage.visuals.find((v) => v.id === selectedId);
     if (!visual) return;
     // Same cross-well dedupe `onDragEnd` applies: a ref already sitting in
     // ANY well of this visual is a no-op, not another append — otherwise
@@ -509,7 +623,7 @@ export default function BuilderPage() {
   /** Pin an answer onto the canvas. The spec already speaks the well
    *  vocabulary, so this is a re-shaping rather than a translation. */
   const addVisualFromSpec = (spec: AskSpec) => {
-    const nextY = definition.visuals.reduce(
+    const nextY = activePage.visuals.reduce(
       (max, v) => Math.max(max, v.layout.y + v.layout.h),
       0,
     );
@@ -528,7 +642,7 @@ export default function BuilderPage() {
       // different number from the one that was just on screen.
       filters: spec.filters,
     };
-    setDefinition({ ...definition, visuals: [...definition.visuals, visual] });
+    replacePage({ ...activePage, visuals: [...activePage.visuals, visual] });
     setSelectedId(visual.id);
     setPanel(null);
   };
@@ -538,7 +652,7 @@ export default function BuilderPage() {
    *  can never quietly disagree with the screen it came from. */
   const exportSheets = () =>
     sheetRequestsFor({
-      visuals: definition.visuals,
+      pages: definition.pages,
       reportFilters: definition.filters ?? [],
       hierarchies,
       drill,
@@ -550,13 +664,21 @@ export default function BuilderPage() {
   exportSheetsRef.current = exportSheets;
 
   const onDragEnd = (event: DragEndEvent) => {
-    const visual = definition.visuals.find((v) => v.id === selectedId);
+    const visual = activePage.visuals.find((v) => v.id === selectedId);
     const overId = String(event.over?.id ?? "");
     const data = event.active.data.current as { ref: string; kind: FieldKind } | undefined;
     // Filter scopes first: the well branch below returns early for any id it
     // does not recognise, so it would swallow these.
-    if (data && (overId === REPORT_DROP_ID || overId === VISUAL_DROP_ID)) {
-      addFilterAt(overId === REPORT_DROP_ID ? "report" : "visual", data.ref);
+    const scope =
+      overId === REPORT_DROP_ID
+        ? "report"
+        : overId === PAGE_DROP_ID
+          ? "page"
+          : overId === VISUAL_DROP_ID
+            ? "visual"
+            : null;
+    if (data && scope) {
+      addFilterAt(scope, data.ref);
       return;
     }
     if (!visual || !data || !overId.startsWith("well:")) return;
@@ -571,19 +693,27 @@ export default function BuilderPage() {
   };
 
   const onLayoutChange = (next: Record<string, VisualLayout>) => {
-    setDefinition({
-      ...definition,
-      visuals: definition.visuals.map((v) => (next[v.id] ? { ...v, layout: next[v.id] } : v)),
+    replacePage({
+      ...activePage,
+      visuals: activePage.visuals.map((v) =>
+        next[v.id] ? { ...v, layout: next[v.id] } : v,
+      ),
     });
   };
 
   const onTypeChange = (nextType: VisualType) => {
     setSelectedType(nextType);
-    const visual = definition.visuals.find((v) => v.id === selectedId);
+    const visual = activePage.visuals.find((v) => v.id === selectedId);
     if (!visual) return;
     const { visual: updated, dropped } = changeVisualType(visual, nextType);
     replaceVisual(updated);
-    setNotice(dropped.length ? `Cleared on type change: ${dropped.join(", ")}.` : null);
+    // Fields now follow the visual across types, so this only fires when the
+    // new type genuinely has no well of that kind with room left.
+    setNotice(
+      dropped.length
+        ? `${CATALOG[nextType].label} has no room for ${dropped.join(", ")}.`
+        : null,
+    );
   };
 
   const bindView = (picked: SemanticViewSummary) => {
@@ -718,13 +848,14 @@ export default function BuilderPage() {
           <div className="builder-body">
             <div className="canvas-column">
               <CanvasGrid
-              visuals={definition.visuals}
+              visuals={activePage.visuals}
               canvas={definition.canvas}
               view={view}
               selectedId={selectedId}
               onSelect={selectVisual}
               onLayoutChange={onLayoutChange}
               reportFilters={definition.filters ?? []}
+              pageFilters={activePage.filters ?? []}
               hierarchies={hierarchies}
               drill={drill}
               onDrill={(visualId, next) =>
@@ -739,11 +870,17 @@ export default function BuilderPage() {
               crossFilter={crossFilter}
               onCrossFilter={setCrossFilter}
             />
-              <div className="page-bar">
-                <button type="button" className="page-tab active" aria-current="page">
-                  Page 1
-                </button>
-              </div>
+              <PageBar
+                pages={definition.pages}
+                activeId={activePage.id}
+                canEdit={canEdit}
+                onSelect={switchPage}
+                onAdd={addPage}
+                onRename={renamePage}
+                onDuplicate={duplicatePage}
+                onDelete={deletePage}
+                onMove={movePage}
+              />
             </div>
             <aside className="builder-rail">
               <Pane title="Filters" defaultCollapsed={startFiltersCollapsed}>
@@ -751,9 +888,11 @@ export default function BuilderPage() {
                   view={view}
                   fields={[...dimensions, ...metrics]}
                   reportFilters={definition.filters ?? []}
+                  pageFilters={activePage.filters ?? []}
                   visualFilters={selected ? (selected.filters ?? []) : null}
                   selectedVisualTitle={selected ? visualTitle(selected) : null}
                   onChangeReport={(filters) => setDefinition({ ...definition, filters })}
+                  onChangePage={(filters) => replacePage({ ...activePage, filters })}
                   onChangeVisual={(filters) => {
                     if (selected) replaceVisual({ ...selected, filters });
                   }}
