@@ -84,16 +84,35 @@ function describeUrl(view: ViewRef, refresh = false): string {
 function BindViewPanel({
   reason,
   onBind,
+  canEdit,
+  binding,
+  bindError,
 }: {
   reason: string | null;
   onBind: (view: SemanticViewSummary) => void;
+  canEdit: boolean;
+  binding: boolean;
+  bindError: string | null;
 }) {
   const [open, setOpen] = useState(reason === null);
   const views = useQuery({
     queryKey: ["semantic-views"],
     queryFn: () => apiFetch<{ views: SemanticViewSummary[] }>("/api/semantic-views"),
-    enabled: open,
+    enabled: open && canEdit,
   });
+
+  // A viewer cannot write to the report, so offering the picker would only
+  // produce a 403 at the end of a hopeful click.
+  if (!canEdit) {
+    return (
+      <div className="builder-bind">
+        <p role="alert">
+          {reason ??
+            "This report has no semantic view yet, and only an editor can choose one."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="builder-bind">
@@ -107,8 +126,13 @@ function BindViewPanel({
           )}
         </>
       ) : (
-        <p>Pick a semantic view to start this report.</p>
+        // Says that choosing SAVES, because it does -- and because the state
+        // this replaces was one where the report looked bound and the server
+        // disagreed.
+        <p>Pick a semantic view to start this report. Choosing one saves it.</p>
       )}
+      {bindError && <p role="alert">{bindError}</p>}
+      {binding && <p className="tile-hint">Saving the view to this report…</p>}
       {open && (
         <>
           {views.isLoading && <p>Loading views…</p>}
@@ -380,6 +404,18 @@ export default function BuilderPage() {
       return updateReport(reportId, definition);
     },
     onSuccess: (saved) => {
+      setSavedJson(JSON.stringify(saved.definition));
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
+    },
+  });
+
+  //: Its own mutation rather than reusing `save`, which takes no argument and
+  //: would race the `setDefinition` that precedes it -- the whole point here
+  //: is that the view reaches the server, not that it reaches React state.
+  const bind = useMutation({
+    mutationFn: (next: ReportDefinition) => updateReport(reportId, next),
+    onSuccess: (saved) => {
+      setDefinition(saved.definition);
       setSavedJson(JSON.stringify(saved.definition));
       queryClient.invalidateQueries({ queryKey: ["reports"] });
     },
@@ -739,8 +775,17 @@ export default function BuilderPage() {
     );
   };
 
+  /** Binding a view SAVES. It is not an edit to sit on.
+   *
+   *  It used to change local state only, and everything server-side reads the
+   *  report's stored view: Chat, Excel and Connect all answered "this report
+   *  is not bound to a semantic view yet" for a report that plainly showed one
+   *  on screen. The only way through was to press Save first, which nothing
+   *  said. Picking the view is the act that makes a report a report, so it is
+   *  written down at the moment it happens.
+   */
   const bindView = (picked: SemanticViewSummary) => {
-    setDefinition({
+    bind.mutate({
       ...definition,
       view: { database: picked.database, schema: picked.schema, name: picked.name },
     });
@@ -870,7 +915,19 @@ export default function BuilderPage() {
       )}
       {notice && <p className="notice">{notice}</p>}
       {needsBind ? (
-        <BindViewPanel reason={view.name ? viewMissingReason(view) : null} onBind={bindView} />
+        <BindViewPanel
+          reason={view.name ? viewMissingReason(view) : null}
+          onBind={bindView}
+          canEdit={canEdit}
+          binding={bind.isPending}
+          bindError={
+            bind.isError
+              ? bind.error instanceof ApiError
+                ? bind.error.message
+                : "Could not save that view to this report."
+              : null
+          }
+        />
       ) : (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
           {crossFilter && (

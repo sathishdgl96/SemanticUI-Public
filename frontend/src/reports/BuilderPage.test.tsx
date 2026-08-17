@@ -223,6 +223,55 @@ describe("BuilderPage", () => {
     expect(screen.getByRole("button", { name: /choose another view/i })).toBeInTheDocument();
   });
 
+  it("SAVES the view the moment it is picked, not when Save is next pressed", async () => {
+    // Everything server-side -- Chat, Excel, Connect -- reads the report's
+    // STORED view. Binding used to change local state only, so a report that
+    // plainly showed a view on screen was still unbound to the API, and the
+    // only way through was a Save nothing asked for.
+    const unbound = {
+      ...detail,
+      view: { database: "", schema: "", name: "" },
+      definition: {
+        ...detail.definition,
+        view: { database: "", schema: "", name: "" },
+      },
+    };
+    getMock.mockReset();
+    getMock.mockResolvedValue(unbound);
+    updateMock.mockImplementation((_id: string, definition: unknown) =>
+      Promise.resolve({ ...unbound, definition } as never),
+    );
+    apiFetchMock.mockResolvedValue({
+      views: [{ database: "ANALYTICS", schema: "PUBLIC", name: "SALES", comment: null }],
+    } as never);
+
+    renderBuilder();
+    await userEvent.click(await screen.findByRole("button", { name: "SALES" }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls[0] as [string, { view: unknown }];
+    expect(saved.view).toEqual({
+      database: "ANALYTICS",
+      schema: "PUBLIC",
+      name: "SALES",
+    });
+  });
+
+  it("does not offer the picker to a viewer, who could not save it anyway", async () => {
+    getMock.mockReset();
+    getMock.mockResolvedValue({
+      ...detail,
+      myRole: "viewer" as const,
+      view: { database: "", schema: "", name: "" },
+      definition: {
+        ...detail.definition,
+        view: { database: "", schema: "", name: "" },
+      },
+    });
+    renderBuilder();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/only an editor/i);
+  });
+
   it("carries the fields across a type change instead of emptying the visual", async () => {
     // The whole point of the kind-based remap: bar's Axis dimension belongs
     // in pie's Legend, even though the wells have different names.
