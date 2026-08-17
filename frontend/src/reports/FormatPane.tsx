@@ -1,4 +1,6 @@
 import type { FieldInfo, Visual } from "../api/types";
+import ColorField from "./ColorField";
+import { SERIES_COLORS } from "../query/palette";
 import {
   CATALOG,
   FONT_SIZES,
@@ -90,6 +92,31 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
 
   // A legend distinguishes series. A split-by dimension makes one per value,
   // so any legend well means "several"; otherwise it is one per measure.
+  // The colours the author has set, and the slots to offer. A measure well
+  // gives one series per measure; a legend well gives one per VALUE, which is
+  // not knowable without the data -- so eight slots, which is the palette's
+  // length and more than any legible chart.
+  const colors = Array.isArray(visual.options.colors)
+    ? (visual.options.colors as unknown[])
+    : [];
+  const measures = [
+    ...(visual.wells.values ?? []),
+    ...(visual.wells.lineValues ?? []),
+  ];
+  const seriesSlots =
+    (visual.wells.legend ?? []).length > 0 || measures.length === 0
+      ? Array.from({ length: 8 }, (_, i) => `Series ${i + 1}`)
+      : measures.map((ref) => nameOf(ref));
+
+  const setColor = (index: number, hex: string | undefined) => {
+    const next = [...colors];
+    next[index] = hex;
+    // Trailing holes are dropped so the saved document stays the shortest
+    // thing that says what was chosen.
+    while (next.length && next[next.length - 1] === undefined) next.pop();
+    set("colors", next.length ? next.map((c) => c ?? null) : undefined);
+  };
+
   const hasSeriesToDistinguish =
     (visual.wells.legend ?? []).length > 0 ||
     (visual.wells.values ?? []).length + (visual.wells.lineValues ?? []).length > 1;
@@ -213,6 +240,29 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
           />
         </Section>
       )}
+
+      <Section title="Colours">
+        {/* One swatch per series, in the order the chart draws them. A short
+            list is fine: anything past the end falls back to the shared
+            palette, so setting the first colour does not oblige you to set
+            the rest. */}
+        {isChart &&
+          seriesSlots.map((slot, index) => (
+            <ColorField
+              key={index}
+              label={slot}
+              value={(colors[index] as string) ?? ""}
+              fallback={SERIES_COLORS[index % SERIES_COLORS.length]}
+              onChange={(hex) => setColor(index, hex)}
+            />
+          ))}
+        <ColorField
+          label="Tile background"
+          value={(visual.options.background as string) ?? ""}
+          fallback="#ffffff"
+          onChange={(hex) => set("background", hex)}
+        />
+      </Section>
 
       {isChart && (
         <Section title="Axes">

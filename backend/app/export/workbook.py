@@ -11,7 +11,7 @@ from datetime import datetime
 
 import xlsxwriter
 
-from app.export.sheets import looks_like_formula, safe_sheet_name
+from app.export.sheets import assign_sheet_names, looks_like_formula
 
 #: Excel's own ceiling is 1,048,576. This is generous and bounded, and any
 #: truncation is declared on the Summary sheet rather than happening silently.
@@ -63,6 +63,9 @@ def build_workbook(
     sheets: list[SheetData],
     *,
     generated_at: datetime,
+    #: One line on the Summary sheet explaining behaviour the file has but
+    #: does not announce -- currently the embedded live connection.
+    note: str = "",
 ) -> bytes:
     buffer = io.BytesIO()
     workbook = xlsxwriter.Workbook(
@@ -84,12 +87,12 @@ def build_workbook(
     summary.set_column(0, 0, 24)
     summary.set_column(1, 1, 90)
 
-    taken: set[str] = {"Summary"}
     notes_by_sheet: list[tuple[str, str]] = []
+    # Names assigned up front by the shared helper, so anything that needs to
+    # find a sheet later (the live-connection builder) derives the same ones.
+    names = assign_sheet_names([data.title for data in sheets])
 
-    for data in sheets:
-        name = safe_sheet_name(data.title, taken)
-        taken.add(name)
+    for name, data in zip(names, sheets):
         worksheet = workbook.add_worksheet(name)
 
         notes: list[str] = []
@@ -127,7 +130,7 @@ def build_workbook(
         ("Exported by", exported_by),
         ("Generated at", generated_at.strftime("%Y-%m-%d %H:%M:%S UTC")),
         ("Sheets", str(len(sheets))),
-    ]
+    ] + ([("Refreshing", note)] if note else [])
     for row, (label, value) in enumerate(meta):
         summary.write_string(row, 0, label, header)
         summary.write_string(row, 1, str(value))

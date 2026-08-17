@@ -8,6 +8,8 @@ from app.config import get_settings
 from app.db.models import DbSession
 from app.errors import ApiError
 from app.export.literals import build_literal_sql
+from app.export.live import LiveSheet, add_live_connections, summary_note
+from app.export.sheets import assign_sheet_names
 from app.export.odc import build_odc, filename_for
 from app.export.workbook import SheetData, build_workbook
 from app.reports.filters import is_active
@@ -57,6 +59,11 @@ def export_workbook(
     settings = get_settings()
 
     built: list[SheetData] = []
+    #: Positionally aligned with `built`, None where a sheet carries an error
+    #: instead of data. Aligned rather than filtered because the sheet NAMES
+    #: are assigned over every sheet, failures included -- dropping entries
+    #: here would shift every later name by one.
+    refreshable: list[LiveSheet | None] = []
     with entry.lock:
         detail = cache.describe(
             entry, report.view_database, report.view_schema, report.view_name
@@ -83,8 +90,32 @@ def export_workbook(
                 built.append(
                     SheetData(columns=[], rows=[], error=exc.message, **common)
                 )
+                refreshable.append(None)
                 continue
             built.append(SheetData(columns=result.columns, rows=result.rows, **common))
+            # The literal statement, for the connection embedded below. It is
+            # a different build from the one just executed: Excel supplies no
+            # bind parameters, so the placeholders would arrive asking for
+            # values nobody can give them.
+            refreshable.append(
+                LiveSheet(
+                    title=common["title"],
+                    sql=build_literal_sql(detail, request),
+                    columns=[str(c.get("name", "")) for c in result.columns],
+                    rows=len(result.rows),
+                )
+            )
+        identifier = account_identifier(entry.conn)
+
+    # The names the workbook actually used -- a 32-character title becomes a
+    # 31-character sheet, and looking one up by its original title finds
+    # nothing at all.
+    names = assign_sheet_names([data.title for data in built])
+    live: list[LiveSheet] = []
+    for sheet, name in zip(refreshable, names):
+        if sheet is not None:
+            sheet.title = name
+            live.append(sheet)
 
     data = build_workbook(
         report.name,
@@ -92,7 +123,21 @@ def export_workbook(
         sess.user.snowflake_user,
         built,
         generated_at=datetime.now(timezone.utc),
+        note=summary_note(live),
     )
+    # The numbers are already in the file; this makes them refreshable. A
+    # failure here must not cost the export -- a workbook of correct data that
+    # cannot refresh is worth far more than no workbook at all.
+    try:
+        data = add_live_connections(
+            data,
+            live,
+            account=identifier or sess.user.snowflake_account,
+            database=report.view_database,
+            schema=report.view_schema,
+        )
+    except Exception:  # noqa: BLE001 -- see above
+        pass
     return report.name, data
 
 

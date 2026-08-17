@@ -53,3 +53,21 @@ def safe_sheet_name(title: str, taken: set[str]) -> str:
         if candidate not in taken:
             return candidate
         counter += 1
+
+
+def assign_sheet_names(titles: list[str]) -> list[str]:
+    """The sheet name each title will actually get, in order.
+
+    Shared rather than reimplemented, because two callers deriving names
+    independently is how they come to disagree: the live-connection builder
+    looks sheets up BY NAME, and a title of 32 characters is truncated to 31
+    here. That mismatch silently produced workbooks with no connection in
+    them at all -- everything succeeded and nothing was attached.
+    """
+    taken: set[str] = {"Summary"}
+    names: list[str] = []
+    for title in titles:
+        name = safe_sheet_name(title, taken)
+        taken.add(name)
+        names.append(name)
+    return names

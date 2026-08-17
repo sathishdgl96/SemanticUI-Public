@@ -80,6 +80,17 @@ export function layoutFor(visuals: Visual[], stacked: boolean): Layout[] {
     }, []);
 }
 
+/** The report's own canvas colour, or nothing. Only hex reaches the style
+ *  attribute -- the server validates this field against the same shape, and a
+ *  saved document is still not a trusted source. */
+function canvasStyle(canvas: CanvasSettings): React.CSSProperties | undefined {
+  const background = canvas.background;
+  return typeof background === "string" &&
+    /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(background)
+    ? { background }
+    : undefined;
+}
+
 export default function CanvasGrid({
   visuals, canvas, view, selectedId, onSelect, onLayoutChange, readOnly = false,
   reportFilters = [], pageFilters = [], hierarchies = [], drill = {}, onDrill,
@@ -90,7 +101,7 @@ export default function CanvasGrid({
 
   if (visuals.length === 0) {
     return (
-      <div className="canvas empty" ref={ref}>
+      <div className="canvas empty" ref={ref} style={canvasStyle(canvas)}>
         <p className="tile-hint">Add a visual from the Visualizations pane to begin.</p>
       </div>
     );
@@ -103,7 +114,19 @@ export default function CanvasGrid({
   const layout = layoutFor(visuals, stacked);
 
   return (
-    <div className={stacked ? "canvas stacked" : "canvas"} ref={ref}>
+    <div
+      className={stacked ? "canvas stacked" : "canvas"}
+      ref={ref}
+      style={canvasStyle(canvas)}
+      // Clicking the canvas ITSELF deselects -- PowerBI's behaviour, and
+      // until this existed the page-level format section was unreachable:
+      // once a visual was selected there was no way to select nothing.
+      // `e.target === e.currentTarget` so a click that landed on a tile and
+      // bubbled up here does not immediately undo the selection it made.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onSelect("");
+      }}
+    >
       <GridLayout
         className="layout"
         layout={layout}

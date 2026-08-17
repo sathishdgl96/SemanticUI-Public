@@ -5,6 +5,7 @@
 
 import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
+import { hexList } from "./categorical";
 import type { LooseRecord, PieOptionLike } from "./categorical";
 
 function fieldName(ref: string): string {
@@ -24,6 +25,9 @@ interface Slice extends LooseRecord {
 /** The (label, value) pairs a one-by-one visual draws, or null when either
  *  well's field is missing from the result. */
 function slices(visual: Visual, result: QueryResponse): Slice[] | null {
+  // The author's colours, if any; the shared palette otherwise. See
+  // the note on axisChrome.color -- palette.ts is never edited.
+  const custom = hexList(visual.options.colors);
   const legendRef = (visual.wells.legend ?? [])[0];
   const valueRef = (visual.wells.values ?? [])[0];
   if (!legendRef || !valueRef) return null;
@@ -34,7 +38,7 @@ function slices(visual: Visual, result: QueryResponse): Slice[] | null {
   return result.rows.map((row, i) => ({
     name: String(row[li] ?? ""),
     value: Number(row[vi] ?? 0),
-    itemStyle: { color: SERIES_COLORS[i % SERIES_COLORS.length] },
+    itemStyle: { color: custom[i] ?? SERIES_COLORS[i % SERIES_COLORS.length] },
   }));
 }
 

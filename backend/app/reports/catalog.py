@@ -65,6 +65,8 @@ COMMON_OPTIONS = frozenset(
         #: axis and a data label need it for the same reason a card does.
         "format",
         "background",
+        #: Per-series hex colours, overriding the shared palette.
+        "colors",
     }
 )
 

@@ -94,8 +94,17 @@ export default function ChatPanel({ reportId, canEdit, onAddVisual, onClose }: P
     <section className="chat-panel" aria-label="Chat">
       <header>
         <h3>Chat</h3>
-        <button type="button" className="link" onClick={onClose}>
-          Close
+        {/* An X, and a real one: the panel floats over the canvas rather than
+            covering it, so closing has to be reachable without leaving what
+            you were reading. */}
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Close chat"
+          title="Close"
+          onClick={onClose}
+        >
+          <span aria-hidden="true">✕</span>
         </button>
       </header>
 

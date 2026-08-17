@@ -778,10 +778,16 @@ describe("BuilderPage Excel export", () => {
     }
   });
 
-  it("offers a Connect live panel", async () => {
+  it("keeps the other ways to connect one click from the Excel button", async () => {
+    // One control now, because it is one thing: the workbook carries the
+    // numbers AND the connection. The caret is where the fallbacks went --
+    // a .odc, the raw SQL -- rather than a second top-level button implying
+    // a second feature.
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
-    await userEvent.click(screen.getByRole("button", { name: /connect live/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /other ways to connect/i }),
+    );
     expect(
       await screen.findByRole("region", { name: /connect from excel/i }),
     ).toBeInTheDocument();
@@ -792,7 +798,9 @@ describe("BuilderPage Excel export", () => {
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");
     expect(screen.getByRole("button", { name: /^excel$/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /connect live/i })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: /other ways to connect/i }),
+    ).toBeEnabled();
   });
 });
 

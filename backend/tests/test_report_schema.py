@@ -505,3 +505,34 @@ def test_filters_survive_the_export_round_trip():
     exported = json.loads(to_export_document(parse_definition(doc)))
     assert exported["filters"][0]["from"] == 1
     assert parse_definition(exported).filters[0].from_ == 1
+
+
+# --- colours ----------------------------------------------------------------
+
+
+def test_a_canvas_background_must_be_a_hex_colour():
+    """These values are written into a `style` attribute in the browser. A
+    pattern is what stops "red; background: url(...)" ever being one of
+    them -- the constraint is the point, not the convenience."""
+    assert (
+        parse_definition(
+            valid_doc(canvas={"columns": 12, "rowHeight": 40, "background": "#0b0b0b"})
+        ).canvas.background
+        == "#0b0b0b"
+    )
+    with pytest.raises(ApiError):
+        parse_definition(
+            valid_doc(
+                canvas={
+                    "columns": 12,
+                    "rowHeight": 40,
+                    "background": "red; background: url(http://x)",
+                }
+            )
+        )
+
+
+def test_a_canvas_background_is_optional():
+    # Absent means the product's own canvas grey, so every report saved
+    # before this existed keeps the background it has always had.
+    assert parse_definition(valid_doc()).canvas.background is None

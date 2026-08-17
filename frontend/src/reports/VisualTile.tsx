@@ -206,6 +206,14 @@ export default function VisualTile({
   return (
     <section
       className={selected ? "tile selected" : "tile"}
+      // Only a hex value reaches the style attribute; anything else in the
+      // saved document is ignored rather than trusted.
+      style={
+        typeof visual.options.background === "string" &&
+        /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(visual.options.background)
+          ? { background: visual.options.background }
+          : undefined
+      }
       aria-label={title || "Untitled visual"}
       // Focusable so Backspace can reach it. The chart itself is focusable
       // only while it is interactive, and drilling *up* has to work from the

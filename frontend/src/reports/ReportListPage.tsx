@@ -184,15 +184,20 @@ export default function ReportListPage() {
                   {new Date(report.updatedAt).toLocaleString()}
                 </td>
                 <td className="row-actions">
+                  {/* An icon, and a red one: "Delete" repeated down every
+                      row of a table is the loudest word on the page, and the
+                      one action there you least want to invite. The name
+                      stays as the accessible name and the tooltip. */}
                   <button
-                    className="link"
+                    className="icon-button danger"
                     aria-label={`Delete ${report.name}`}
+                    title={`Delete ${report.name}`}
                     onClick={() => {
                       setPendingDelete(report.id);
                       setDeleteError(null);
                     }}
                   >
-                    Delete
+                    <span aria-hidden="true">🗑</span>
                   </button>
                 </td>
               </tr>

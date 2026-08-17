@@ -145,6 +145,9 @@ export interface FormatOptions {
   axisFontSize: number;
   /** "compact" renders 1.2M; anything else renders 1,234,567. */
   numberFormat: string;
+  /** Per-series hex overrides, applied by position. Short lists are fine:
+   *  series past the end fall back to the shared palette. */
+  colors: string[];
 }
 
 /** A size the author set, or the default. Guarded because `options` comes
@@ -169,7 +172,19 @@ export function formatOptionsOf(options: Record<string, unknown>): FormatOptions
     yAxisTitle: (options.yAxisTitle as string) ?? "",
     axisFontSize: size(options.axisFontSize, 11),
     numberFormat: (options.format as string) ?? "full",
+    colors: hexList(options.colors),
   };
+}
+
+/** Only well-formed hex survives. These reach an ECharts option and a `style`
+ *  attribute, and a saved document is not a trusted source -- the server
+ *  validates its own colour field, but a visual's options are a free-form
+ *  bag by design. */
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+export function hexList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((c): c is string => typeof c === "string" && HEX.test(c));
 }
 
 /** Format a number the way the visual's Number format option asks.
@@ -257,7 +272,13 @@ export const axisChrome = {
       },
     };
   },
-  color: (index: number) => SERIES_COLORS[index % SERIES_COLORS.length],
+  /** The author's colour for this series, or the shared palette's.
+   *
+   *  Overridden HERE rather than by touching the palette: `palette.ts` is the
+   *  product's colour identity and is deliberately never edited or reordered,
+   *  so a per-visual choice has to be a per-visual choice. */
+  color: (index: number, format?: FormatOptions) =>
+    format?.colors[index] ?? SERIES_COLORS[index % SERIES_COLORS.length],
 
   /** ECharts has no legend title, so it is drawn as a second `title` anchored
    *  to the same edge the legend sits on. Returns [] when there is nothing to

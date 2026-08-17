@@ -220,6 +220,9 @@ export interface Visual {
 export interface CanvasSettings {
   columns: number;
   rowHeight: number;
+  /** `#rgb` or `#rrggbb`. Absent means the product's own canvas grey. The
+   *  server enforces the pattern; these values reach a `style` attribute. */
+  background?: string | null;
 }
 
 export interface Page {

@@ -1,8 +1,12 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
+import { hexList } from "./categorical";
 import type { ScatterOptionLike } from "./categorical";
 
 export function scatterOption(visual: Visual, result: QueryResponse): ScatterOptionLike | null {
+  // The author's colours, if any; the shared palette otherwise. See
+  // the note on axisChrome.color -- palette.ts is never edited.
+  const custom = hexList(visual.options.colors);
   const name = (ref: string) => ref.split(".", 2)[1] ?? ref;
   const idx = (n: string) =>
     result.columns.findIndex((c) => c.name.toUpperCase() === n.toUpperCase());
@@ -28,7 +32,7 @@ export function scatterOption(visual: Visual, result: QueryResponse): ScatterOpt
     data: points,
     symbolSize: 9, // the >=8px marker floor
     itemStyle: {
-      color: SERIES_COLORS[i % SERIES_COLORS.length],
+      color: custom[i] ?? SERIES_COLORS[i % SERIES_COLORS.length],
       borderColor: CHART_INK.surface,
       borderWidth: 1,
     },

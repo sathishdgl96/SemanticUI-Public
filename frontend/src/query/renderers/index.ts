@@ -130,7 +130,7 @@ export function buildVisualOption(
     xAxis: horizontal ? valueAxis : categoryAxis,
     yAxis: horizontal ? categoryAxis : valueAxis,
     series: drawn.map((s, i) => {
-      const color = axisChrome.color(s.colorIndex);
+      const color = axisChrome.color(s.colorIndex, format);
       const asColumn = type === "bar" || type === "hbar" || (type === "combo" && i < columnCount);
       // Labels sit outside a column and above a line, which is where each
       // reads without covering the mark it belongs to.

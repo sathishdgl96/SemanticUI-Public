@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import { atLeast, moveReport } from "../api/workspaces";
 import ChatPanel from "../ask/ChatPanel";
+import ColorField from "./ColorField";
 import ConnectPanel from "../export/ConnectPanel";
 import Pane from "../shell/Pane";
 import DataPane from "./DataPane";
@@ -592,7 +593,9 @@ export default function BuilderPage() {
   };
 
   const selectVisual = (visualId: string) => {
-    setSelectedId(visualId);
+    // "" means the canvas itself was clicked: nothing is selected, and the
+    // rail shows the page's own formatting instead of a visual's.
+    setSelectedId(visualId || null);
     const visual = activePage.visuals.find((v) => v.id === visualId);
     if (visual) setSelectedType(visual.type as VisualType);
   };
@@ -857,25 +860,33 @@ export default function BuilderPage() {
           >
             <span aria-hidden="true">💬</span> Chat
           </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={exportExcel.isPending || !view.name}
-            title={view.name ? undefined : UNBOUND_HINT}
-            onClick={() => exportExcel.mutate()}
-          >
-            {exportExcel.isPending ? "Exporting…" : "Excel"}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            aria-pressed={panel === "connect"}
-            disabled={!view.name}
-            title={view.name ? undefined : UNBOUND_HINT}
-            onClick={() => setPanel(panel === "connect" ? null : "connect")}
-          >
-            Connect live
-          </button>
+          {/* One button, because it is one thing now: the workbook carries the
+              numbers AND a connection that refreshes them. "Connect live" was
+              a second button for the half this one was missing. The caret
+              keeps the fallbacks -- a .odc, the raw SQL -- one click away
+              without making them look like a separate feature. */}
+          <span className="split-button">
+            <button
+              type="button"
+              className="secondary"
+              disabled={exportExcel.isPending || !view.name}
+              title={view.name ? "Download the workbook, live-connected" : UNBOUND_HINT}
+              onClick={() => exportExcel.mutate()}
+            >
+              {exportExcel.isPending ? "Exporting…" : "Excel"}
+            </button>
+            <button
+              type="button"
+              className="secondary split-more"
+              aria-label="Other ways to connect from Excel"
+              aria-pressed={panel === "connect"}
+              disabled={!view.name}
+              title={view.name ? "Other ways to connect" : UNBOUND_HINT}
+              onClick={() => setPanel(panel === "connect" ? null : "connect")}
+            >
+              <span aria-hidden="true">▾</span>
+            </button>
+          </span>
           <span className="cmd-sep" aria-hidden="true" />
           <button
             type="button"
@@ -1055,7 +1066,28 @@ export default function BuilderPage() {
                     )}
                   </>
                 ) : (
-                  <p className="tile-hint">Select a visual on the canvas to edit its fields.</p>
+                  // PowerBI's behaviour: nothing selected means you are
+                  // formatting the PAGE. The canvas colour is the only
+                  // report-level thing to set today, and it needs somewhere
+                  // to live that is not a per-visual pane.
+                  <section className="format-section">
+                    <h4>Canvas</h4>
+                    <ColorField
+                      label="Background"
+                      value={definition.canvas.background ?? ""}
+                      fallback="#f5f5f5"
+                      onChange={(hex) =>
+                        setDefinition({
+                          ...definition,
+                          canvas: { ...definition.canvas, background: hex ?? null },
+                        })
+                      }
+                    />
+                    <p className="tile-hint">
+                      Select a visual on the canvas to edit its fields and its own
+                      formatting.
+                    </p>
+                  </section>
                 )}
               </Pane>
               <Pane title="Data">
@@ -1156,15 +1188,18 @@ export default function BuilderPage() {
           />
         </div>
       )}
+      {/* NOT in a panel-overlay: a chat you consult while reading a report
+          cannot be a modal that hides the report. It floats in the corner,
+          the way a support chat does, and can be resized because the useful
+          size for "what was the answer" and for "show me the table" are not
+          the same size. */}
       {panel === "ask" && (
-        <div className="panel-overlay">
-          <ChatPanel
-            reportId={reportId}
-            canEdit={canEdit}
-            onAddVisual={addVisualFromSpec}
-            onClose={() => setPanel(null)}
-          />
-        </div>
+        <ChatPanel
+          reportId={reportId}
+          canEdit={canEdit}
+          onAddVisual={addVisualFromSpec}
+          onClose={() => setPanel(null)}
+        />
       )}
     </div>
   );

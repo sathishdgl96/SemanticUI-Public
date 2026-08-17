@@ -81,9 +81,17 @@ class Page(_Strict):
     filters: FilterList = Field(default_factory=list)
 
 
+#: `#rgb` or `#rrggbb`. Constrained rather than free text because these
+#: values are written into `style` attributes in the browser -- a pattern is
+#: what stops "red; background: url(...)" ever being one of them.
+HEX_COLOR = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"
+
+
 class CanvasSettings(_Strict):
     columns: int = Field(default=12, ge=1, le=24)
     rowHeight: int = Field(default=40, ge=10, le=200)
+    #: The page behind the tiles. Absent means the product's own canvas grey.
+    background: str | None = Field(default=None, pattern=HEX_COLOR)
 
 
 class ReportDefinition(_Strict):

@@ -63,10 +63,12 @@ export default function HierarchyPane({ hierarchies, dimensions, onChange }: Pro
               />
               <button
                 type="button"
-                className="link"
+                className="icon-button danger"
+                aria-label={`Delete ${hierarchy.name}`}
+                title={`Delete ${hierarchy.name}`}
                 onClick={() => onChange(hierarchies.filter((_, i) => i !== index))}
               >
-                Delete {hierarchy.name}
+                <span aria-hidden="true">🗑</span>
               </button>
             </div>
             <ol className="hierarchy-levels">

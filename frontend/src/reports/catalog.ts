@@ -71,6 +71,8 @@ export const COMMON_OPTIONS = [
   // a data label need it for the same reason a card does.
   "format",
   "background",
+  // Per-series hex colours, overriding the shared palette.
+  "colors",
 ];
 
 /** Text sizes offered wherever a size can be set. A short list rather than a

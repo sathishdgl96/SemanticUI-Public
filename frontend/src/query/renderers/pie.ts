@@ -1,8 +1,12 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
+import { hexList } from "./categorical";
 import type { PieOptionLike } from "./categorical";
 
 export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike | null {
+  // The author's colours, if any; the shared palette otherwise. See
+  // the note on axisChrome.color -- palette.ts is never edited.
+  const custom = hexList(visual.options.colors);
   const legendRef = (visual.wells.legend ?? [])[0];
   const valueRef = (visual.wells.values ?? [])[0];
   const name = (ref: string) => ref.split(".", 2)[1] ?? ref;
@@ -16,7 +20,7 @@ export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike 
     name: String(row[li] ?? ""),
     value: Number(row[vi] ?? 0),
     itemStyle: {
-      color: SERIES_COLORS[i % SERIES_COLORS.length],
+      color: custom[i] ?? SERIES_COLORS[i % SERIES_COLORS.length],
       borderColor: CHART_INK.surface,
       borderWidth: 2, // the 2px surface gap between adjacent fills
     },

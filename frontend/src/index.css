@@ -706,6 +706,58 @@ button:disabled {
   padding: 10px;
 }
 
+/* A swatch and a hex box together: one is how you find a colour, the other is
+   how you match a palette someone handed you. */
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.color-field input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.color-field input[type="text"],
+.color-field input:not([type]) {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.color-field input[aria-invalid="true"] {
+  border-color: var(--danger, #b42318);
+}
+
+/* Two halves of one control: the caret is a continuation of the button beside
+   it, not a second button that happens to sit close. */
+.split-button {
+  display: inline-flex;
+}
+
+.split-button > button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.split-button > .split-more {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
 .viz-picker {
   display: flex;
   flex-wrap: wrap;
@@ -1985,9 +2037,15 @@ button.secondary:hover,
   color: var(--ink);
 }
 
+/* Red at rest, not only on hover: a destructive action should look
+   destructive before the pointer is anywhere near it. */
+.icon-button.danger {
+  color: var(--danger, #b42318);
+}
+
 .icon-button.danger:hover {
   border-color: var(--danger, #b42318);
-  color: var(--danger, #b42318);
+  background: rgba(180, 35, 24, 0.08);
 }
 
 /* ==========================================================================
@@ -2261,14 +2319,49 @@ button.secondary:hover,
    pinned to the bottom -- the shape every chat has, and the reason the log
    scrolls rather than the whole dialog: the box you type in should not walk
    off the screen as the conversation grows. */
+/* Floats in the corner rather than covering the report, the way a support
+   chat does -- you consult it WHILE reading, so a modal was the wrong shape.
+   `resize` because the useful size for "what was the answer" and for "show me
+   the table" are not the same size; `min-height`/`min-width` stop a drag
+   collapsing it into a sliver you cannot grab again. */
 .chat-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-width: min(640px, 92vw);
-  height: min(720px, calc(100vh - 64px));
-  /* The log owns the scrolling, so the panel itself must not also scroll. */
-  overflow: hidden !important;
+  width: min(460px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 96px));
+  min-width: 280px;
+  min-height: 220px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  resize: both;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  box-shadow: 0 12px 32px rgba(11, 11, 11, 0.22);
+  /* The log owns the scrolling, so the panel itself must not also scroll --
+     and `resize` needs a non-visible overflow to work at all. */
+  overflow: hidden;
+}
+
+/* On a phone there is no corner to float in: take the bottom half of the
+   screen and stop offering a resize handle nobody can grab. */
+@media (max-width: 599px) {
+  .chat-panel {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 70vh;
+    border-radius: var(--radius-pane) var(--radius-pane) 0 0;
+    resize: none;
+  }
 }
 
 .chat-panel header {
