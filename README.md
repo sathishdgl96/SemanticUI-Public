@@ -6,7 +6,43 @@ sole authority on data access.
 
 Spec: docs/superpowers/specs/2026-08-14-foundation-auth-query-gateway-design.md
 
-## Setting up on a new machine
+## Quick start
+
+Two commands, from a fresh clone:
+
+    python dev.py setup      # Postgres, virtualenv, dependencies, .env, migrations
+    python dev.py run        # both servers, one terminal, Ctrl-C stops both
+
+Then open the URL it prints and sign in with your own Snowflake account.
+
+`dev.py` needs nothing but a Python interpreter — no dependencies outside the
+standard library, because it has to run *before* the virtualenv it creates
+exists. Everything it does is idempotent, and it never overwrites a `.env` you
+have edited.
+
+| Command | Does |
+|---|---|
+| `python dev.py setup` | Checks versions, starts Postgres, creates the venv, installs both halves, copies `.env.example`, runs migrations |
+| `python dev.py run` | Starts backend and frontend together, tags each log line `[api]` / `[web]`, stops both on Ctrl-C |
+| `python dev.py test` | Backend tests, frontend tests, typecheck |
+| `python dev.py doctor` | Versions, what this clone is missing, which ports are held |
+
+**`run` picks its own ports.** It binds before choosing, so a port held by an
+orphaned socket is stepped around rather than crashed into, and it passes the
+backend's real port to Vite as `SEMANTICUI_API_TARGET` — which has to be
+settled before Vite starts, since the proxy target is read once. That is the
+single most common way to lose an hour on this project, so it is automated
+rather than documented.
+
+Fixed ports if you want them:
+
+    python dev.py run --backend-port 8000 --frontend-port 5173
+
+The manual steps are below, and remain the reference — `dev.py` runs exactly
+them, and reading it is a faster way to see what setup involves than reading
+this section.
+
+## Setting up by hand
 
 ### What you need first
 
@@ -89,8 +125,31 @@ read once at startup:
     cd frontend && npm run build                            # production bundle into dist/
     cd frontend && npm run lint                             # oxlint
 
+Or all of the first three at once with `python dev.py test`.
+
 All of these run without a Snowflake account. If they pass and the app still
 misbehaves, the problem is your account or your semantic view, not the build.
+
+### Credentials never enter the repository
+
+`backend/.env` is gitignored and has never been committed. It is the only
+file that holds anything sensitive, and `dev.py setup` creates it by copying
+`.env.example` rather than by generating anything.
+
+Verified across the whole history, not just the working tree: the Snowflake
+password, `SEMANTICUI_SECRET_KEY`, the database URL and the integration-test
+username appear in no commit, and there is no private key, AWS key or API
+token anywhere in it either.
+
+What *is* committed is object names — a database, a schema, a view — in the
+docs and manual passes that record real runs. Those are not secrets. Tests use
+a fictional account identifier (`acmeorg-wh12345`); a real tenant's has no
+business being baked into one.
+
+If you fork this or push it anywhere, check your own `.env` is still ignored
+before the first push:
+
+    git check-ignore -v backend/.env    # should print the .gitignore rule
 
 ### Troubleshooting a fresh setup
 

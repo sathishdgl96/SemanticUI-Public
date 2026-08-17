@@ -126,23 +126,23 @@ def test_connect_dev_keypair_passes_der(monkeypatch):
 
 def test_normalize_account_strips_hostname_suffix():
     assert (
-        sf_connect.normalize_account("xriieim-eh01350.snowflakecomputing.com")
-        == "xriieim-eh01350"
+        sf_connect.normalize_account("acmeorg-wh12345.snowflakecomputing.com")
+        == "acmeorg-wh12345"
     )
     assert (
-        sf_connect.normalize_account("XRIIEIM-EH01350.SnowflakeComputing.COM")
-        == "XRIIEIM-EH01350"
+        sf_connect.normalize_account("ACMEORG-WH12345.SnowflakeComputing.COM")
+        == "ACMEORG-WH12345"
     )
 
 
 def test_normalize_account_strips_scheme_and_path():
     assert (
-        sf_connect.normalize_account("https://xriieim-eh01350.snowflakecomputing.com/")
-        == "xriieim-eh01350"
+        sf_connect.normalize_account("https://acmeorg-wh12345.snowflakecomputing.com/")
+        == "acmeorg-wh12345"
     )
     assert (
-        sf_connect.normalize_account("http://xriieim-eh01350.snowflakecomputing.com/x/y")
-        == "xriieim-eh01350"
+        sf_connect.normalize_account("http://acmeorg-wh12345.snowflakecomputing.com/x/y")
+        == "acmeorg-wh12345"
     )
 
 
@@ -156,8 +156,8 @@ def test_normalize_account_preserves_legacy_region_locators():
 
 
 def test_normalize_account_trims_whitespace_and_is_idempotent():
-    assert sf_connect.normalize_account("  xriieim-eh01350  ") == "xriieim-eh01350"
-    once = sf_connect.normalize_account("xriieim-eh01350.snowflakecomputing.com")
+    assert sf_connect.normalize_account("  acmeorg-wh12345  ") == "acmeorg-wh12345"
+    once = sf_connect.normalize_account("acmeorg-wh12345.snowflakecomputing.com")
     assert sf_connect.normalize_account(once) == once
 
 
@@ -167,8 +167,8 @@ def test_connect_dev_normalizes_the_account_before_connecting(monkeypatch):
         snowflake.connector, "connect", lambda **kw: seen.update(kw) or "CONN"
     )
     sf_connect.connect_dev(
-        account="https://xriieim-eh01350.snowflakecomputing.com/",
+        account="https://acmeorg-wh12345.snowflakecomputing.com/",
         user="alice",
         authenticator="externalbrowser",
     )
-    assert seen["account"] == "xriieim-eh01350"
+    assert seen["account"] == "acmeorg-wh12345"
