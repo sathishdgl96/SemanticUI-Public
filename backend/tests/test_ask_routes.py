@@ -281,3 +281,35 @@ class TestPromptInjectionEndToEnd:
         )
         assert response.status_code == 200
         assert response.json()["spec"]["metrics"] == ["ORDERS.TOTAL_REVENUE"]
+
+
+def test_ask_accepts_a_conversation_and_puts_it_in_the_prompt(client, db, report):
+    """A follow-up ("now split that by region") means nothing without the turn
+    before it, so the history reaches the model."""
+    provider = use(FakeProvider(reply=GOOD_SPEC))
+    response = client.post(
+        f"/api/reports/{report.id}/ask",
+        json={
+            "question": "now split that by region",
+            "history": [{"question": "total revenue", "answer": "Total revenue."}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert "total revenue" in provider.prompts[-1]
+    assert "Total revenue." in provider.prompts[-1]
+    # Still no rows, in a conversation as in a single question.
+    assert "EAST" not in provider.prompts[-1]
+
+
+def test_ask_bounds_the_history_it_will_accept(client, db, report):
+    """Rejected at the door rather than trimmed silently: a caller sending a
+    megabyte of history is a caller to correct, not one to humour."""
+    use(FakeProvider(reply=GOOD_SPEC))
+    response = client.post(
+        f"/api/reports/{report.id}/ask",
+        json={
+            "question": "hello",
+            "history": [{"question": f"q{i}", "answer": "a"} for i in range(40)],
+        },
+    )
+    assert response.status_code == 422

@@ -42,8 +42,29 @@ def _field_lines(fields: list[dict]) -> str:
     )
 
 
+#: How many earlier turns the model is shown. A chat that carries its whole
+#: history grows the prompt without bound; the last few turns are what a
+#: follow-up ("now split that by region") actually refers to.
+MAX_HISTORY_TURNS = 6
+
+
+def _history_lines(history: list) -> str:
+    lines = []
+    for turn in history[-MAX_HISTORY_TURNS:]:
+        question = (turn.get("question") or "").replace('"""', "'''")
+        answer = (turn.get("answer") or "").replace('"""', "'''")
+        lines.append(f"  Q: {question}")
+        if answer:
+            lines.append(f"  A: {answer}")
+    return "\n".join(lines)
+
+
 def build_prompt(
-    detail: dict, question: str, *, report_filters: list | None = None
+    detail: dict,
+    question: str,
+    *,
+    report_filters: list | None = None,
+    history: list | None = None,
 ) -> str:
     parts = [INSTRUCTIONS, "\nDimensions:", _field_lines(detail.get("dimensions", []))]
 
@@ -59,6 +80,20 @@ def build_prompt(
             "\nThe report is already filtered by: "
             f"{described}. Do not repeat these unless the question changes them."
         )
+
+    if history:
+        # Earlier QUESTIONS and the model's own one-sentence explanations --
+        # never rows. The no-data-in-the-prompt rule is the reason this feature
+        # is safe to point at a governed model, and a conversation is exactly
+        # where it would be easiest to lose by accident.
+        parts += [
+            "\nEarlier in this conversation:",
+            _history_lines(history),
+            "\nThe new question may refer to the most recent one "
+            '("that", "those", "break it down by ..."). Resolve it against the '
+            "history above, then answer it in full: your JSON must name every "
+            "field the new query needs, not only the ones that changed.",
+        ]
 
     # The question is delimited, and the delimiter is stripped out of it so it
     # cannot close the block. This is legibility, not security -- validation is

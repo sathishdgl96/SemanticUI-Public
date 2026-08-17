@@ -2247,6 +2247,94 @@ button.secondary:hover,
 
 /* --- Ask ---------------------------------------------------------------- */
 
+/* The chat is a column with a fixed head, a scrolling log and a compose box
+   pinned to the bottom -- the shape every chat has, and the reason the log
+   scrolls rather than the whole dialog: the box you type in should not walk
+   off the screen as the conversation grows. */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(640px, 92vw);
+  height: min(720px, calc(100vh - 64px));
+  /* The log owns the scrolling, so the panel itself must not also scroll. */
+  overflow: hidden !important;
+}
+
+.chat-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
+}
+
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Right-aligned and tinted: the two speakers have to be tellable apart at a
+   glance, which is most of what makes a log read as a conversation. */
+.chat-question {
+  align-self: flex-end;
+  max-width: 80%;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 12px 12px 2px 12px;
+  background: var(--ink-wash);
+  font-size: 13px;
+}
+
+.chat-answer {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.chat-audit summary {
+  color: var(--ink-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat-audit pre {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  background: var(--chrome);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.chat-compose {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-compose input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-open span {
+  font-size: 13px;
+  line-height: 1;
+}
+
 .ask-panel {
   display: flex;
   flex-direction: column;

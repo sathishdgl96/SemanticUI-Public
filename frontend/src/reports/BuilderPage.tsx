@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import { getReport, updateReport } from "../api/reports";
 import { atLeast, moveReport } from "../api/workspaces";
-import AskPanel from "../ask/AskPanel";
+import ChatPanel from "../ask/ChatPanel";
 import ConnectPanel from "../export/ConnectPanel";
 import Pane from "../shell/Pane";
 import DataPane from "./DataPane";
@@ -190,6 +190,11 @@ function BuilderHierarchyRow({
     </button>
   );
 }
+
+/** Why Chat, Excel and Connect are unavailable on a fresh report. Named once
+ *  so the three of them cannot drift into three different explanations. */
+const UNBOUND_HINT =
+  "Pick a semantic view for this report first — there is no data to work with yet.";
 
 /** Only workspaces the caller can write to are offered. Moving needs editor
  *  on BOTH ends, so listing a read-only workspace would only produce a 403. */
@@ -793,18 +798,25 @@ export default function BuilderPage() {
             </button>
           )}
           <span className="cmd-sep" aria-hidden="true" />
+          {/* All three need a semantic view to work against, and the server
+              refuses without one. Disabling with the reason attached beats
+              opening a panel whose only content is "there is nothing to ask
+              about" -- the report is unbound, and the fix is to bind it. */}
           <button
             type="button"
-            className="secondary"
+            className="secondary chat-open"
             aria-pressed={panel === "ask"}
+            disabled={!view.name}
+            title={view.name ? "Chat about this data" : UNBOUND_HINT}
             onClick={() => setPanel(panel === "ask" ? null : "ask")}
           >
-            Ask
+            <span aria-hidden="true">💬</span> Chat
           </button>
           <button
             type="button"
             className="secondary"
-            disabled={exportExcel.isPending}
+            disabled={exportExcel.isPending || !view.name}
+            title={view.name ? undefined : UNBOUND_HINT}
             onClick={() => exportExcel.mutate()}
           >
             {exportExcel.isPending ? "Exporting…" : "Excel"}
@@ -813,6 +825,8 @@ export default function BuilderPage() {
             type="button"
             className="secondary"
             aria-pressed={panel === "connect"}
+            disabled={!view.name}
+            title={view.name ? undefined : UNBOUND_HINT}
             onClick={() => setPanel(panel === "connect" ? null : "connect")}
           >
             Connect live
@@ -1087,7 +1101,7 @@ export default function BuilderPage() {
       )}
       {panel === "ask" && (
         <div className="panel-overlay">
-          <AskPanel
+          <ChatPanel
             reportId={reportId}
             canEdit={canEdit}
             onAddVisual={addVisualFromSpec}

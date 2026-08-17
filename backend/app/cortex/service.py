@@ -47,6 +47,7 @@ def ask(
     report_id: str,
     question: str,
     *,
+    history: list | None = None,
     provider: Any,
 ) -> dict:
     settings = get_settings()
@@ -72,7 +73,10 @@ def ask(
             entry, report.view_database, report.view_schema, report.view_name
         )
         prompt = build_prompt(
-            detail, question, report_filters=(report.definition or {}).get("filters")
+            detail,
+            question,
+            report_filters=(report.definition or {}).get("filters"),
+            history=history,
         )
         # One call. No agentic loop, no retry storm.
         reply = provider.complete(entry.conn, prompt)
