@@ -85,6 +85,31 @@ describe("ConnectPanel", () => {
     expect(await screen.findByText("Copied")).toBeInTheDocument();
   });
 
+  it("offers a connection file, so the four manual steps are optional", async () => {
+    // The question this answers: "can I just download the connected Excel?"
+    // One ODC per query, because one ODC holds one query.
+    wrap(<ConnectPanel reportId="r1" sheets={SHEETS} onClose={() => {}} />);
+    const button = await screen.findByRole("button", {
+      name: /download \.odc for Revenue/i,
+    });
+    await userEvent.click(button);
+
+    const call = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.find(([url]) => String(url).endsWith("/connect.odc"));
+    expect(call).toBeTruthy();
+    expect(JSON.parse(String(call![1]!.body))).toEqual({ sheet: SHEETS[0] });
+  });
+
+  it("keeps the manual route, and says what the file needs that it does not", async () => {
+    // The .odc reaches Snowflake through the ODBC driver. Someone without it
+    // should learn that here rather than from an Excel error dialog.
+    wrap(<ConnectPanel reportId="r1" sheets={SHEETS} onClose={() => {}} />);
+    await userEvent.click(await screen.findByText(/connect by hand instead/i));
+    expect(screen.getByText(/ODBC driver/i)).toBeInTheDocument();
+    expect(screen.getByText(/Get Data/i)).toBeInTheDocument();
+  });
+
   it("says plainly that no data flows through this app once connected", async () => {
     // The reason this approach was chosen over a token-bearing URL.
     wrap(<ConnectPanel reportId="r1" sheets={SHEETS} onClose={() => {}} />);

@@ -502,7 +502,17 @@ button:disabled {
   border: 0;
 }
 
-.field-panel:focus-within .field-hint {
+/* `:focus-visible`, not `:focus-within`, and this is load-bearing rather than
+   fussy. `:focus-within` fires on a MOUSE click too: pressing a field row
+   focused it, the hint took 38px of the flow, the whole list jumped down, and
+   the mouseup landed on a different element -- so no click event fired at all
+   and the first field you clicked in the explorer did nothing. `:focus-visible`
+   is set by keyboard focus and not by a click, which is also exactly who this
+   hint is for.
+
+   Browsers without `:has()` simply never reveal it. That loses a hint and
+   nothing else, which is the right way for this to fail. */
+.field-panel:has(.field-row:focus-visible) .field-hint {
   position: static;
   width: auto;
   height: auto;
@@ -2406,6 +2416,20 @@ button.secondary:hover,
   min-width: min(720px, 94vw);
   max-height: 80vh;
   overflow-y: auto;
+}
+
+.connect-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The manual route is still here, folded away: most people want the file, and
+   the ones who cannot use it need four steps rather than a paragraph. */
+.connect-manual summary {
+  color: var(--ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .connect-panel header {

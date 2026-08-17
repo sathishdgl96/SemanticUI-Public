@@ -54,3 +54,49 @@ export async function downloadXlsx(
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+/** Download one visual's query as an Office Data Connection file.
+ *
+ *  Excel opens it and creates a live-connected table, which is the four
+ *  manual steps in the Connect panel done for you. The file carries no
+ *  credential: Excel asks for a sign-in and refreshes as whoever opened it.
+ */
+export async function downloadOdc(
+  reportId: string,
+  sheet: SheetRequest,
+  filename: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/reports/${encodeURIComponent(reportId)}/connect.odc`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sheet }),
+    },
+  );
+
+  if (!response.ok) {
+    let body: { message?: string; code?: string } = {};
+    try {
+      body = await response.json();
+    } catch {
+      // A non-JSON error body; fall through to the default message.
+    }
+    throw new ApiError(
+      body.code ?? "QUERY_ERROR",
+      response.status,
+      body.message ?? "Could not build a connection file.",
+    );
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}

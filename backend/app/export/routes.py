@@ -65,3 +65,34 @@ def connect(
     return service.connection_details(
         db, sess, report_id, [s.model_dump() for s in body.sheets]
     )
+
+
+class OdcBody(BaseModel):
+    #: One sheet, because one ODC file holds one query. A report with four
+    #: visuals is four downloads, which is also four tables in Excel.
+    sheet: SheetRequest
+    #: Optional: the warehouse Excel should use. Absent means the user's
+    #: default, which is what most people want and nobody has to be told.
+    warehouse: str = Field(default="", max_length=255)
+
+
+@router.post("/api/reports/{report_id}/connect.odc")
+def connect_odc(
+    report_id: str,
+    body: OdcBody,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> Response:
+    """The Connect panel's four manual steps, as a file you double-click.
+
+    Carries no credential: Excel prompts for a sign-in and refreshes as
+    whoever opened it. See app/export/odc.py.
+    """
+    document, filename = service.connection_file(
+        db, sess, report_id, body.sheet.model_dump(), warehouse=body.warehouse
+    )
+    return Response(
+        content=document,
+        media_type="text/x-ms-odc",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

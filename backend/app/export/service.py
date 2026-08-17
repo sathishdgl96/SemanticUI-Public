@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.db.models import DbSession
 from app.errors import ApiError
 from app.export.literals import build_literal_sql
+from app.export.odc import build_odc, filename_for
 from app.export.workbook import SheetData, build_workbook
 from app.reports.filters import is_active
 from app.semantic.query import SemanticQueryRequest, build_semantic_sql
@@ -121,3 +122,32 @@ def connection_details(
         "view": report.view_name,
         "sheets": out,
     }
+
+
+def connection_file(
+    db: Session, sess: DbSession, report_id: str, sheet: dict, *, warehouse: str = ""
+) -> tuple[str, str]:
+    """(ODC document, filename) for one visual's query.
+
+    The same literal SQL the Connect panel shows, wrapped in the file format
+    Excel opens directly. Nothing is executed here -- this builds a statement
+    for Excel to run on the user's own connection.
+    """
+    report, cache, entry = _prepare(db, sess, report_id)
+    with entry.lock:
+        detail = cache.describe(
+            entry, report.view_database, report.view_schema, report.view_name
+        )
+        sql = build_literal_sql(detail, _request(report, sheet))
+        identifier = account_identifier(entry.conn)
+
+    title = sheet.get("title") or report.name or "Query"
+    document = build_odc(
+        title=title,
+        sql=sql,
+        account=identifier or sess.user.snowflake_account,
+        database=report.view_database,
+        schema=report.view_schema,
+        warehouse=warehouse,
+    )
+    return document, filename_for(title)
