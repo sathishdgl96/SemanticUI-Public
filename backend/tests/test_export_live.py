@@ -256,3 +256,70 @@ class TestSheetNames:
         assert assign_sheet_names(["A", "B", "C"]) == ["A", "B", "C"]
         assert assign_sheet_names(["Same", "Same"]) == ["Same", "Same (2)"]
         assert assign_sheet_names(["Summary"]) == ["Summary (2)"]
+
+
+class TestRelationshipNamespaces:
+    """Excel called the workbook corrupt, and this is why.
+
+    A .rels part has TWO namespaces in play. The `<Relationships>` container
+    belongs to the PACKAGE namespace; the `Type` on each relationship inside
+    belongs to the officeDocument one. Writing the container in the
+    officeDocument namespace produces a file that is well-formed, whose every
+    Target resolves, and which tells Excel the part declares no relationships
+    at all -- so the worksheet's `r:id="rId1"` points at nothing and the
+    package is rejected.
+
+    The earlier tests all passed on that file, because they matched raw text
+    with regexes. These parse.
+    """
+
+    PACKAGE = "http://schemas.openxmlformats.org/package/2006/relationships"
+
+    def test_every_rels_container_is_in_the_package_namespace(self):
+        from xml.etree import ElementTree
+
+        archive = parts(live())
+        rels = [n for n in archive if n.endswith(".rels")]
+        assert rels
+        for name in rels:
+            root = ElementTree.fromstring(archive[name])
+            assert root.tag == f"{{{self.PACKAGE}}}Relationships", name
+
+    def test_every_r_id_a_worksheet_uses_resolves_in_its_own_rels(self):
+        # Parsed rather than pattern-matched: a relationship in the wrong
+        # namespace simply is not a relationship, and only a namespace-aware
+        # reader notices.
+        from xml.etree import ElementTree
+
+        archive = parts(live())
+        r_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+        for name, blob in archive.items():
+            if not (name.startswith("xl/worksheets/sheet") and name.endswith(".xml")):
+                continue
+            used = {
+                el.get(r_ns)
+                for el in ElementTree.fromstring(blob).iter()
+                if el.get(r_ns)
+            }
+            if not used:
+                continue
+            rels_path = name.replace("xl/worksheets/", "xl/worksheets/_rels/") + ".rels"
+            assert rels_path in archive, name
+            declared = {
+                el.get("Id")
+                for el in ElementTree.fromstring(archive[rels_path]).findall(
+                    f"{{{self.PACKAGE}}}Relationship"
+                )
+            }
+            assert used <= declared, f"{name}: {used - declared} not declared"
+
+    def test_the_table_finds_its_query_table(self):
+        from xml.etree import ElementTree
+
+        archive = parts(live())
+        rels = ElementTree.fromstring(archive["xl/tables/_rels/table1.xml.rels"])
+        targets = [
+            r.get("Target")
+            for r in rels.findall(f"{{{self.PACKAGE}}}Relationship")
+        ]
+        assert targets == ["../queryTables/queryTable1.xml"]

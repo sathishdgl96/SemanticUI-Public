@@ -48,9 +48,33 @@ never be shown. Clicking the canvas itself now deselects, guarded on
 `e.target === e.currentTarget` so a click that landed on a tile and bubbled
 does not immediately undo the selection it just made.
 
-## What is NOT verified
+## The corruption, and what caused it
 
-**Nobody has opened this workbook in Excel.** The file is assembled by editing
+**Excel rejected the first workbook this shipped.** The cause was one
+namespace. A `.rels` part has two in play: the `<Relationships>` container
+belongs to the PACKAGE namespace
+(`…/package/2006/relationships`), while the `Type` on each relationship inside
+it belongs to the officeDocument one (`…/officeDocument/2006/relationships`).
+The builder used the officeDocument URI for both.
+
+The result was a file that was well-formed XML, whose every `Target` resolved
+to a part that existed, and which told Excel the worksheet declared no
+relationships at all — so `<tablePart r:id="rId1"/>` pointed at nothing and the
+package was rejected.
+
+Every structural test written for this passed on that file, because they
+matched raw text with regular expressions, and a regex cannot tell one
+namespace from another. `TestRelationshipNamespaces` parses instead, and was
+confirmed to fail on the broken build before the fix was restored: reintroduce
+the wrong namespace and three tests go red.
+
+A rebuilt workbook now reads consistently namespace-aware: every `.rels`
+container in the package namespace, and every `r:id` a worksheet uses declared
+in that worksheet's own rels.
+
+## What is STILL not verified
+
+**Nobody has opened the fixed workbook in Excel.** The file is assembled by editing
 a zip of OOXML parts, which is exactly the kind of code that produces "we
 found a problem with some content". Excel is not available here, so
 `tests/test_export_live.py` checks every structural property that can be

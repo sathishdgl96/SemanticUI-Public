@@ -28,6 +28,14 @@ from dataclasses import dataclass
 from xml.sax.saxutils import escape, quoteattr
 
 CONTENT_TYPES = "[Content_Types].xml"
+#: TWO different namespaces, and conflating them is what made Excel call the
+#: workbook corrupt. The container element of a .rels part lives in the
+#: PACKAGE namespace; the Type attribute of each relationship inside it lives
+#: in the officeDocument one. Writing the container in the officeDocument
+#: namespace produces a file that parses, validates against every check that
+#: does not know the difference, and tells Excel the part has no relationships
+#: at all -- so `r:id="rId1"` on the worksheet's tablePart points at nothing.
+PACKAGE_RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 RELS_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 CT_BASE = "application/vnd.openxmlformats-officedocument.spreadsheetml"
 
@@ -196,7 +204,7 @@ def add_live_connections(
 
         archive[f"xl/tables/_rels/table{index}.xml.rels"] = (
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            f'<Relationships xmlns="{RELS_NS}">'
+            f'<Relationships xmlns="{PACKAGE_RELS_NS}">'
             f'<Relationship Id="rId1" Type="{RELS_NS}/queryTable" '
             f'Target="../queryTables/queryTable{index}.xml"/></Relationships>'
         ).encode("utf-8")
@@ -247,7 +255,7 @@ def _add_relationship(archive: dict[str, bytes], path: str, type_: str, target: 
     if existing is None:
         rels = (
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            f'<Relationships xmlns="{RELS_NS}"></Relationships>'
+            f'<Relationships xmlns="{PACKAGE_RELS_NS}"></Relationships>'
         )
     else:
         rels = existing.decode("utf-8")
