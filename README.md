@@ -6,21 +6,63 @@ sole authority on data access.
 
 Spec: docs/superpowers/specs/2026-08-14-foundation-auth-query-gateway-design.md
 
-## Prerequisites
+## Setting up on a new machine
 
-- Python 3.12+, Node 20+, Docker (for local Postgres)
-- A Snowflake account with at least one semantic view
+### What you need first
 
-## Local development (dev auth mode - no security integration needed)
+| | Version | Why that floor |
+|---|---|---|
+| Python | **3.12+** | `backend/pyproject.toml` sets `requires-python = ">=3.12"`. Developed on 3.14. |
+| Node | **20.19+ or 22.12+** | Vite 8's own floor. Developed on 22.17. |
+| Docker | any recent | Only to run Postgres locally. Skip it if you already have a Postgres 16. |
+| Snowflake | an account | With **at least one semantic view** your role can see, and a way to sign in (SSO, password, or a registered key pair). |
 
+The Snowflake account is not optional and not stubbable. This product has no
+data of its own: every screen is a query run on your own credentials, so with
+no semantic view visible to your role, the app signs you in and shows an empty
+view tree. Check with `SHOW SEMANTIC VIEWS;` in a Snowflake worksheet before
+blaming the setup.
+
+### 1. Clone and start Postgres
+
+    git clone <this repo> SemanticUI
+    cd SemanticUI
     docker compose up -d postgres
+
+That brings up Postgres 16 on **localhost:5432** with user/password/database
+all `semanticui` — matching the connection string in `.env.example`. Postgres
+stores sessions, workspaces, report and explore definitions. It never stores
+query results.
+
+Using your own Postgres instead? Create a database and set
+`SEMANTICUI_DATABASE_URL` in step 2 to point at it.
+
+### 2. Backend
+
     cd backend
     python -m venv .venv
-    .venv\Scripts\activate        # Windows (source .venv/bin/activate elsewhere)
+    .venv\Scripts\activate            # Windows
+    source .venv/bin/activate         # macOS / Linux
     pip install -e ".[dev]"
-    copy .env.example .env        # defaults are fine for dev mode
+    copy .env.example .env            # Windows; `cp` elsewhere
     alembic upgrade head
     uvicorn app.main:app --reload --port 8000
+
+`.env.example` is complete for local development — dev auth mode, the Docker
+Postgres URL, and a placeholder secret key. The minimum-length and
+not-the-default checks on `SEMANTICUI_SECRET_KEY` apply **only** when
+`SEMANTICUI_ENVIRONMENT=production`, so the placeholder starts fine here and
+will refuse to start there. `.[dev]` adds pytest and openpyxl; without it the
+test suite cannot run.
+
+`alembic upgrade head` creates every table from scratch (four migrations:
+initial, reports, workspaces, saved explores). It is safe to re-run.
+
+Check it came up:
+
+    curl http://localhost:8000/healthz
+
+### 3. Frontend
 
 In a second terminal:
 
@@ -28,10 +70,52 @@ In a second terminal:
     npm install
     npm run dev
 
-Open http://localhost:5173, choose a sign-in method, and sign in with YOUR
-Snowflake account/user. "External browser (SSO)" pops your default browser
-once for Snowflake SSO/login - no OAuth security integration required for
-local dev.
+Open **http://localhost:5173** and sign in with *your* Snowflake account and
+user. "External browser (SSO)" pops your default browser once — no OAuth
+security integration is needed for local development.
+
+The dev server proxies `/api` and `/auth` to `http://localhost:8000`. To point
+it somewhere else — a second backend on another port, say — set
+`SEMANTICUI_API_TARGET` **before starting Vite**, since the proxy target is
+read once at startup:
+
+    SEMANTICUI_API_TARGET=http://localhost:8010 npm run dev
+
+### 4. Confirm the install
+
+    cd backend  && .venv/Scripts/python.exe -m pytest -q   # 647 tests, no Snowflake needed
+    cd frontend && npm test                                 # 452 tests
+    cd frontend && npm run typecheck                        # tsc -b
+    cd frontend && npm run build                            # production bundle into dist/
+    cd frontend && npm run lint                             # oxlint
+
+All of these run without a Snowflake account. If they pass and the app still
+misbehaves, the problem is your account or your semantic view, not the build.
+
+### Troubleshooting a fresh setup
+
+**`uvicorn --reload` stops noticing changes.** Seen repeatedly on Windows: the
+process keeps serving code from when it started, and the symptoms look like
+frontend bugs — a new field missing from a response, a new operator 422-ing, a
+new route 404-ing. Check the process start time against when you edited the
+file, and restart it. Before assuming a client bug, confirm the server is
+running the code you just wrote.
+
+**A killed server leaves its port occupied.** Also Windows: after killing
+uvicorn, the socket can stay `LISTENING` against a PID that no longer exists,
+and rebinding fails with `[Errno 10048]` *after* the log has already printed
+"Application startup complete". Confirm with
+`netstat -ano | findstr :8000` that the PID is the one you just started; if the
+port is stuck, use another and point Vite at it with `SEMANTICUI_API_TARGET`.
+
+**The view tree is empty after signing in.** The list comes from `SHOW
+SEMANTIC VIEWS` run on *your* connection — the app never filters it. An empty
+tree means your Snowflake role sees no semantic views.
+
+**Postgres refuses the connection.** `docker compose ps` should show the
+container up and 5432 published. On a machine already running Postgres, the
+port is taken; change the host side of the mapping in `docker-compose.yml` and
+`SEMANTICUI_DATABASE_URL` together.
 
 ## Authentication
 
@@ -168,43 +252,59 @@ the app hardcodes.
 
 ## The explorer UI
 
-After login, the explorer is three panes:
+After login, the explorer is shaped like Looker's: **two** columns, not three.
 
-1. **Semantic view tree** (left) - every semantic view the signed-in user's
-   own Snowflake role can see (this is enforced by Snowflake, not the app -
-   the list comes from `SHOW SEMANTIC VIEWS` run on the user's own
-   connection).
-2. **Field list** (middle-top) - once a view is selected, its dimensions and
-   metrics, each showing its Snowflake data type. Dimensions show a `⬦`
-   glyph, metrics a `Σ` glyph.
-3. **Field wells - Axis / Legend / Values** (middle-bottom) - drag a field
-   from the field list into a well, or focus a field and press **Enter** to
-   add it to its default well (Values for a metric; Axis first, then Legend,
-   for dimensions). Press **Space** on a focused field to pick it up for a
-   keyboard-only drag (arrow keys to move between wells, Space again to
-   drop, Escape to cancel - dnd-kit's standard keyboard sensor behavior).
+**Left — the sidebar**, hard against the edge, holding three labelled and
+sticky sections: **Views** (every semantic view the signed-in user's own
+Snowflake role can see — the list comes from `SHOW SEMANTIC VIEWS` run on
+their own connection, so Snowflake enforces it, not the app), **Saved
+explores**, and **Fields** (dimensions with a `⬦` glyph, metrics with `Σ`,
+each showing its Snowflake data type).
 
-Wells are type-validated: **Axis** and **Legend** only accept dimensions,
-**Values** only accepts metrics. Axis and Legend each hold at most one
-field; Values holds any number. A drop (pointer or keyboard) of the wrong
-field kind onto a well is refused - the field is not added, the well shows a
-"blocked" state while a drag is in progress, and screen readers get an
-explicit "not allowed" announcement (dnd-kit's default announcer is purely
-geometric and doesn't know about this rule, so the app supplies its own).
-Each field already in a well appears as a chip with its own **Remove**
-button.
+**Right — a stack of foldable sections:** the selected fields, then Filters,
+Visualization and Data.
 
-Setting a **Legend** splits a single measure into one chart series per
-distinct legend value (a pivot done client-side over the query result).
-Only the first selected metric is charted in that case - the app shows a
-note explaining this - but the results table still shows every selected
-field.
+**Selecting fields.** Click a field to add it, or drag it onto a well. The
+wells are **Group by** (any number of dimensions), **Split by** (one optional
+dimension, which splits a measure into one series per value) and **Measures**.
+Enter adds a focused field to its default well; Space picks it up for a
+keyboard-only drag. A drop of the wrong kind is refused, and screen readers
+get an explicit "not allowed" announcement.
 
-Pressing **Run** sends the well selections as a semantic query. The result
-renders as: an auto-chosen chart (line, if the Axis dimension's type is
-DATE/TIMESTAMP; otherwise bar with rounded tops; no chart unless exactly one
-Axis dimension and at least one metric are selected), a results table, and a
-"SQL sent" preview of the exact `SEMANTIC_VIEW(...)` SQL that ran.
+**Fields the current selection has ruled out are dimmed**, with one note
+saying why. This is Snowflake's own grain rule, not a preference: a measure
+defined at customer grain cannot be broken down by an order-level dimension,
+and the join graph decides what is reachable. See "The join graph" below.
+
+**Visualization** offers the whole gallery — every catalog type except the
+slicer — with types the current selection cannot draw shown disabled rather
+than hidden. **Data** carries the results table, the SQL that ran, and a **row
+limit** (default 500, up to the server's cap of 10,000).
+
+**Add to report** hands the report the visual currently on screen, not always
+a bar: a lone dimension becomes a table, a lone measure a card.
+
+### The join graph
+
+A `SEMANTIC_VIEW(...)` query is rooted at a base entity Snowflake picks for
+itself, and everything else named in the query must be reachable from it along
+declared relationships. Break that and the query fails at compile time with
+one of three "Invalid dimension specified" errors.
+
+Two things follow, and both are visible in the explorer:
+
+1. **Dimension-only queries across unrelated entities are repaired**, not
+   refused. A connecting entity is added as a metric and projected away, so
+   the answer is the combinations that actually occur. The response says which
+   entity it went through — that narrowing is real and is not left implicit.
+2. **What cannot be repaired is not offered.** A coarse measure poisons the
+   query whatever else is selected, so those fields are dimmed with the reason.
+
+The rules were established by running roughly eighty combinations against a
+real account, not read from documentation:
+`docs/superpowers/specs/2026-08-16-join-graph-findings.md`.
+`backend/tests/integration/test_joins_it.py` re-runs the load-bearing ones, so
+drift in Snowflake's behaviour fails a test rather than reaching a user.
 
 ## Reports
 
@@ -232,21 +332,31 @@ dropped and named in a one-line notice. Fields are placed either by
 matching kind with room) or by **dragging** it onto a specific well - drag is
 never the only way to place a field.
 
-**The seven visual types and what each well takes:**
+**The sixteen visual types and what each well takes** (the single source is
+`backend/app/reports/catalog.py`, mirrored in `frontend/src/reports/catalog.ts`):
 
 | Type | Wells |
 | --- | --- |
-| Bar | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
-| Line | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
-| Area | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
-| Pie | Legend (1 dimension), Values (1 metric) |
+| Column, Bar, Line, Area | Axis (1 dimension), Legend (0-1 dimension), Values (1+ metrics) |
+| Line and column | Axis (1 dimension), Column values (1+ metrics), Line values (0+ metrics) |
+| Pie, Donut, Treemap, Funnel | Legend (1 dimension), Values (1 metric) |
+| Gauge | Value (1 metric), Target (0-1 metric) |
 | Scatter | X axis (1 metric), Y axis (1 metric), Detail (0-1 dimension) |
 | Table | Dimensions (0+), Metrics (0+) - at least one field total |
-| KPI card | Value (1 metric) |
+| Matrix | Rows (1+ dimensions), Columns (0-1 dimension), Values (1+ metrics) |
+| Card | Value (1 metric) |
+| Multi-row card | Fields (0+ dimensions), Values (1+ metrics) |
+| Slicer | Field (1 dimension) |
 
-Bar and Area also take a **stacked** option; Pie takes **donut**; KPI takes a
-number **format** (plain or compact, e.g. "1,234,567" vs. "1.2M"). A field
-may only occupy one well on a visual at a time.
+A field may only occupy one well on a visual at a time.
+
+**Format.** The Visualizations pane's Format tab covers the title, legend
+(position, title, text size), values (number format, data labels and their
+size), axes (gridlines, X/Y titles, text size), the type's own options
+(stacking, donut hole, subtotals) and sort/top-N. **Colours** take hex: per
+series, per tile background, and — with no visual selected — the canvas
+itself. Only well-formed hex is accepted, because these values reach a `style`
+attribute and an ECharts option.
 
 **Canvas.** Tiles drag to reposition and resize on a 12-column grid; each
 tile queries independently, so one tile's fields being invalid or its query
@@ -282,20 +392,30 @@ about report data itself is ever written to SemanticUI's own database.
 
 ### Filters
 
-Filters live in the definition document at two scopes. **Report filters** sit
-at the top level and apply to every visual; **visual filters** sit on the
-visual they belong to. They compose by intersection - a visual's effective
-filter set is report filters AND its own AND its drill path AND any active
-cross-filter.
+Filters live in the definition document at **three** scopes, in the order the
+pane shows them: **this visual**, **this page**, and **all pages**. They
+compose by intersection - a visual's effective filter set is all-pages AND
+page AND its own AND its drill path AND any active cross-filter. Each scope's
+heading carries an ⓘ that explains it on request rather than permanently.
 
-Four operators, each mapping to one bound-parameter predicate:
+Every operator maps to one bound-parameter predicate:
 
 | `op` | Fields | Predicate |
 |---|---|---|
 | `is` | `values: string[]` | `field IN (?, ?)`; a single value emits `=` |
 | `isNot` | `values: string[]` | `field NOT IN (?, ?)`; a single value emits `<>` |
-| `between` | `from`, `to` | `field BETWEEN ? AND ?` |
+| `contains` / `notContains` | `value` | `CONTAINS(UPPER(field), ?)`, negated for the second |
+| `startsWith` / `endsWith` | `value` | `STARTSWITH` / `ENDSWITH`, same shape |
+| `gt` / `gte` / `lt` / `lte` | `value` | `field > ?` and so on |
+| `isBlank` / `isNotBlank` | none | `(field IS NULL OR field = '')`, negated for the second; **binds nothing** |
+| `between` / `notBetween` | `from`, `to` | `field BETWEEN ? AND ?` |
 | `relativeDate` | `unit`+`count`, or `preset` | resolved server-side to `field BETWEEN ? AND ?` |
+
+**Text matching ignores case.** `CONTAINS(segment, 'mach')` finds nothing in a
+column of `MACHINERY`, so both sides are upper-cased - the column in SQL, the
+value in Python. `LIKE ... ESCAPE` is a syntax error inside `SEMANTIC_VIEW()`,
+which is why these are the literal substring functions and not patterns: they
+have no wildcard semantics, so there is nothing to escape.
 
 **An unfinished filter means "not filtering yet", not "match nothing".** A
 filter with no values chosen, or a `between` with an empty endpoint, is saved
@@ -388,21 +508,32 @@ the view. `BuilderPage.test.tsx` asserts Save stays *disabled* after drilling
 and cross-filtering, which is the real statement that they are view state
 rather than document state.
 
-### Schema version 2
+### Schema version 3
 
-Adding filters and hierarchies moved `SCHEMA_VERSION` to 2.
-`migrate_definition` runs *before* validation and upgrades a v1 document by
-adding the empty collections, so reports and exports saved before this change
-keep opening forever. Anything above the current version is still rejected.
+Filters and hierarchies moved `SCHEMA_VERSION` to 2; **pages** moved it to 3.
+`migrate_definition` runs *before* validation and chains v1 → v2 → v3, so a
+v1 document gains the empty collections and a v2 document's top-level visuals
+become its first page. It runs on the read path as well as on save, so a
+report written before either change keeps opening forever. Anything above the
+current version is still rejected.
 
 ### Distinct values for the filter editor
 
 `GET /api/semantic-views/{db}/{schema}/{name}/values?field=TABLE.FIELD` runs a
 capped query on the caller's own connection through the same builder every
 other query uses, so a user is only ever offered values their Snowflake role
-can already read. Capped at 1000 with an explicit `truncated` flag; NULL is
-dropped, because `IN (?)` never matches it and offering it would build a
-filter that silently returns nothing.
+can already read. It takes `search` and `limit` as well, and returns **ten**
+values by default with `truncated` meaning "more match" - a prompt to keep
+typing rather than an apology for an unusable list.
+
+**The search runs on the server**, inside the `SEMANTIC_VIEW(...)` call, as an
+ordinary bound `contains` filter. That is the whole point: a column of 150,000
+customer names cannot be searched by fetching a page and filtering it, because
+the name wanted is almost never in the page. One `ValuePicker` serves the
+filter editor and the slicer, so "search" means one thing wherever you are.
+
+NULL is dropped, because `IN (?)` never matches it and offering it would build
+a filter that silently returns nothing.
 
 
 ## Workspaces and sharing
@@ -494,10 +625,25 @@ Users who own no reports get their personal workspace lazily on next login,
 so the migration does not manufacture one for someone who may never sign in.
 
 
-## Asking a report a question
+## Chat: asking a report a question
 
-`POST /api/reports/{id}/ask` takes a plain-language question and answers it
-with numbers from the report's own semantic view.
+The **💬 Chat** button opens a floating, resizable panel over the canvas —
+not a modal, because you consult it while reading the report. Each answer can
+be added to the report as a visual, which is what "build a report by chatting"
+amounts to once the model already proposes a query spec.
+
+`POST /api/reports/{id}/ask` takes a plain-language question, optional
+conversation `history`, and answers with numbers from the report's own
+semantic view.
+
+**It is a conversation.** Each question is sent with the ones before it, so
+"now split that by region" is answerable. Only *answered* turns become
+history: an unanswered question would tell the model something was asked and
+leave it guessing what came of it. What travels back is the question and the
+model's own one-sentence explanation — **never the rows**. Keeping data out of
+the prompt is what makes this safe to point at a governed model, and a chat is
+where it would be easiest to lose by accident, so there is a test on each side
+asserting exactly that. History is trimmed to the last six turns.
 
 ### The model proposes a query. It never executes one, and it never sees data.
 
@@ -639,23 +785,40 @@ explains itself, rather than a 500. An unknown *field* still fails the whole
 export, because that indicates a client bug rather than a permissions
 difference.
 
-### Connecting Excel live
+### The live connection
 
-**Connect live** gives you what Snowflake's own Excel connector needs:
+There is one **Excel** button. It downloads the workbook described above —
+and that workbook carries a **connection per sheet**, so Data → Refresh All
+re-runs each query against Snowflake. The caret beside it opens the
+fallbacks: a `.odc` file per query, the copyable SQL, and the manual
+Get Data → From Snowflake steps.
 
-1. In Excel: Data → Get Data → From Database → From Snowflake.
-2. Server: the panel shows it, in the form `ORG-ACCOUNT.snowflakecomputing.com`.
-3. Sign in with your own Snowflake credentials.
-4. Advanced options → paste one of the statements shown.
+**No credential is written into the file.** Excel prompts for a sign-in, so
+the workbook refreshes as whoever opened it — the same rule the rest of the
+product runs on, and one a file carrying a password would break the first time
+a workbook was forwarded.
 
-The workbook then refreshes straight from Snowflake **as you**. No data passes
-through this application once connected, and there is no token anywhere.
+**Refreshing needs the Snowflake ODBC driver** on the machine that opens the
+file. The embedded connection reaches ODBC through MSDASQL. Power Query's own
+Snowflake connector needs no driver but stores its definition in an
+undocumented binary part of the `.xlsx`, which is not something to
+hand-author — which is why the manual route is still there.
 
 The account identifier is read from `CURRENT_ORGANIZATION_NAME()` and
 `CURRENT_ACCOUNT_NAME()` on your connection, not from `CURRENT_ACCOUNT()`.
 The latter returns the account *locator*, which only resolves as a hostname in
-Snowflake's default region - handing it to Excel gives a server string that
+Snowflake's default region — handing it to Excel gives a server string that
 simply fails outside that region.
+
+**What a refreshable workbook is not.** It is a flat result set that re-runs
+one statement. It is not an SSAS cube: expanding a member cannot fetch a grain
+that was never exported, because Excel would need MDX over XMLA and Snowflake
+speaks SQL. Pivoting a loaded extract works within the columns you exported;
+drilling below them means going back to the app, which re-queries Snowflake on
+every drill. See `docs/superpowers/manual-passes/2026-08-17-live-excel-and-colours.md`
+for what has and has not been verified here — including that the embedded
+connection is assembled by editing OOXML parts by hand, and was found corrupt
+once already.
 
 ### Why the copyable SQL is a separate code path
 
@@ -855,3 +1018,13 @@ Fix anything that fails before committing.
 > Everything else in this README - config keys, validator behaviour, endpoint
 > names, component and interaction behaviour - was verified directly against
 > the source in `backend/app` and `frontend/src`.
+>
+> **Sections re-checked against the source on 2026-08-17**, when the setup
+> instructions were written: setup, the explorer, the visual catalog and
+> Format pane, filters and the values endpoint, schema version, chat, and the
+> Excel live connection. All of those had drifted from the code.
+>
+> **Not re-checked in that pass**: the manual smoke-test checklist below,
+> whose steps 1-14 still describe the pre-Looker explorer (three panes,
+> Axis/Legend wells capped at one field). They are a record of what was walked
+> through at the time, not instructions that currently match the UI.
