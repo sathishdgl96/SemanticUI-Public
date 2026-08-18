@@ -37,12 +37,24 @@ if not logger.handlers:
 
 router = APIRouter()
 
-_UNAUTHORIZED = Response(
-    status_code=401,
-    # The realm is what Excel shows in its credential prompt.
-    headers={"WWW-Authenticate": 'Basic realm="SemanticUI XMLA"'},
-    content="Snowflake credentials required",
-)
+#: [MS-SSAS] content-type negotiation: NEGO, REQ_SX, REQ_XPRESS, RESP_SX,
+#: RESP_XPRESS. This server speaks plain text/xml both ways, so every
+#: capability bit is 0 and NEGO=1 declares the negotiation settled. The spec
+#: is unambiguous that the flags go on EVERY response -- the 401 challenge
+#: and faults included, which the first build omitted.
+_NEGOTIATION = {"X-Transport-Caps-Negotiation-Flags": "1,0,0,0,0"}
+
+
+def _unauthorized() -> Response:
+    return Response(
+        status_code=401,
+        # The realm is what Excel shows in its credential prompt.
+        headers={
+            "WWW-Authenticate": 'Basic realm="SemanticUI XMLA"',
+            **_NEGOTIATION,
+        },
+        content="Snowflake credentials required",
+    )
 
 
 def _credentials(request: Request) -> tuple[str, str] | None:
@@ -65,25 +77,31 @@ def _credentials(request: Request) -> tuple[str, str] | None:
 _TRACE = os.environ.get("SEMANTICUI_XMLA_TRACE")
 
 
-def _trace(direction: str, payload: bytes) -> None:
+def _trace(direction: str, payload: bytes, headers=None) -> None:
     if not _TRACE:
         return
     with open(_TRACE, "ab") as f:
         marker = chr(10) + "----- " + direction + " -----" + chr(10)
         f.write(marker.encode())
+        if headers is not None:
+            for name, value in headers:
+                if name.lower() == "authorization":
+                    value = "<redacted>"
+                f.write(f"{name}: {value}".encode() + b"\r\n")
+            f.write(b"\r\n")
         f.write(payload)
 
 
 @router.post("/xmla")
 async def xmla(request: Request) -> Response:
     body = await request.body()
-    _trace("request", body)
+    _trace("request", body, headers=request.headers.items())
     try:
         xmla_request = parse_request(body)
     except Exception:
         logger.exception("unparseable XMLA request")
         return Response(content=fault("XMLA_PARSE", "unparseable request"),
-                        media_type="text/xml")
+                        media_type="text/xml", headers=_NEGOTIATION)
 
     store = get_store()
     session = None
@@ -94,17 +112,19 @@ async def xmla(request: Request) -> Response:
     if session is None:
         credentials = _credentials(request)
         if credentials is None:
-            return _UNAUTHORIZED
+            return _unauthorized()
         try:
             session_id, session = store.open(*credentials)
         except ApiError as exc:
             logger.info("XMLA auth failed: %s", exc.message)
-            return _UNAUTHORIZED
+            return _unauthorized()
 
     if xmla_request.ends_session:
         store.end(session_id)
         return Response(
-            content=envelope("<EndSessionResponse/>"), media_type="text/xml"
+            content=envelope("<EndSessionResponse/>"),
+            media_type="text/xml",
+            headers=_NEGOTIATION,
         )
 
     # The Session header goes back on the BeginSession answer and every one
@@ -126,7 +146,8 @@ async def xmla(request: Request) -> Response:
 
                 inner = handle_execute(session, xmla_request)
     except ApiError as exc:
-        return Response(content=fault(exc.code, exc.message), media_type="text/xml")
+        return Response(content=fault(exc.code, exc.message),
+                        media_type="text/xml", headers=_NEGOTIATION)
     except Exception:
         logger.exception(
             "XMLA %s failed (%s)", xmla_request.verb, xmla_request.request_type
@@ -134,16 +155,14 @@ async def xmla(request: Request) -> Response:
         return Response(
             content=fault("XMLA_INTERNAL", "internal error; see server log"),
             media_type="text/xml",
+            headers=_NEGOTIATION,
         )
 
     out = envelope(inner, session_id=echo_session)
-    _trace("response", out)
-    return Response(
-        content=out,
-        media_type="text/xml",
-        # MSOLAP sends X-Transport-Caps-Negotiation-Flags on every request,
-        # offering binary XML and compression. Answering all-zeros is the
-        # server saying "plain text only" -- saying NOTHING is a server that
-        # never joined the negotiation at all.
-        headers={"X-Transport-Caps-Negotiation-Flags": "0,0,0,0,0"},
-    )
+    headers = dict(_NEGOTIATION)
+    if echo_session:
+        # [MS-SSAS] 2.2.2: the session id also travels as an HTTP header,
+        # "retrieved from the response to the BeginSession request".
+        headers["X-AS-SessionID"] = echo_session
+    _trace("response", out, headers=sorted(headers.items()))
+    return Response(content=out, media_type="text/xml", headers=headers)

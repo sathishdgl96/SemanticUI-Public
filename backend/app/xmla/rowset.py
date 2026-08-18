@@ -18,7 +18,8 @@ from app.xmla.soap import ROWSET_NS
 #: Types the schemas below actually use. `int` is xsd:int, everything else
 #: is a string; booleans are the literal "true"/"false" the spec wants.
 _XSD = {"string": "xsd:string", "int": "xsd:int", "boolean": "xsd:boolean",
-        "unsignedShort": "xsd:unsignedShort", "unsignedInt": "xsd:unsignedInt"}
+        "unsignedShort": "xsd:unsignedShort", "unsignedInt": "xsd:unsignedInt",
+        "short": "xsd:short", "dateTime": "xsd:dateTime"}
 
 
 class Column:

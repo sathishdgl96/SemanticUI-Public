@@ -167,8 +167,16 @@ class TestDiscover:
         xml = discover_module.handle(FakeSession(), request)
         root = ElementTree.fromstring(envelope(xml))
         names = [r["PropertyName"] for r in rows_of(root)]
-        # Of the five the client asked about, we know exactly one.
-        assert names == ["DbpropMsmdSubqueries"]
+        # ALL five of the client's first-request properties are answered now.
+        # SSAS answers all five, and the first build's answer-one-of-five was
+        # among the suspects for the post-capabilities abort.
+        assert set(names) == {
+            "DbpropMsmdSubqueries",
+            "DbpropMsmdOptimizeResponse",
+            "DbpropMsmdActivityID",
+            "DbpropMsmdCurrentActivityID",
+            "ApplicationContext",
+        }
 
     def test_every_semantic_view_is_a_cube(self):
         rows = rows_of(discover_response("MDSCHEMA_CUBES"))
