@@ -13,6 +13,9 @@ export default defineConfig({
     proxy: {
       "/api": API_TARGET,
       "/auth": API_TARGET,
+      // Excel's Analysis Services connector talks to /xmla; the Connect
+      // panel hands out this origin, so the dev proxy must route it too.
+      "/xmla": API_TARGET,
     },
   },
   test: {
