@@ -155,13 +155,15 @@ def fault(code: str, message: str) -> bytes:
     """
     from xml.sax.saxutils import escape
 
+    from app.config import get_settings
+
     return envelope(
         "<soap:Fault>"
         f"<faultcode>soap:Server</faultcode>"
         f"<faultstring>{escape(message)}</faultstring>"
         "<detail>"
         f'<Error ErrorCode="3238658121" Description="{escape(message)}" '
-        f'Source="SemanticUI ({escape(code)})" HelpFile=""/>'
+        f'Source="{escape(get_settings().app_name)} ({escape(code)})" HelpFile=""/>'
         "</detail>"
         "</soap:Fault>"
     )

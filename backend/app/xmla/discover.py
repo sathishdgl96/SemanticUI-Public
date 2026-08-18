@@ -2,7 +2,7 @@
 
 The mapping, stated once:
 
-    catalog                  -> the fixed name "SemanticUI"
+    catalog                  -> the deployment name (SEMANTICUI_APP_NAME)
     cube                     -> one semantic view ("DB.SCHEMA.VIEW")
     dimension                -> one entity (logical table) of that view
     attribute hierarchy      -> one dimension field: two levels, (All) + leaf
@@ -19,7 +19,15 @@ happily past an empty answer to a rowset it merely probed for.
 
 from app.xmla.rowset import Column, rows_to_xml
 
-CATALOG = "SemanticUI"
+def CATALOG() -> str:
+    """The one catalog this server serves, named for the deployment.
+
+    A function rather than a constant so SEMANTICUI_APP_NAME is read when
+    a request arrives, not when the module happened to import.
+    """
+    from app.config import get_settings
+
+    return get_settings().app_name
 
 
 def cube_name(view: dict) -> str:
@@ -55,9 +63,11 @@ _PROPERTY_COLUMNS = [
 #: What this server admits to. MSOLAP reads these to decide which dialect
 #: features to use; conservative values steer it toward plain MDX.
 _PROPERTIES = {
-    "Catalog": ("string", "ReadWrite", CATALOG),
-    "ServerName": ("string", "Read", "SemanticUI"),
-    "ProviderName": ("string", "Read", "SemanticUI XMLA"),
+    # Values resolved per request in _discover_properties: the name is
+    # deployment configuration, not a constant of this module.
+    "Catalog": ("string", "ReadWrite", None),
+    "ServerName": ("string", "Read", None),
+    "ProviderName": ("string", "Read", None),
     # Four-part, because that is the shape SSAS emits and MSOLAP parses
     # version strings to decide capabilities.
     "ProviderVersion": ("string", "Read", "16.0.1000.0"),
@@ -117,13 +127,18 @@ _SCHEMA_GUIDS = {
 def _discover_properties(session, request) -> str:
     wanted = request.restrictions.get("PropertyName")
     names = [n for n in wanted if n in _PROPERTIES] if wanted else list(_PROPERTIES)
+    dynamic = {
+        "Catalog": CATALOG(),
+        "ServerName": CATALOG(),
+        "ProviderName": CATALOG() + " XMLA",
+    }
     rows = [
         {
             "PropertyName": name,
             "PropertyType": _PROPERTIES[name][0],
             "PropertyAccessType": _PROPERTIES[name][1],
             "IsRequired": False,
-            "Value": _PROPERTIES[name][2],
+            "Value": dynamic.get(name, _PROPERTIES[name][2]),
         }
         for name in names
     ]
@@ -137,10 +152,10 @@ def _discover_datasources(session, request) -> str:
         Column("AuthenticationMode"),
     ]
     return rows_to_xml(columns, [{
-        "DataSourceName": "SemanticUI",
+        "DataSourceName": CATALOG(),
         "DataSourceDescription": "Snowflake semantic views",
-        "DataSourceInfo": "SemanticUI",
-        "ProviderName": "SemanticUI XMLA",
+        "DataSourceInfo": CATALOG(),
+        "ProviderName": CATALOG() + " XMLA",
         "ProviderType": "MDP",
         "AuthenticationMode": "Authenticated",
     }])
@@ -149,7 +164,7 @@ def _discover_datasources(session, request) -> str:
 def _dbschema_catalogs(session, request) -> str:
     columns = [Column("CATALOG_NAME"), Column("DESCRIPTION"), Column("ROLES")]
     return rows_to_xml(columns, [{
-        "CATALOG_NAME": CATALOG,
+        "CATALOG_NAME": CATALOG(),
         "DESCRIPTION": "Snowflake semantic views",
         "ROLES": "",
     }])
@@ -188,7 +203,7 @@ def _mdschema_cubes(session, request) -> str:
     # that moved between requests would look like a cube changing under it.
     rows = [
         {
-            "CATALOG_NAME": CATALOG,
+            "CATALOG_NAME": CATALOG(),
             "SCHEMA_NAME": None,
             "CUBE_NAME": cube_name(v),
             "CUBE_TYPE": "CUBE",
@@ -215,7 +230,7 @@ def _mdschema_measuregroups(session, request) -> str:
     ]
     rows = [
         {
-            "CATALOG_NAME": CATALOG,
+            "CATALOG_NAME": CATALOG(),
             "CUBE_NAME": cube_name(v),
             "MEASUREGROUP_NAME": "Measures",
             "MEASUREGROUP_CAPTION": "Measures",
@@ -251,7 +266,7 @@ def _mdschema_measuregroup_dimensions(session, request) -> str:
         detail = session.describe(v["database"], v["schema"], v["name"])
         for table in _dimension_tables(detail):
             rows.append({
-                "CATALOG_NAME": CATALOG,
+                "CATALOG_NAME": CATALOG(),
                 "CUBE_NAME": cube_name(v),
                 "MEASUREGROUP_NAME": "Measures",
                 "DIMENSION_UNIQUE_NAME": _unique_name(table),
@@ -289,7 +304,7 @@ def _mdschema_dimensions(session, request) -> str:
         for ordinal, table in enumerate(tables):
             first = _fields_of(detail, table)[0]["name"]
             rows.append({
-                "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+                "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
                 "DIMENSION_NAME": table,
                 "DIMENSION_UNIQUE_NAME": _unique_name(table),
                 "DIMENSION_CAPTION": table,
@@ -304,7 +319,7 @@ def _mdschema_dimensions(session, request) -> str:
             })
         # The measures dimension: every cube has one, and Excel asks for it.
         rows.append({
-            "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+            "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
             "DIMENSION_NAME": "Measures",
             "DIMENSION_UNIQUE_NAME": "[Measures]",
             "DIMENSION_CAPTION": "Measures",
@@ -356,7 +371,7 @@ def _mdschema_hierarchies(session, request) -> str:
             for f in _fields_of(detail, table):
                 unique = _unique_name(table, f["name"])
                 rows.append({
-                    "CATALOG_NAME": CATALOG, "SCHEMA_NAME": None,
+                    "CATALOG_NAME": CATALOG(), "SCHEMA_NAME": None,
                     "CUBE_NAME": cube,
                     "DIMENSION_UNIQUE_NAME": _unique_name(table),
                     "HIERARCHY_NAME": f["name"],
@@ -383,7 +398,7 @@ def _mdschema_hierarchies(session, request) -> str:
         if metrics:
             first = metrics[0]
             rows.append({
-                "CATALOG_NAME": CATALOG, "SCHEMA_NAME": None,
+                "CATALOG_NAME": CATALOG(), "SCHEMA_NAME": None,
                 "CUBE_NAME": cube,
                 "DIMENSION_UNIQUE_NAME": "[Measures]",
                 "HIERARCHY_NAME": "Measures",
@@ -434,7 +449,7 @@ def _mdschema_levels(session, request) -> str:
             for f in _fields_of(detail, table):
                 hierarchy = _unique_name(table, f["name"])
                 rows.append({
-                    "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+                    "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
                     "DIMENSION_UNIQUE_NAME": _unique_name(table),
                     "HIERARCHY_UNIQUE_NAME": hierarchy,
                     "LEVEL_NAME": "(All)",
@@ -447,7 +462,7 @@ def _mdschema_levels(session, request) -> str:
                     "LEVEL_IS_VISIBLE": True,
                 })
                 rows.append({
-                    "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+                    "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
                     "DIMENSION_UNIQUE_NAME": _unique_name(table),
                     "HIERARCHY_UNIQUE_NAME": hierarchy,
                     "LEVEL_NAME": f["name"],
@@ -464,7 +479,7 @@ def _mdschema_levels(session, request) -> str:
         metrics = detail.get("metrics", [])
         if metrics:
             rows.append({
-                "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+                "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
                 "DIMENSION_UNIQUE_NAME": "[Measures]",
                 "HIERARCHY_UNIQUE_NAME": "[Measures]",
                 "LEVEL_NAME": "MeasuresLevel",
@@ -505,7 +520,7 @@ def _mdschema_measures(session, request) -> str:
         cube = cube_name(v)
         for m in detail.get("metrics", []):
             rows.append({
-                "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+                "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
                 "MEASURE_NAME": f"{m['table']}.{m['name']}",
                 "MEASURE_UNIQUE_NAME": f"[Measures].[{m['table']}.{m['name']}]",
                 "MEASURE_CAPTION": m["name"],
@@ -680,7 +695,7 @@ def _mdschema_properties(session, request) -> str:
     if mask & 2:  # MDPROP_CELL
         for name, dbtype in _CELL_PROPERTIES:
             rows.append({
-                "CATALOG_NAME": CATALOG,
+                "CATALOG_NAME": CATALOG(),
                 "PROPERTY_TYPE": 2,
                 "PROPERTY_NAME": name,
                 "PROPERTY_CAPTION": name,
@@ -834,7 +849,7 @@ def _mdschema_members(session, request) -> str:
     def row(name_, unique, caption, level_name, level_num, mtype, ordinal,
             children, parent_unique):
         return {
-            "CATALOG_NAME": CATALOG, "SCHEMA_NAME": None,
+            "CATALOG_NAME": CATALOG(), "SCHEMA_NAME": None,
             "CUBE_NAME": cube,
             "DIMENSION_UNIQUE_NAME": f"[{table}]",
             "HIERARCHY_UNIQUE_NAME": u,

@@ -50,11 +50,13 @@ _NEGOTIATION = {"X-Transport-Caps-Negotiation-Flags": "1,0,0,0,0"}
 
 
 def _unauthorized() -> Response:
+    from app.config import get_settings
+
     return Response(
         status_code=401,
         # The realm is what Excel shows in its credential prompt.
         headers={
-            "WWW-Authenticate": 'Basic realm="SemanticUI XMLA"',
+            "WWW-Authenticate": f'Basic realm="{get_settings().app_name} XMLA"',
             **_NEGOTIATION,
         },
         content="Connect token required (Basic auth, token as the password)",

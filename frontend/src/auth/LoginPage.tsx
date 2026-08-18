@@ -1,3 +1,4 @@
+import { useBranding } from "../shell/useBranding";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -13,6 +14,7 @@ const AUTHENTICATOR_LABELS: Record<Authenticator, string> = {
 };
 
 export default function LoginPage() {
+  const branding = useBranding();
   const navigate = useNavigate();
   // Set when an expired session bounced the user here, so the page can explain
   // the redirect instead of looking like the session vanished on its own.
@@ -92,8 +94,12 @@ export default function LoginPage() {
   return (
     <main className="login">
       <h1>
-        <span className="brand-mark" aria-hidden="true" />
-        SemanticUI
+        {branding.logoUrl ? (
+          <img className="brand-logo" src={branding.logoUrl} alt="" />
+        ) : (
+          <span className="brand-mark" aria-hidden="true" />
+        )}
+        {branding.name}
       </h1>
       {redirectReason && <p className="notice">{redirectReason}</p>}
       {authMode === "oauth" && (

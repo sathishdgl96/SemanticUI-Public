@@ -39,9 +39,17 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    get_settings()
-    app = FastAPI(title="SemanticUI", lifespan=lifespan)
+    settings = get_settings()
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
     register_error_handlers(app)
+
+    @app.get("/api/branding")
+    def branding() -> dict:
+        """Name and logo for whoever is looking -- the login page needs it
+        before anyone is signed in, so this is deliberately public."""
+        current = get_settings()
+        return {"name": current.app_name, "logoUrl": current.app_logo_url}
+
     from app.auth.routes import router as auth_router
     from app.auth.dev import router as dev_router
     from app.explores.routes import router as explores_router

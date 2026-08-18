@@ -13,6 +13,14 @@ class Settings(BaseSettings):
         env_prefix="SEMANTICUI_", env_file=".env", extra="ignore"
     )
 
+    #: The product's display name, and everything branded with it: the shell
+    #: and login page, the browser title, the XMLA catalog Excel shows, the
+    #: Basic-auth realms. One env var rebrands the whole surface.
+    app_name: str = "SemanticUI"
+    #: Absolute URL or absolute path to a logo image; absent means the
+    #: built-in mark.
+    app_logo_url: str | None = None
+
     auth_mode: Literal["oauth", "dev"] = "dev"
     environment: Literal["development", "production"] = "development"
     secret_key: str = DEFAULT_SECRET_KEY

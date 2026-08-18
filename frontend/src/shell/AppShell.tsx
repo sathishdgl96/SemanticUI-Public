@@ -1,3 +1,4 @@
+import { useBranding } from "./useBranding";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
@@ -9,6 +10,7 @@ import WorkspacesFlyout from "./WorkspacesFlyout";
  *  bar with the brand mark and identity, and the left nav rail with the
  *  workspaces flyout. */
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const branding = useBranding();
   const me = useMe();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -34,8 +36,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <header className="app-topbar">
         <span className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          SemanticUI
+          {branding.logoUrl ? (
+            <img className="brand-logo" src={branding.logoUrl} alt="" />
+          ) : (
+            <span className="brand-mark" aria-hidden="true" />
+          )}
+          {branding.name}
         </span>
         <span className="topbar-right">
           <span className="identity">

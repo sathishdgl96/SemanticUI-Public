@@ -2647,6 +2647,12 @@ button.secondary:hover,
 
 /* --- Brand mark (top bar, login) ----------------------------------------- */
 
+.brand-logo {
+  height: 22px;
+  max-width: 160px;
+  object-fit: contain;
+}
+
 .brand-mark {
   width: 14px;
   height: 14px;

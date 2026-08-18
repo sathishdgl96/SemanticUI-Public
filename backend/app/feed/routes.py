@@ -39,9 +39,13 @@ router = APIRouter()
 
 
 def _unauthorized() -> Response:
+    from app.config import get_settings
+
     return Response(
         status_code=401,
-        headers={"WWW-Authenticate": 'Basic realm="SemanticUI feed"'},
+        headers={
+            "WWW-Authenticate": f'Basic realm="{get_settings().app_name} feed"'
+        },
         content=(
             "Connect token required: any username, the token from the "
             "report's Connect panel as the password."
