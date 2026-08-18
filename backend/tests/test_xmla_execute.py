@@ -412,3 +412,130 @@ class TestTupleFilters:
                 "[ORDERS].[ORDER_PRIORITY].&[HIGH]") not in leaf_pairs
         assert ("[ORDERS].[ORDER_STATUS].&[O]",
                 "[ORDERS].[ORDER_PRIORITY].&[HIGH]") in leaf_pairs
+
+
+class GeoSession(FakeSession):
+    """Three-level user hierarchy Geo: REGION -> NATION -> CUSTOMER_NAME."""
+
+    def describe(self, database, schema, view):
+        return {
+            "dimensions": [
+                {"table": "CUSTOMERS", "name": "REGION", "dataType": "TEXT"},
+                {"table": "CUSTOMERS", "name": "NATION", "dataType": "TEXT"},
+                {"table": "CUSTOMERS", "name": "CUSTOMER_NAME", "dataType": "TEXT"},
+            ],
+            "metrics": [
+                {"table": "ORDERS", "name": "TOTAL_ORDER_VALUE", "dataType": "NUMBER"},
+            ],
+            "facts": [],
+            "tables": [{"name": "CUSTOMERS"}, {"name": "ORDERS"}],
+            "relationships": [],
+        }
+
+    def user_hierarchies(self, view):
+        return [{
+            "name": "Geo", "home": "CUSTOMERS",
+            "levels": [("CUSTOMERS", "REGION"), ("CUSTOMERS", "NATION"),
+                       ("CUSTOMERS", "CUSTOMER_NAME")],
+        }]
+
+
+@pytest.fixture
+def geo_gateway(monkeypatch):
+    data = [
+        ["EUROPE", "FRANCE", "C1", 10],
+        ["EUROPE", "FRANCE", "C2", 5],
+        ["EUROPE", "GERMANY", "C3", 7],
+        ["ASIA", "JAPAN", "C4", 3],
+    ]
+
+    def fake_run_query(conn, sql, *, max_rows, params=None):
+        import re as _re
+
+        m = _re.search(r"DIMENSIONS (.*?)(?:METRICS|WHERE|$)", sql, _re.S)
+        dims = m.group(1) if m else ""
+        cols = [n for n in ("REGION", "NATION", "CUSTOMER_NAME") if n in dims]
+        has_metric = "METRICS" in sql
+        idx = {"REGION": 0, "NATION": 1, "CUSTOMER_NAME": 2}
+        seen = {}
+        for row in data:
+            key = tuple(row[idx[c]] for c in cols)
+            seen[key] = seen.get(key, 0) + row[3]
+        rows = [list(k) + ([v] if has_metric else [])
+                for k, v in sorted(seen.items())]
+        if not cols:
+            rows = [[sum(r[3] for r in data)]] if has_metric else [[]]
+        return QueryResult(columns=[], rows=rows, truncated=False, sfqid=None)
+
+    monkeypatch.setattr(execute_module.gateway, "run_query", fake_run_query)
+
+
+def axis_members(xml):
+    root = ElementTree.fromstring(xml).find(".//m:root", NS)
+    out = []
+    for t in root.findall(".//m:Axes/m:Axis[@name='Axis0']/m:Tuples/m:Tuple", NS):
+        m = t.find("m:Member", NS)
+        out.append((
+            m.find("m:UName", NS).text,
+            int(m.find("m:LNum", NS).text),
+            int(m.find("m:DisplayInfo", NS).text),
+        ))
+    return out
+
+
+class TestUserHierarchy:
+    def test_expanding_level_one_shows_level_two(self, geo_gateway):
+        xml = handle_execute(GeoSession(), FakeRequest(
+            "SELECT {AddCalculatedMembers([CUSTOMERS].[Geo].&[EUROPE].Children)} "
+            "DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS]"
+        ))
+        members = axis_members(xml)
+        assert [m[0] for m in members] == [
+            "[CUSTOMERS].[Geo].&[EUROPE].&[FRANCE]",
+            "[CUSTOMERS].[Geo].&[EUROPE].&[GERMANY]",
+        ]
+        # Level 2 of 3: still expandable, so the + must be offered.
+        assert all(m[1] == 2 and m[2] != 0 for m in members)
+
+    def test_expanding_level_two_shows_level_three_as_leaves(self, geo_gateway):
+        xml = handle_execute(GeoSession(), FakeRequest(
+            "SELECT {AddCalculatedMembers("
+            "[CUSTOMERS].[Geo].&[EUROPE].&[FRANCE].Children)} "
+            "DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS]"
+        ))
+        members = axis_members(xml)
+        assert [m[0] for m in members] == [
+            "[CUSTOMERS].[Geo].&[EUROPE].&[FRANCE].&[C1]",
+            "[CUSTOMERS].[Geo].&[EUROPE].&[FRANCE].&[C2]",
+        ]
+        assert all(m[1] == 3 and m[2] == 0 for m in members)
+
+    def test_drilling_the_hierarchy_on_an_axis(self, geo_gateway):
+        xml = handle_execute(GeoSession(), FakeRequest(
+            "SELECT NON EMPTY Hierarchize(DrilldownMember("
+            "{DrilldownLevel({[CUSTOMERS].[Geo].[All]})}, "
+            "{[CUSTOMERS].[Geo].&[EUROPE]})) "
+            "DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS] "
+            "WHERE ([Measures].[ORDERS.TOTAL_ORDER_VALUE])"
+        ))
+        members = axis_members(xml)
+        unames = [m[0] for m in members]
+        assert unames == [
+            "[CUSTOMERS].[Geo].[All]",
+            "[CUSTOMERS].[Geo].&[ASIA]",
+            "[CUSTOMERS].[Geo].&[EUROPE]",
+            "[CUSTOMERS].[Geo].&[EUROPE].&[FRANCE]",
+            "[CUSTOMERS].[Geo].&[EUROPE].&[GERMANY]",
+        ]  # Hierarchize: siblings in query order, children after parents
+        # EUROPE is flagged drilled; ASIA is not.
+        by_name = {m[0]: m[2] for m in members}
+        assert by_name["[CUSTOMERS].[Geo].&[EUROPE]"] & 0x10000
+        assert not by_name["[CUSTOMERS].[Geo].&[ASIA]"] & 0x10000
+        # Cells: All=25, ASIA=3, EUROPE=22, FRANCE=15, GERMANY=7.
+        root = ElementTree.fromstring(xml).find(".//m:root", NS)
+        cells = {int(c.get("CellOrdinal")): c.find("m:Value", NS).text
+                 for c in root.findall(".//m:CellData/m:Cell", NS)}
+        assert cells == {0: "25", 1: "3", 2: "22", 3: "15", 4: "7"}

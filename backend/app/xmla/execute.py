@@ -17,6 +17,7 @@ from app.errors import ApiError
 from app.semantic.query import SemanticQueryRequest, build_semantic_sql
 from app.snowflake import gateway
 from app.xmla import dataset
+from app.xmla.discover import path_unique_name, user_hierarchies
 from app.xmla.mdx import HierSpec, MdxQuery, MdxUnsupported, MemberRef, parse_mdx
 
 #: All-member DisplayInfo: DRILLED_DOWN flag plus the child count.
@@ -163,7 +164,18 @@ def _classify(entries, detail, exists_filters: list | None = None,
                 walk(e, drilled)
             by_field: dict[tuple[str, str], list[str]] = {}
             for e in entry[2]:
-                if isinstance(e, MemberRef) and not e.is_measure and len(e.parts) == 3:
+                if not (isinstance(e, MemberRef) and not e.is_measure
+                        and len(e.parts) >= 3):
+                    continue
+                uh = (user_hiers or {}).get((e.parts[0].upper(), e.parts[1].upper()))
+                if uh is not None:
+                    for i, v in enumerate(e.parts[2:]):
+                        if i >= len(uh["levels"]):
+                            break
+                        t, n = uh["levels"][i]
+                        by_field.setdefault((t, n), []).append(v)
+                    continue
+                if len(e.parts) == 3:
                     by_field.setdefault((e.parts[0], e.parts[1]), []).append(e.parts[2])
             if exists_filters is not None:
                 for (table, name), values in by_field.items():
@@ -186,6 +198,28 @@ def _classify(entries, detail, exists_filters: list | None = None,
         """
         for e in base:
             walk(e)
+        # User-hierarchy drills need no target: a path expands into its OWN
+        # next level. Handle them before the attribute early-return, or a
+        # same-hierarchy drill (no third argument) is silently lost.
+        for e in drill:
+            if (isinstance(e, MemberRef) and not e.is_measure
+                    and len(e.parts) >= 3
+                    and (user_hiers or {}).get(
+                        (e.parts[0].upper(), e.parts[1].upper())) is not None):
+                field_spec(e.parts[0], e.parts[1]).drilled_paths.add(
+                    tuple(e.parts[2:])
+                )
+            elif isinstance(e, tuple) and e[0] == "except":
+                for inner in e[1]:
+                    if (isinstance(inner, MemberRef) and not inner.is_measure
+                            and len(inner.parts) >= 3
+                            and (user_hiers or {}).get(
+                                (inner.parts[0].upper(),
+                                 inner.parts[1].upper())) is not None):
+                        uspec = field_spec(inner.parts[0], inner.parts[1])
+                        path = tuple(inner.parts[2:])
+                        uspec.undrilled_paths.add(path)
+                        uspec.drilled_depths.add(len(path))
         target_ref = next(
             (e for e in target
              if isinstance(e, MemberRef) and not e.is_measure and len(e.parts) == 2),
@@ -271,6 +305,14 @@ class _Engine:
         self.view = view
         self.detail = detail
         self.q = q
+        #: User hierarchies visible to this session, keyed (HOME, NAME).
+        self.user_hiers = {
+            (h["home"].upper(), h["name"].upper()): h
+            for h in user_hierarchies(session, view)
+        }
+        #: Per-level stand-in specs, so hierarchy path members share the
+        #: same grouping and cell machinery as plain attribute fields.
+        self._surrogates: dict[tuple, HierSpec] = {}
         self._results: dict[frozenset, dict] = {}
         self.filters: list[dict] = []
         #: ([field, ...], [[value, ...], ...]) rows kept by per-tuple
@@ -312,6 +354,15 @@ class _Engine:
         self._results[key] = table
         return table
 
+    def _surrogate(self, table: str, name: str) -> HierSpec:
+        key = (table.upper(), name.upper())
+        if key not in self._surrogates:
+            self._surrogates[key] = HierSpec(
+                kind="drill", table=table, hier_field=name,
+                include_all=False, children_of_all=False,
+            )
+        return self._surrogates[key]
+
     # -- member builders --------------------------------------------------
     @staticmethod
     def _hier_uname(spec: HierSpec) -> str:
@@ -344,6 +395,95 @@ class _Engine:
             },
         }
 
+    def _userhier_members(self, spec: HierSpec) -> list:
+        """(member, assignment) pairs for a user hierarchy on an axis, in
+        Hierarchize order: each shown path, parents before children, with
+        children under every drilled path. Values come from prefix-scoped
+        DISTINCT group-bys, one per depth, cached like every grouping."""
+        levels = spec.levels
+        hu = self._hier_uname(spec)
+
+        def drilled(path: tuple) -> bool:
+            if path in spec.undrilled_paths:
+                return False
+            return path in spec.drilled_paths or len(path) in spec.drilled_depths
+
+        def member(path: tuple) -> dict:
+            depth = len(path)
+            caption = "" if path[-1] is None else str(path[-1])
+            info = 0
+            if depth < len(levels):
+                info = (_DRILLED if drilled(path) else 0) | 1000
+            return {
+                "hierarchy": hu,
+                "uname": path_unique_name(spec.table, spec.hier_field, path),
+                "caption": caption,
+                "lname": f"{hu}.[{levels[depth - 1][1]}]",
+                "lnum": depth,
+                "display_info": info,
+                "properties": {
+                    "PARENT_UNIQUE_NAME": (
+                        path_unique_name(spec.table, spec.hier_field, path[:-1])
+                        if depth > 1 else f"{hu}.[All]"
+                    ),
+                    "HIERARCHY_UNIQUE_NAME": hu,
+                },
+            }
+
+        def assignment(path: tuple) -> dict:
+            return {
+                (levels[i][0].upper(), levels[i][1].upper()): path[i]
+                for i in range(len(path))
+            }
+
+        def children(prefix: tuple) -> list:
+            depth = len(prefix) + 1
+            if depth > len(levels):
+                return []
+            table = self._run([self._surrogate(t, n) for t, n in levels[:depth]])
+            return [k for k in table if k[: len(prefix)] == prefix]
+
+        out: list = []
+        emitted: set = set()
+
+        def emit(path: tuple) -> None:
+            if path in emitted:
+                return
+            emitted.add(path)
+            out.append((member(path), assignment(path)))
+
+        def walk(prefix: tuple) -> None:
+            for key in children(prefix):
+                emit(key)
+                if drilled(key):
+                    walk(key)
+
+        if spec.include_all:
+            info = (_DRILLED if drilled(()) else 0) | 1000
+            out.append((
+                {
+                    "hierarchy": hu,
+                    "uname": f"{hu}.[All]",
+                    "caption": "All",
+                    "lname": f"{hu}.[(All)]",
+                    "lnum": 0,
+                    "display_info": info,
+                },
+                None,
+            ))
+        if drilled(()):
+            walk(())
+        for path in spec.member_paths:
+            emit(path)
+            if drilled(path):
+                walk(path)
+        # A drilled path whose own member is not shown (the dropdown asks
+        # for [H].&[EUROPE].Children alone) still answers its children.
+        for path in sorted(spec.drilled_paths, key=len):
+            if path and path not in emitted:
+                walk(path)
+        return out
+
     def _measure_member(self, name: str) -> dict:
         return {
             "hierarchy": "[Measures]",
@@ -358,7 +498,8 @@ class _Engine:
     def execute(self) -> str:
         q = self.q
         axis_specs = [
-            _classify(entries, self.detail, exists_filters=self.filters)
+            _classify(entries, self.detail, exists_filters=self.filters,
+                      user_hiers=self.user_hiers)
             if entries else []
             for entries in q.axes
         ]
@@ -393,7 +534,7 @@ class _Engine:
                 plain.append(entry)
             for key, rows in combos.items():
                 self.include_combos.append((list(key), rows))
-            for spec in _classify(plain, self.detail):
+            for spec in _classify(plain, self.detail, user_hiers=self.user_hiers):
                 if spec.kind == "measures":
                     continue
                 if spec.members:
@@ -433,6 +574,9 @@ class _Engine:
 
             per_spec = []   # per hierarchy: [(member dict, assignment|None)]
             for spec in field_specs:
+                if spec.kind == "userhier":
+                    per_spec.append(self._userhier_members(spec))
+                    continue
                 values = list(self._run([spec]).keys())
                 members = []
                 if spec.include_all:
@@ -469,6 +613,10 @@ class _Engine:
 
             tuples, resolver, hier_names = [], [], []
             field_spec_by_key = {spec_key(s): s for s in field_specs}
+            for spec in field_specs:
+                if spec.kind == "userhier":
+                    for t, n in spec.levels:
+                        field_spec_by_key[(t.upper(), n.upper())] = self._surrogate(t, n)
             for combo in (product(*per_spec) if per_spec else [()]):
                 assignment: dict = {}
                 for _, a in combo:
@@ -497,6 +645,8 @@ class _Engine:
                     self._hier_uname(spec),
                     ["PARENT_UNIQUE_NAME", "HIERARCHY_UNIQUE_NAME"],
                 ))
+            # (user hierarchies share the same shape: unique name + the
+            # two declared member properties)
             if has_measures:
                 hier_names.append(("[Measures]", []))
             axes_out.append((name, hier_names, tuples))
@@ -533,7 +683,10 @@ class _Engine:
             field_spec_map = {}
             for specs in axis_specs:
                 for s in specs:
-                    if s.kind != "measures":
+                    if s.kind == "userhier":
+                        for t, n in s.levels:
+                            field_spec_map[(t.upper(), n.upper())] = self._surrogate(t, n)
+                    elif s.kind != "measures":
                         field_spec_map[spec_key(s)] = s
             for ordinal in range(total):
                 rem, coords = ordinal, []
@@ -567,6 +720,31 @@ class _Engine:
         if len(ref.parts) < 3:
             return  # a bare hierarchy in WHERE means its All member: no-op
         table, name, value = ref.parts[0], ref.parts[1], ref.parts[2]
+        uh = self.user_hiers.get((table.upper(), name.upper()))
+        if uh is not None:
+            path = tuple(ref.parts[2:])
+            if len(path) == 1 and not ref.keyed[2] and path[0].upper() in ("ALL", "(ALL)"):
+                return
+            for i, v in enumerate(path):
+                if i >= len(uh["levels"]):
+                    break
+                t, n = uh["levels"][i]
+                self.filters.append({
+                    "id": f"mdx{len(self.filters)}",
+                    "field": f"{t}.{n}",
+                    "op": "is",
+                    "values": [v],
+                })
+            hu = f"[{uh['home']}].[{uh['name']}]"
+            self.slicer_members.append({
+                "hierarchy": hu,
+                "uname": path_unique_name(uh["home"], uh["name"], path),
+                "caption": str(path[-1]),
+                "lname": f"{hu}.[{uh['levels'][min(len(path), len(uh['levels'])) - 1][1]}]",
+                "lnum": len(path),
+                "display_info": 0,
+            })
+            return
         if value.upper() == "ALL":
             return
         self.filters.append({
