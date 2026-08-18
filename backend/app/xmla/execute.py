@@ -451,6 +451,22 @@ class _Engine:
                         )
                 per_spec.append(members)
 
+            # DisplayInfo is how the server TELLS Excel each member's
+            # drill state (0x10000 = drilled down); Excel rebuilds its own
+            # bookkeeping from it after every response. Without the flag a
+            # collapse is forgotten by the very next gesture (observed
+            # live: collapsing O silently re-expanded F).
+            for j, spec in enumerate(field_specs[:-1]):
+                child = field_specs[j + 1]
+                for member, assignment in per_spec[j]:
+                    if assignment is None:
+                        continue
+                    value = assignment.get(spec_key(spec))
+                    expanded = _parent_drilled(child, spec, value)
+                    member["display_info"] = (
+                        (_DRILLED if expanded else 0) | 1000
+                    )
+
             tuples, resolver, hier_names = [], [], []
             field_spec_by_key = {spec_key(s): s for s in field_specs}
             for combo in (product(*per_spec) if per_spec else [()]):
@@ -572,6 +588,19 @@ class _Engine:
 
 def spec_key(spec: HierSpec) -> tuple[str, str]:
     return (spec.table.upper(), spec.hier_field.upper())
+
+
+def _parent_drilled(child: HierSpec, parent: HierSpec, value) -> bool:
+    """Whether this parent member's children are shown, per the drill
+    constraints DrilldownMember put on the child hierarchy."""
+    if child.parent_key is None or child.parent_key != spec_key(parent):
+        return True
+    v = "" if value is None else str(value).upper()
+    if child.parent_include is not None and v not in {
+        m.upper() for m in child.parent_include
+    }:
+        return False
+    return v not in {m.upper() for m in child.parent_exclude}
 
 
 def _drill_allowed(field_specs, assignment: dict) -> bool:
