@@ -72,9 +72,31 @@ A rebuilt workbook now reads consistently namespace-aware: every `.rels`
 container in the package namespace, and every `r:id` a worksheet uses declared
 in that worksheet's own rels.
 
+## Resolved on 2026-08-18, in real Excel on this machine
+
+The workbook now OPENS in Excel, verified by COM automation: the data sheet
+carries a genuine query table (`sourceType=3` / xlSrcQuery, a live
+QueryTable object) bound to a connection holding the SEMANTIC_VIEW SQL.
+
+The corruption had THREE layers, found in this order:
+
+1. **The rels namespace** (fixed 2026-08-17): the `<Relationships>` container
+   belongs to the package namespace, not the officeDocument one.
+2. **A probe artifact that poisoned the bisect**: test tables named "Q1" --
+   a legal identifier that is also a cell reference, which Excel rejects
+   outright. Half a day of "even a plain table fails" evidence was this.
+   `_table_name` now refuses cell-reference-shaped names.
+3. **The real fault: a hidden defined name.** A table with
+   `tableType="queryTable"` is resolved through a hidden `definedName` in
+   workbook.xml (queryTable name -> its range, `localSheetId` = the sheet's
+   POSITION in workbook order, not its sheetId). Diagnosed decisively by
+   transplanting Excel's own authored parts into this workbook and watching
+   them fail without it -- the reference query table was authored by driving
+   Excel itself against the built-in Access Text ODBC driver.
+
 ## What is STILL not verified
 
-**Nobody has opened the fixed workbook in Excel.** The file is assembled by editing
+**A real refresh against Snowflake.** The file is assembled by editing
 a zip of OOXML parts, which is exactly the kind of code that produces "we
 found a problem with some content". Excel is not available here, so
 `tests/test_export_live.py` checks every structural property that can be

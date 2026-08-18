@@ -63,9 +63,14 @@ def _column_letter(index: int) -> str:
 
 
 def _table_name(title: str, taken: set[str]) -> str:
-    """A defined name Excel accepts: letters, digits and underscores only."""
+    """A defined name Excel accepts: letters, digits, underscores -- and not
+    shaped like a cell reference. "Q1" is a legal identifier and also column
+    Q row 1; Excel rejects the whole workbook over it. That exact name
+    poisoned half a day of corruption bisecting, so it is guarded here."""
     cleaned = re.sub(r"\W", "_", title) or "Query"
     if not cleaned[0].isalpha() and cleaned[0] != "_":
+        cleaned = f"_{cleaned}"
+    if re.fullmatch(r"[A-Za-z]{1,3}\d+", cleaned):
         cleaned = f"_{cleaned}"
     name = cleaned[:200]
     suffix = 2
@@ -155,9 +160,15 @@ def add_live_connections(
     taken: set[str] = set()
     connections: list[str] = []
     overrides: list[str] = []
+    defined_names: list[str] = []
+    sheet_order = _sheet_positions(archive)
 
     for index, sheet in enumerate(live, start=1):
         name = _table_name(sheet.title, taken)
+        # The queryTable part's own name, DISTINCT from the table's -- the
+        # pattern Excel itself writes ("ExternalData_1" behind
+        # "Table_ExternalData_1").
+        query_name = f"ExternalData_{index}"
         columns = _unique_columns(sheet.columns)
         last = _column_letter(len(columns) - 1)
         # The header row is part of the table, so the range starts at row 1.
@@ -169,6 +180,17 @@ def add_live_connections(
             f"<dbPr connection={quoteattr(dsn)} command={quoteattr(sheet.sql)} "
             f'commandType="2"/></connection>'
         )
+        # THE piece whose absence corrupts the file: a query table is
+        # resolved through a HIDDEN defined name -- queryTable name ->
+        # its range. Diagnosed by transplanting Excel's own parts into this
+        # workbook and watching them fail without it.
+        position = sheet_order.get(parts[sheet.title])
+        if position is not None:
+            defined_names.append(
+                f'<definedName name="{query_name}" localSheetId="{position}" '
+                f'hidden="1">{_sheet_ref(sheet.title)}!$A$1:${last}${sheet.rows + 1}'
+                "</definedName>"
+            )
 
         table_columns = "".join(
             f'<tableColumn id="{n}" uniqueName="{n}" name={quoteattr(c)} '
@@ -194,7 +216,7 @@ def add_live_connections(
         archive[f"xl/queryTables/queryTable{index}.xml"] = (
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<queryTable xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-            f'name={quoteattr(name)} connectionId="{index}" autoFormatId="16" '
+            f'name={quoteattr(query_name)} connectionId="{index}" autoFormatId="16" '
             'applyNumberFormats="0" applyBorderFormats="0" applyFontFormats="0" '
             'applyPatternFormats="0" applyAlignmentFormats="0" applyWidthHeightFormats="0">'
             f'<queryTableRefresh nextId="{len(columns) + 1}">'
@@ -233,6 +255,17 @@ def add_live_connections(
         f"{RELS_NS}/connections",
         "connections.xml",
     )
+    if defined_names:
+        workbook = archive["xl/workbook.xml"].decode("utf-8")
+        block = "<definedNames>" + "".join(defined_names) + "</definedNames>"
+        if "<definedNames>" in workbook:
+            workbook = workbook.replace("<definedNames>", "<definedNames>" + "".join(defined_names), 1)
+        elif "<calcPr" in workbook:
+            # Schema order: sheets, definedNames, calcPr.
+            workbook = workbook.replace("<calcPr", block + "<calcPr", 1)
+        else:
+            workbook = workbook.replace("</workbook>", block + "</workbook>", 1)
+        archive["xl/workbook.xml"] = workbook.encode("utf-8")
     types = archive[CONTENT_TYPES].decode("utf-8")
     archive[CONTENT_TYPES] = types.replace(
         "</Types>", "".join(overrides) + "</Types>"
@@ -243,6 +276,33 @@ def add_live_connections(
         for name, data in archive.items():
             target.writestr(name, data)
     return out.getvalue()
+
+
+def _sheet_positions(archive: dict[str, bytes]) -> dict[str, int]:
+    """Sheet part path -> zero-based position in workbook order.
+
+    `localSheetId` is that position, NOT the sheetId attribute -- the two
+    agree only by coincidence.
+    """
+    workbook = archive["xl/workbook.xml"].decode("utf-8")
+    rels = archive["xl/_rels/workbook.xml.rels"].decode("utf-8")
+    targets = dict(re.findall(r'Id="([^"]+)"[^>]*?Target="([^"]+)"', rels))
+    out: dict[str, int] = {}
+    for position, rid in enumerate(
+        re.findall(r'<sheet[^>]*r:id="([^"]+)"', workbook)
+    ):
+        target = targets.get(rid, "")
+        if target:
+            path = target if target.startswith("xl/") else f"xl/{target.lstrip('/')}"
+            out[path] = position
+    return out
+
+
+def _sheet_ref(title: str) -> str:
+    """The sheet name as a formula reference: quoted when it needs to be."""
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", title):
+        return title
+    return "'" + title.replace("'", "''") + "'"
 
 
 def _next_rel_id(rels: str) -> str:

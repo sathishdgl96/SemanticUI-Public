@@ -323,3 +323,41 @@ class TestRelationshipNamespaces:
             for r in rels.findall(f"{{{self.PACKAGE}}}Relationship")
         ]
         assert targets == ["../queryTables/queryTable1.xml"]
+
+
+class TestQueryTableDefinedName:
+    """The third and final layer of the corruption, in the order they were
+    found: the rels namespace, the cell-reference table name, and this -- a
+    query table is resolved through a HIDDEN defined name in workbook.xml
+    (queryTable name -> its range). Diagnosed by transplanting Excel's own
+    parts into this workbook and watching them fail without it."""
+
+    def test_the_workbook_carries_a_hidden_defined_name_per_live_sheet(self):
+        workbook = parts(live())["xl/workbook.xml"].decode()
+        assert "<definedNames>" in workbook
+        assert 'name="ExternalData_1"' in workbook
+        assert 'hidden="1"' in workbook
+        # Quoted, because the sheet name has spaces.
+        assert "'Revenue by region'!$A$1:$B$4" in workbook
+
+    def test_local_sheet_id_is_workbook_position_not_sheet_id(self):
+        # Summary is sheet 0; the data sheet is 1. sheetId attributes happen
+        # to be 1 and 2 -- trusting those is an off-by-one that Excel
+        # punishes with a repair prompt.
+        workbook = parts(live())["xl/workbook.xml"].decode()
+        assert 'localSheetId="1"' in workbook
+
+    def test_query_table_name_differs_from_table_name(self):
+        # Excel's own pattern: ExternalData_1 behind Table_ExternalData_1.
+        archive = parts(live())
+        qt = archive["xl/queryTables/queryTable1.xml"].decode()
+        table = archive["xl/tables/table1.xml"].decode()
+        assert 'name="ExternalData_1"' in qt
+        assert 'name="ExternalData_1"' not in table
+
+    def test_a_cell_reference_shaped_title_is_not_a_table_name(self):
+        # "Q1" is a legal identifier and also column Q row 1; Excel rejects
+        # the whole workbook over it.
+        assert _table_name("Q1", set()) == "_Q1"
+        assert _table_name("ABC123", set()) == "_ABC123"
+        assert _table_name("Q1Q2", set()) == "Q1Q2"  # not a cell ref
