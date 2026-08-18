@@ -7,7 +7,7 @@ and the whole thing is size-bounded.
 """
 
 import json
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -77,6 +77,11 @@ class Visual(_Strict):
 class Page(_Strict):
     id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=MAX_PAGE_NAME)
+    #: "canvas" is the tile grid. "sheet" is the Excel-like page: one
+    #: full-bleed pivot (matrix or table) whose wells the Data pane drives
+    #: directly. Filters compose exactly as on a canvas page -- report,
+    #: page, then the pivot's own.
+    kind: Literal["canvas", "sheet"] = "canvas"
     visuals: list[Visual] = Field(default_factory=list)
     filters: FilterList = Field(default_factory=list)
 
@@ -179,6 +184,17 @@ def parse_definition(raw: dict) -> ReportDefinition:
         if page.name in seen_page_names:
             raise _invalid(f"Duplicate page name {page.name!r}")
         seen_page_names.add(page.name)
+        if page.kind == "sheet":
+            if len(page.visuals) > 1:
+                raise _invalid(
+                    f"Sheet page {page.name!r} holds a single pivot, not "
+                    f"{len(page.visuals)} visuals"
+                )
+            if page.visuals and page.visuals[0].type not in ("matrix", "table"):
+                raise _invalid(
+                    f"Sheet page {page.name!r} must hold a matrix or table, "
+                    f"not {page.visuals[0].type!r}"
+                )
 
     seen_ids: set[str] = set()
     for visual in definition.all_visuals():

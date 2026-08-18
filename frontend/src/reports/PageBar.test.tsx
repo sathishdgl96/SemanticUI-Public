@@ -15,6 +15,7 @@ const props = {
   canEdit: true,
   onSelect: () => {},
   onAdd: () => {},
+  onAddSheet: () => {},
   onRename: () => {},
   onDuplicate: () => {},
   onDelete: () => {},
@@ -34,6 +35,19 @@ describe("PageBar", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Detail" }));
     expect(onSelect).toHaveBeenCalledWith("p2");
+  });
+
+  it("adds a sheet, and shows sheet tabs with the grid mark", async () => {
+    const onAddSheet = vi.fn();
+    const withSheet: Page[] = [
+      ...pages,
+      { id: "p3", name: "Sheet 1", kind: "sheet", visuals: [], filters: [] },
+    ];
+    render(<PageBar {...props} pages={withSheet} onAddSheet={onAddSheet} />);
+    // The sheet tab is visibly a sheet, not just another page.
+    expect(screen.getByRole("button", { name: /Sheet 1/ }).textContent).toContain("⊞");
+    await userEvent.click(screen.getByRole("button", { name: "New sheet" }));
+    expect(onAddSheet).toHaveBeenCalled();
   });
 
   it("adds a page", async () => {

@@ -13,7 +13,7 @@ from app.reports.schema import (
     parse_definition,
     to_export_document,
 )
-from tests.test_report_routes import oversized_definition
+from tests.test_report_routes import oversized_definition, valid_definition
 
 
 def valid_visual(**overrides):
@@ -536,3 +536,58 @@ def test_a_canvas_background_is_optional():
     # Absent means the product's own canvas grey, so every report saved
     # before this existed keeps the background it has always had.
     assert parse_definition(valid_doc()).canvas.background is None
+
+
+def sheet_definition():
+    """A current-version document with one page, ready to become a sheet."""
+    raw = valid_definition()
+    from app.reports.migrate import migrate_definition
+
+    return migrate_definition(raw)
+
+
+class TestSheetPages:
+    def test_a_sheet_page_with_one_matrix_is_valid(self):
+        raw = sheet_definition()
+        raw["pages"][0]["kind"] = "sheet"
+        raw["pages"][0]["visuals"] = [{
+            "id": "v1", "type": "matrix", "title": "",
+            "layout": {"x": 0, "y": 0, "w": 12, "h": 20},
+            "wells": {"rows": ["CUSTOMERS.REGION"],
+                      "values": ["ORDERS.TOTAL_REVENUE"]},
+            "options": {}, "filters": [],
+        }]
+        parse_definition(raw)  # no raise
+
+    def test_kind_defaults_to_canvas(self):
+        definition = parse_definition(valid_definition())
+        assert definition.pages[0].kind == "canvas"
+
+    def test_a_sheet_page_refuses_two_visuals(self):
+        raw = sheet_definition()
+        raw["pages"][0]["kind"] = "sheet"
+        visual = {
+            "id": "v1", "type": "matrix", "title": "",
+            "layout": {"x": 0, "y": 0, "w": 12, "h": 20},
+            "wells": {"rows": ["CUSTOMERS.REGION"],
+                      "values": ["ORDERS.TOTAL_REVENUE"]},
+            "options": {}, "filters": [],
+        }
+        raw["pages"][0]["visuals"] = [visual, {**visual, "id": "v2"}]
+        with pytest.raises(ApiError) as excinfo:
+            parse_definition(raw)
+        assert "single pivot" in excinfo.value.message
+
+    def test_a_sheet_page_refuses_a_chart(self):
+        raw = sheet_definition()
+        raw["pages"][0]["kind"] = "sheet"
+        raw["pages"][0]["visuals"] = [{
+            "id": "v1", "type": "bar", "title": "",
+            "layout": {"x": 0, "y": 0, "w": 12, "h": 20},
+            "wells": {"axis": ["CUSTOMERS.REGION"],
+                      "values": ["ORDERS.TOTAL_REVENUE"]},
+            "options": {}, "filters": [],
+        }]
+        with pytest.raises(ApiError) as excinfo:
+            parse_definition(raw)
+        assert "matrix or table" in excinfo.value.message

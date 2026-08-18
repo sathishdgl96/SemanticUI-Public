@@ -1466,6 +1466,47 @@ button.secondary:hover,
   font-weight: 600;
 }
 
+/* The stepped matrix: group rows read as headers, the +/- toggles sit
+   inline, and the Total column is set off from the value columns. */
+.matrix tbody tr.matrix-group th,
+.matrix tbody tr.matrix-group td {
+  font-weight: 600;
+  background: var(--surface-sunken, #f3f2f1);
+}
+
+.matrix-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  width: 1.2em;
+  margin-right: 4px;
+  padding: 0;
+  color: inherit;
+}
+
+.matrix .matrix-total {
+  border-left: 2px solid var(--border-strong, #c8c6c4);
+  font-weight: 600;
+}
+
+/* A sheet page: the pivot IS the page. */
+.canvas.sheet {
+  display: block;
+  padding: 12px;
+}
+
+.sheet-tile {
+  height: 100%;
+  min-height: 320px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  overflow: auto;
+}
+
+
 /* --- Multi-row card ------------------------------------------------------ */
 .multi-card {
   list-style: none;

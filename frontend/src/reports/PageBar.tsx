@@ -7,6 +7,7 @@ interface Props {
   canEdit: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
+  onAddSheet: () => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -22,6 +23,7 @@ export default function PageBar({
   canEdit,
   onSelect,
   onAdd,
+  onAddSheet,
   onRename,
   onDuplicate,
   onDelete,
@@ -100,7 +102,7 @@ export default function PageBar({
               if (canEdit && isActive) startRename();
             }}
           >
-            {page.name}
+            {page.kind === "sheet" ? `⊞ ${page.name}` : page.name}
           </button>
         );
       })}
@@ -113,6 +115,17 @@ export default function PageBar({
           onClick={onAdd}
         >
           +
+        </button>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          className="page-add"
+          aria-label="New sheet"
+          title="New sheet — a full-page pivot, like an Excel sheet"
+          onClick={onAddSheet}
+        >
+          {"⊞"}
         </button>
       )}
       {canEdit && active && (

@@ -998,6 +998,48 @@ describe("BuilderPage pages", () => {
   });
 });
 
+describe("BuilderPage sheets", () => {
+  it("creates a sheet page holding a pinned pivot, and fields land in it", async () => {
+    updateMock.mockResolvedValue(detail);
+    getMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: /new sheet/i }));
+    // The sheet tab is active and the Excel-style hint replaces the canvas.
+    expect(
+      await screen.findByRole("button", { name: "⊞ Sheet 1" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText(/like an Excel PivotTable/i)).toBeInTheDocument();
+
+    // The Data pane drives the pinned pivot directly -- no click-to-select.
+    await userEvent.click(await screen.findByRole("checkbox", { name: "C.REGION" }));
+    await userEvent.click(await screen.findByRole("checkbox", { name: "A.REV" }));
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+
+    const [, saved] = updateMock.mock.calls.at(-1)!;
+    const sheet = saved.pages.at(-1)!;
+    expect(sheet.kind).toBe("sheet");
+    expect(sheet.visuals).toHaveLength(1);
+    expect(sheet.visuals[0].type).toBe("matrix");
+    expect(sheet.visuals[0].wells.rows).toEqual(["C.REGION"]);
+    expect(sheet.visuals[0].wells.values).toEqual(["A.REV"]);
+  });
+
+  it("offers only the pivot styles on a sheet, not the gallery", async () => {
+    getMock.mockResolvedValue(detail);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: /new sheet/i }));
+    await screen.findByText(/like an Excel PivotTable/i);
+    expect(screen.getByRole("tab", { name: "Matrix" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Table" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add visual/i })).toBeNull();
+  });
+});
+
 describe("BuilderPage fact wiring", () => {
   it("hands the canvas the view's fact refs", async () => {
     // The tile is what turns a fact into an aggregation. If the list stops

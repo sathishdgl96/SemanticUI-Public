@@ -41,6 +41,7 @@ import {
   type VisualType,
 } from "./catalog";
 import CanvasGrid from "./CanvasGrid";
+import SheetView from "./SheetView";
 import ExportPanel from "./ExportPanel";
 import FilterPane, { PAGE_DROP_ID, REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
 import FormatPane from "./FormatPane";
@@ -455,7 +456,12 @@ export default function BuilderPage() {
   // A stale or absent id degrades to the first page rather than crashing:
   // pages can be deleted out from under the selection.
   const activePage = definition.pages.find((p) => p.id === activePageId) ?? definition.pages[0];
-  const selected = activePage.visuals.find((v) => v.id === selectedId) ?? null;
+  // A sheet page pins selection to its single pivot: the Data pane and the
+  // wells behave like Excel's field list rather than needing a click first.
+  const selected =
+    activePage.kind === "sheet"
+      ? activePage.visuals[0] ?? null
+      : activePage.visuals.find((v) => v.id === selectedId) ?? null;
   const needsBind = !view.name || (viewDetail.isError && isMissingView(viewDetail.error));
 
   // Declared as `const ... = (...) => {}` (function expressions), not hoisted
@@ -511,6 +517,42 @@ export default function BuilderPage() {
     focusPage(page.id);
   };
 
+  const addSheet = () => {
+    if (definition.pages.length >= MAX_PAGES) {
+      setNotice(`A report can hold at most ${MAX_PAGES} pages.`);
+      return;
+    }
+    const total = definition.pages.reduce((sum, p) => sum + p.visuals.length, 0);
+    if (total + 1 > MAX_VISUALS) {
+      setNotice(`A report can hold at most ${MAX_VISUALS} visuals.`);
+      return;
+    }
+    const used = new Set(definition.pages.map((p) => p.name));
+    let n = 1;
+    while (used.has(`Sheet ${n}`)) n++;
+    // The sheet's pivot exists from the first moment, so the field list has
+    // something to drive -- exactly how Excel inserts an empty PivotTable.
+    const pivot: Visual = {
+      id: `v${crypto.randomUUID().slice(0, 8)}`,
+      type: "matrix",
+      title: "",
+      layout: { x: 0, y: 0, w: 12, h: 24 },
+      wells: { rows: [], columns: [], values: [] },
+      options: { subtotals: true },
+      filters: [],
+    };
+    const page: Page = {
+      id: `p${crypto.randomUUID().slice(0, 8)}`,
+      name: `Sheet ${n}`,
+      kind: "sheet",
+      visuals: [pivot],
+      filters: [],
+    };
+    setDefinition({ ...definition, pages: [...definition.pages, page] });
+    focusPage(page.id);
+    setSelectedId(pivot.id);
+  };
+
   const renamePage = (id: string, name: string) => {
     setDefinition({
       ...definition,
@@ -540,6 +582,7 @@ export default function BuilderPage() {
     const copy: Page = {
       id: `p${crypto.randomUUID().slice(0, 8)}`,
       name,
+      kind: source.kind,
       // Visual ids must be unique across the WHOLE report, so a copy mints
       // fresh ones. Filter ids only have to be unique within their scope.
       visuals: source.visuals.map((v) => ({
@@ -765,7 +808,10 @@ export default function BuilderPage() {
 
   const onTypeChange = (nextType: VisualType) => {
     setSelectedType(nextType);
-    const visual = activePage.visuals.find((v) => v.id === selectedId);
+    const visual =
+      activePage.kind === "sheet"
+        ? activePage.visuals[0]
+        : activePage.visuals.find((v) => v.id === selectedId);
     if (!visual) return;
     const { visual: updated, dropped } = changeVisualType(visual, nextType);
     replaceVisual(updated);
@@ -953,6 +999,16 @@ export default function BuilderPage() {
           )}
           <div className="builder-body">
             <div className="canvas-column">
+              {activePage.kind === "sheet" ? (
+                <SheetView
+                  visual={activePage.visuals[0] ?? null}
+                  view={view}
+                  reportFilters={definition.filters ?? []}
+                  pageFilters={activePage.filters ?? []}
+                  hierarchies={hierarchies}
+                  factRefs={factRefs}
+                />
+              ) : (
               <CanvasGrid
               visuals={activePage.visuals}
               canvas={definition.canvas}
@@ -989,12 +1045,14 @@ export default function BuilderPage() {
                 })
               }
             />
+              )}
               <PageBar
                 pages={definition.pages}
                 activeId={activePage.id}
                 canEdit={canEdit}
                 onSelect={switchPage}
                 onAdd={addPage}
+                onAddSheet={addSheet}
                 onRename={renamePage}
                 onDuplicate={duplicatePage}
                 onDelete={deletePage}
@@ -1018,14 +1076,33 @@ export default function BuilderPage() {
                 />
               </Pane>
               <Pane title="Visualizations">
-                <VisualPicker value={selectedType} onChange={onTypeChange} />
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => addVisual(selectedType)}
-                >
-                  Add visual
-                </button>
+                {activePage.kind === "sheet" ? (
+                  <div className="pane-tabs" role="tablist" aria-label="Pivot style">
+                    {(["matrix", "table"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected?.type === t}
+                        className={selected?.type === t ? "pane-tab active" : "pane-tab"}
+                        onClick={() => onTypeChange(t)}
+                      >
+                        {CATALOG[t].label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <VisualPicker value={selectedType} onChange={onTypeChange} />
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => addVisual(selectedType)}
+                    >
+                      Add visual
+                    </button>
+                  </>
+                )}
                 {selected ? (
                   <>
                     {/* Build is what the visual SHOWS, Format is how it

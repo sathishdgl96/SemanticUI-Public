@@ -228,6 +228,9 @@ export interface CanvasSettings {
 export interface Page {
   id: string;
   name: string;
+  /** "canvas" is the tile grid; "sheet" is the Excel-like page holding one
+   *  full-bleed pivot (matrix or table). Absent means canvas. */
+  kind?: "canvas" | "sheet";
   visuals: Visual[];
   /** The page scope: applies to every visual on this page. */
   filters: Filter[];
