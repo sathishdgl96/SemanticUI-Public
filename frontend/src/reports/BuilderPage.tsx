@@ -1184,6 +1184,9 @@ export default function BuilderPage() {
           <ConnectPanel
             reportId={reportId}
             sheets={exportSheets()}
+            feedVisuals={activePage.visuals
+              .filter((v) => v.type !== "slicer")
+              .map((v) => ({ id: v.id, title: visualTitle(v) }))}
             onClose={() => setPanel(null)}
           />
         </div>

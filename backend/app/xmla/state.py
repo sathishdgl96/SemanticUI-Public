@@ -39,6 +39,13 @@ class XmlaSession:
     conn: Any
     account: str
     user: str
+    #: Who Snowflake says this connection is: (account LOCATOR, user), from
+    #: probe_identity. The locator, not the org identifier the caller typed
+    #: -- because that is what dev-login stored in the users table, and an
+    #: account has both names. Matching the typed form against the stored
+    #: locator is a 404 for every legitimate caller.
+    probed_account: str = ""
+    probed_user: str = ""
     lock: threading.Lock = field(default_factory=threading.Lock)
     last_seen: float = field(default_factory=time.monotonic)
     #: (db, schema, view) -> describe dict. Same idea as the main cache's
@@ -90,7 +97,14 @@ class SessionStore:
         conn = sf_connect.connect_dev(
             account=account, user=user, authenticator="password", password=password
         )
-        session = XmlaSession(conn=conn, account=account, user=user)
+        probed_account, probed_user = sf_connect.probe_identity(conn)
+        session = XmlaSession(
+            conn=conn,
+            account=account,
+            user=user,
+            probed_account=probed_account,
+            probed_user=probed_user,
+        )
         session_id = secrets.token_hex(16)
         with self._lock:
             self._by_id[session_id] = session

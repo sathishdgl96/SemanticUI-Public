@@ -25,6 +25,12 @@ class ScriptedCursor:
         if sql.startswith("SHOW SEMANTIC VIEWS"):
             self.description = SHOW_DESC
             self._rows = [("2026-01-01", "SALES", "ANALYTICS", "PUBLIC", None)]
+        elif "CURRENT_ACCOUNT()" in sql:
+            # The identity probe. Matches what sign_in() stores, so a feed
+            # request authenticated with these fakes maps to the same app
+            # user a cookie session does.
+            self.description = [FakeCol("ACCT"), FakeCol("USR")]
+            self._rows = [("ACME", "ALICE")]
         elif "CURRENT_ORGANIZATION_NAME" in sql:
             # Answered explicitly: without this the catch-all below returns
             # data rows for an identity query, and the org-account identifier

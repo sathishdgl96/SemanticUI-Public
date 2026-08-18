@@ -232,16 +232,34 @@ class TestDiscover:
         assert root.find(".//{urn:schemas-microsoft-com:xml-analysis}DiscoverResponse") is not None or True
 
 
+class ProbeableConnection:
+    """The smallest connection the store will now accept: it must answer the
+    identity probe, because the feed's user lookup depends on it."""
+
+    class _Cursor:
+        def execute(self, sql, params=None):
+            return self
+
+        def fetchone(self):
+            return ("ACME", "ALICE")
+
+        def close(self):
+            pass
+
+    def cursor(self):
+        return self._Cursor()
+
+    def close(self):
+        pass
+
+
 class TestSessionStore:
     def test_same_credentials_reuse_one_connection(self, monkeypatch):
         opened = []
 
         def fake_connect(**kwargs):
             opened.append(kwargs["user"])
-            class C:
-                def close(self):
-                    pass
-            return C()
+            return ProbeableConnection()
 
         monkeypatch.setattr(xmla_state.sf_connect, "connect_dev", fake_connect)
         store = SessionStore()
@@ -257,10 +275,7 @@ class TestSessionStore:
 
         def fake_connect(**kwargs):
             opened.append(1)
-            class C:
-                def close(self):
-                    pass
-            return C()
+            return ProbeableConnection()
 
         monkeypatch.setattr(xmla_state.sf_connect, "connect_dev", fake_connect)
         store = SessionStore()
@@ -273,10 +288,9 @@ class TestSessionStore:
         closed = []
 
         def fake_connect(**kwargs):
-            class C:
-                def close(self):
-                    closed.append(1)
-            return C()
+            conn = ProbeableConnection()
+            conn.close = lambda: closed.append(1)
+            return conn
 
         monkeypatch.setattr(xmla_state.sf_connect, "connect_dev", fake_connect)
         store = SessionStore()

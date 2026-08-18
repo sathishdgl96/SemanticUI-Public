@@ -7,10 +7,12 @@ import type { SheetRequest } from "../api/types";
 interface Props {
   reportId: string;
   sheets: SheetRequest[];
+  /** The visuals a Power Query URL can serve -- everything but slicers. */
+  feedVisuals?: { id: string; title: string }[];
   onClose: () => void;
 }
 
-export default function ConnectPanel({ reportId, sheets, onClose }: Props) {
+export default function ConnectPanel({ reportId, sheets, feedVisuals = [], onClose }: Props) {
   const [copied, setCopied] = useState<string | null>(null);
   const details = useQuery({
     queryKey: ["connect", reportId, sheets],
@@ -58,6 +60,49 @@ export default function ConnectPanel({ reportId, sheets, onClose }: Props) {
             : "Could not build a connection file."}
         </p>
       )}
+
+      {/* The ZERO-INSTALL path: stock Excel's own Power Query, no driver,
+          no admin, no add-in. First in the panel because it is the only
+          route that works on a locked-down machine -- everything below
+          needs the Snowflake ODBC driver installed. */}
+      {feedVisuals.length > 0 && (
+        <section className="connect-feed">
+          <h4>Power Query — works with nothing installed</h4>
+          <ol className="connect-steps">
+            <li>In Excel: Data → From Web → paste a URL below.</li>
+            <li>
+              Choose <strong>Basic</strong>: username{" "}
+              <code>your-account/your-username</code>, password your own
+              Snowflake password.
+            </li>
+            <li>Load. Data → Refresh All re-runs the query as you.</li>
+          </ol>
+          {feedVisuals.map((visual) => {
+            const url = `${window.location.origin}/api/feed/reports/${encodeURIComponent(
+              reportId,
+            )}/visuals/${encodeURIComponent(visual.id)}.csv`;
+            return (
+              <div key={visual.id} className="connect-sql-head">
+                <strong>{visual.title || "Untitled visual"}</strong>
+                <button
+                  type="button"
+                  className="link"
+                  aria-label={`Copy feed URL for ${visual.title || visual.id}`}
+                  onClick={() => copy(`feed:${visual.id}`, url)}
+                >
+                  {copied === `feed:${visual.id}` ? "Copied" : "Copy URL"}
+                </button>
+              </div>
+            );
+          })}
+          <p className="tile-hint">
+            Add <code>?f.TABLE.FIELD=value</code> to a URL to slice it — point
+            it at a worksheet cell in Power Query and the cell drives the
+            query, whatever the data volume.
+          </p>
+        </section>
+      )}
+
 
       {details.data?.sheets.map((sheet, index) => (
         <div key={sheet.title} className="connect-sql">

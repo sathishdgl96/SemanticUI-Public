@@ -101,6 +101,36 @@ describe("ConnectPanel", () => {
     expect(JSON.parse(String(call![1]!.body))).toEqual({ sheet: SHEETS[0] });
   });
 
+  it("leads with the zero-install Power Query URLs", async () => {
+    // The only route a locked-down machine can use: no driver, no admin, no
+    // add-in. The URL is per visual and copyable.
+    wrap(
+      <ConnectPanel
+        reportId="r1"
+        sheets={SHEETS}
+        feedVisuals={[{ id: "v9", title: "Revenue by region" }]}
+        onClose={() => {}}
+      />,
+    );
+    expect(
+      await screen.findByText(/power query — works with nothing installed/i),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /copy feed url for Revenue by region/i }),
+    );
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining("/api/feed/reports/r1/visuals/v9.csv"),
+    );
+    // And the cell-driven slicing hint is stated where the URL is.
+    expect(screen.getByText(/f\.TABLE\.FIELD/)).toBeInTheDocument();
+  });
+
+  it("shows no Power Query section when there are no feed visuals", async () => {
+    wrap(<ConnectPanel reportId="r1" sheets={SHEETS} onClose={() => {}} />);
+    await screen.findByText(/connect live from excel/i);
+    expect(screen.queryByText(/power query/i)).toBeNull();
+  });
+
   it("keeps the manual route, and says what the file needs that it does not", async () => {
     // The .odc reaches Snowflake through the ODBC driver. Someone without it
     // should learn that here rather than from an Excel error dialog.
