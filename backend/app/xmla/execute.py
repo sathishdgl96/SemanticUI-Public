@@ -40,8 +40,13 @@ def empty_dataset() -> str:
 
 # ------------------------------------------------------- axis interpretation
 
-def _classify(entries, detail) -> list[HierSpec]:
-    """Axis entries from the parser -> [measures spec?] + [field specs]."""
+def _classify(entries, detail, exists_filters: list | None = None) -> list[HierSpec]:
+    """Axis entries from the parser -> [measures spec?] + [field specs].
+
+    `exists_filters`, when given, collects equality filters contributed by
+    Exists(setA, setB): B's members constrain the whole query, which is
+    exactly what scopes a dropdown's child level to the expanded member.
+    """
     measures: list[str] = []
     fields: dict[tuple[str, str], HierSpec] = {}
 
@@ -66,7 +71,12 @@ def _classify(entries, detail) -> list[HierSpec]:
         spec = field_spec(table, name)
         rest = ref.parts[2:]
         if ref.suffix == "CHILDREN":
-            spec.children_of_all = True
+            # Only the All member has children in a two-level attribute
+            # hierarchy. A LEAF's .Children is the empty set -- answering
+            # the whole level again is how a filter dropdown ends up
+            # showing the same top-level values on every expansion.
+            if not rest or (len(rest) == 1 and rest[0].upper() == "ALL"):
+                spec.children_of_all = True
             return
         if ref.suffix == "MEMBERS":
             # [T].[F].Members = All + leaves; [T].[F].[F].Members = the leaf
@@ -102,6 +112,21 @@ def _classify(entries, detail) -> list[HierSpec]:
                     walk(e, drilled)
         elif isinstance(entry, tuple) and entry[0] == "drillmember":
             on_drillmember(entry[1], entry[2], entry[3])
+        elif isinstance(entry, tuple) and entry[0] == "exists":
+            for e in entry[1]:
+                walk(e, drilled)
+            by_field: dict[tuple[str, str], list[str]] = {}
+            for e in entry[2]:
+                if isinstance(e, MemberRef) and not e.is_measure and len(e.parts) == 3:
+                    by_field.setdefault((e.parts[0], e.parts[1]), []).append(e.parts[2])
+            if exists_filters is not None:
+                for (table, name), values in by_field.items():
+                    exists_filters.append({
+                        "id": f"exists{len(exists_filters)}",
+                        "field": f"{table}.{name}",
+                        "op": "is",
+                        "values": values,
+                    })
         else:
             raise MdxUnsupported(f"unsupported axis entry {entry!r}")
 
@@ -263,7 +288,8 @@ class _Engine:
     def execute(self) -> str:
         q = self.q
         axis_specs = [
-            _classify(entries, self.detail) if entries else []
+            _classify(entries, self.detail, exists_filters=self.filters)
+            if entries else []
             for entries in q.axes
         ]
 

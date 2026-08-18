@@ -199,6 +199,17 @@ class _Parser:
             self.next()
             inner = self.parse_set()
             return [("except", inner)]
+        if t.kind == "word" and t.value == "EXISTS":
+            # Exists(setA, setB): the members of A that have data alongside
+            # B's members -- how Excel scopes a filter-dropdown level to the
+            # member the user just expanded.
+            self.next()
+            self.expect_punct("(")
+            base = self.parse_set()
+            self.expect_punct(",")
+            among = self.parse_set()
+            self.expect_punct(")")
+            return [("exists", base, among)]
         if t.kind == "word" and t.value == "DRILLDOWNMEMBER":
             # DrilldownMember(base, drillSet [, RECURSIVE | hierarchy]):
             # base supplies the tuples, drillSet says which parent members

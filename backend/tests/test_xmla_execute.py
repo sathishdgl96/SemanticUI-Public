@@ -272,3 +272,69 @@ class TestCollapse:
         # F stays as a single subtotal row; O is expanded into priorities.
         assert [t[1] for t in f_rows] == ["[ORDERS].[ORDER_PRIORITY].[All]"]
         assert "[ORDERS].[ORDER_PRIORITY].&[HIGH]" in [t[1] for t in o_rows]
+
+
+class TestFilterDropdownShapes:
+    """The queries behind Excel's filter dropdown tree."""
+
+    def test_children_of_a_leaf_is_empty_not_the_whole_level(
+        self, two_field_gateway
+    ):
+        # Expanding F must NOT answer the status list again -- a leaf of a
+        # two-level attribute hierarchy has no children.
+        xml = handle_execute(TwoFieldSession(), FakeRequest(
+            "SELECT {AddCalculatedMembers([ORDERS].[ORDER_STATUS].&[F].Children)} "
+            "DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS]"
+        ))
+        root = ElementTree.fromstring(xml).find(".//m:root", NS)
+        assert root.find(".//m:Axes/m:Axis[@name='Axis0']", NS) is None
+
+    def test_exists_scopes_a_level_to_the_expanded_member(self, monkeypatch):
+        captured = []
+
+        def fake_run_query(conn, sql, *, max_rows, params=None):
+            captured.append((sql, list(params or [])))
+            return QueryResult(
+                columns=[], rows=[["HIGH"], ["LOW"]], truncated=False, sfqid=None,
+            )
+
+        monkeypatch.setattr(execute_module.gateway, "run_query", fake_run_query)
+        xml = handle_execute(TwoFieldSession(), FakeRequest(
+            "SELECT {Exists(AddCalculatedMembers("
+            "[ORDERS].[ORDER_PRIORITY].[ORDER_PRIORITY].Members), "
+            "{[ORDERS].[ORDER_STATUS].&[F]})} "
+            "DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS]"
+        ))
+        # The expanded member reached the SQL as a bound filter value.
+        assert any("F" in params for _, params in captured)
+        root = ElementTree.fromstring(xml).find(".//m:root", NS)
+        unames = [m.find("m:UName", NS).text
+                  for m in root.findall(".//m:Axes/m:Axis[@name='Axis0']//m:Member", NS)]
+        assert unames == [
+            "[ORDERS].[ORDER_PRIORITY].&[HIGH]",
+            "[ORDERS].[ORDER_PRIORITY].&[LOW]",
+        ]
+
+    def test_a_fixed_member_crossjoined_with_a_level_stays_scoped(
+        self, two_field_gateway
+    ):
+        # The other dropdown shape: CrossJoin({F}, priority.Members) with
+        # NON EMPTY -- only combinations the data produces come back.
+        xml = handle_execute(TwoFieldSession(), FakeRequest(
+            "SELECT NON EMPTY CrossJoin({[ORDERS].[ORDER_STATUS].&[F]}, "
+            "AddCalculatedMembers([ORDERS].[ORDER_PRIORITY].[ORDER_PRIORITY].Members)) "
+            "DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS]"
+        ))
+        root = ElementTree.fromstring(xml).find(".//m:root", NS)
+        tuples = [
+            tuple(m.find("m:UName", NS).text for m in t.findall("m:Member", NS))
+            for t in root.findall(".//m:Axes/m:Axis[@name='Axis0']/m:Tuples/m:Tuple", NS)
+        ]
+        assert all(t[0] == "[ORDERS].[ORDER_STATUS].&[F]" for t in tuples)
+        assert {t[1] for t in tuples} == {
+            "[ORDERS].[ORDER_PRIORITY].&[HIGH]",
+            "[ORDERS].[ORDER_PRIORITY].&[LOW]",
+        }
