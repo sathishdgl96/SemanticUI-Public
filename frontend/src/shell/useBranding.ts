@@ -34,5 +34,16 @@ export function useBranding(): Branding {
     document.title = branding.name;
   }, [branding.name]);
 
+  useEffect(() => {
+    // The tab icon follows the logo. Only when one is configured -- the
+    // default favicon.svg stays for an unbranded deployment.
+    if (!branding.logoUrl) return;
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (link) {
+      link.href = branding.logoUrl;
+      link.removeAttribute("type");
+    }
+  }, [branding.logoUrl]);
+
   return branding;
 }
