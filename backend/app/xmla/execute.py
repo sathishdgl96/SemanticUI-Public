@@ -100,8 +100,56 @@ def _classify(entries, detail) -> list[HierSpec]:
             for arg in entry[1]:
                 for e in arg:
                     walk(e, drilled)
+        elif isinstance(entry, tuple) and entry[0] == "drillmember":
+            on_drillmember(entry[1], entry[2], entry[3])
         else:
             raise MdxUnsupported(f"unsupported axis entry {entry!r}")
+
+    def on_drillmember(base, drill, target) -> None:
+        """DrilldownMember(base, drillSet, hierarchy): Excel's collapse.
+
+        The base tuples walk in as usual; the target hierarchy gains its
+        leaf members -- but only under the parents the drill set names.
+        {-{m}} (the complement) means "expand everything except m", the
+        shape Excel sends when one group row is collapsed.
+        """
+        for e in base:
+            walk(e)
+        target_ref = next(
+            (e for e in target
+             if isinstance(e, MemberRef) and not e.is_measure and len(e.parts) == 2),
+            None,
+        )
+        if target_ref is None:
+            # No (usable) hierarchy argument: our attribute hierarchies have
+            # no deeper level to drill into, so the drill is a no-op.
+            return
+        child = field_spec(target_ref.parts[0], target_ref.parts[1])
+        child.children_of_all = True
+
+        include: list[str] | None = None
+        exclude: list[str] = []
+        parent: tuple | None = None
+
+        def leaf_values(entries):
+            nonlocal parent
+            out = []
+            for e in entries:
+                if isinstance(e, MemberRef) and not e.is_measure and len(e.parts) == 3:
+                    parent = (e.parts[0].upper(), e.parts[1].upper())
+                    out.append(e.parts[2])
+                    walk(e)  # the named member also belongs to the base axis
+            return out
+
+        for e in drill:
+            if isinstance(e, tuple) and e[0] == "except":
+                exclude.extend(leaf_values(e[1]))
+            elif isinstance(e, MemberRef):
+                include = (include or []) + leaf_values([e])
+        if parent is not None:
+            child.parent_key = parent
+            child.parent_exclude = exclude
+            child.parent_include = include
 
     for entry in entries:
         walk(entry)
@@ -292,6 +340,8 @@ class _Engine:
                 for _, a in combo:
                     if a:
                         assignment.update(a)
+                if not _drill_allowed(field_specs, assignment):
+                    continue
                 # NON EMPTY: a combination of leaf members that never occurs
                 # together in the data contributes no tuple at all.
                 if len(assignment) > 1:
@@ -404,6 +454,30 @@ class _Engine:
 
 def spec_key(spec: HierSpec) -> tuple[str, str]:
     return (spec.table.upper(), spec.hier_field.upper())
+
+
+def _drill_allowed(field_specs, assignment: dict) -> bool:
+    """False for a tuple whose leaf members sit under a collapsed parent.
+
+    A constrained hierarchy's leaves appear only where the DrilldownMember
+    drill set said they should. The parent at its All member always keeps
+    its children -- those are the cross-hierarchy subtotal rows the client
+    has always been sent and tolerates.
+    """
+    for spec in field_specs:
+        if spec.parent_key is None or spec_key(spec) not in assignment:
+            continue
+        parent_value = assignment.get(spec.parent_key)
+        if parent_value is None:
+            continue
+        value = str(parent_value).upper()
+        if spec.parent_include is not None and value not in {
+            m.upper() for m in spec.parent_include
+        }:
+            return False
+        if value in {m.upper() for m in spec.parent_exclude}:
+            return False
+    return True
 
 
 def handle_execute(session, request) -> str:

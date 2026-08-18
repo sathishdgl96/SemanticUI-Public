@@ -193,3 +193,82 @@ class TestExecute:
 
         with pytest.raises(ApiError):
             handle_execute(FakeSession(), FakeRequest("SELECT FROM [NOPE]"))
+
+
+#: Verbatim wire capture (2026-08-18): Excel collapsing the F group of a
+#: STATUS -> PRIORITY nested pivot. {-{...&[F]}} is the complement set.
+COLLAPSE = (
+    "SELECT NON EMPTY Hierarchize(DrilldownMember(CrossJoin("
+    "{[ORDERS].[ORDER_STATUS].[All],[ORDERS].[ORDER_STATUS].[ORDER_STATUS].Members}, "
+    "{([ORDERS].[ORDER_PRIORITY].[All])}), "
+    "{-{[ORDERS].[ORDER_STATUS].&[F]}}, [ORDERS].[ORDER_PRIORITY])) "
+    "DIMENSION PROPERTIES PARENT_UNIQUE_NAME,HIERARCHY_UNIQUE_NAME ON COLUMNS "
+    "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS] "
+    "WHERE ([Measures].[ORDERS.TOTAL_ORDER_VALUE]) "
+    "CELL PROPERTIES VALUE, FORMAT_STRING, LANGUAGE, BACK_COLOR, FORE_COLOR, FONT_FLAGS"
+)
+
+
+class TwoFieldSession(FakeSession):
+    def describe(self, database, schema, view):
+        return {
+            "dimensions": [
+                {"table": "ORDERS", "name": "ORDER_STATUS", "dataType": "TEXT"},
+                {"table": "ORDERS", "name": "ORDER_PRIORITY", "dataType": "TEXT"},
+            ],
+            "metrics": [
+                {"table": "ORDERS", "name": "TOTAL_ORDER_VALUE", "dataType": "NUMBER"},
+            ],
+            "facts": [],
+            "tables": [{"name": "ORDERS"}],
+            "relationships": [],
+        }
+
+
+@pytest.fixture
+def two_field_gateway(monkeypatch):
+    def fake_run_query(conn, sql, *, max_rows, params=None):
+        upper = sql.upper()
+        has_status = "ORDER_STATUS" in upper
+        has_priority = "ORDER_PRIORITY" in upper
+        if has_status and has_priority:
+            return QueryResult(
+                columns=[], truncated=False, sfqid=None,
+                rows=[["F", "HIGH", 1], ["F", "LOW", 2],
+                      ["O", "HIGH", 3], ["O", "LOW", 4]],
+            )
+        if has_status:
+            return QueryResult(
+                columns=[], truncated=False, sfqid=None,
+                rows=[["F", 3], ["O", 7]],
+            )
+        if has_priority:
+            return QueryResult(
+                columns=[], truncated=False, sfqid=None,
+                rows=[["HIGH", 4], ["LOW", 6]],
+            )
+        return QueryResult(columns=[], rows=[[10]], truncated=False, sfqid=None)
+
+    monkeypatch.setattr(execute_module.gateway, "run_query", fake_run_query)
+
+
+class TestCollapse:
+    def test_the_collapse_capture_parses(self):
+        q = parse_mdx(COLLAPSE)
+        assert len(q.axes) == 1
+
+    def test_a_collapsed_group_keeps_its_subtotal_but_loses_its_children(
+        self, two_field_gateway
+    ):
+        xml = handle_execute(TwoFieldSession(), FakeRequest(COLLAPSE))
+        root = ElementTree.fromstring(xml).find(".//m:root", NS)
+        axis0 = root.find(".//m:Axes/m:Axis[@name='Axis0']", NS)
+        tuples = [
+            tuple(m.find("m:UName", NS).text for m in t.findall("m:Member", NS))
+            for t in axis0.findall(".//m:Tuple", NS)
+        ]
+        f_rows = [t for t in tuples if t[0] == "[ORDERS].[ORDER_STATUS].&[F]"]
+        o_rows = [t for t in tuples if t[0] == "[ORDERS].[ORDER_STATUS].&[O]"]
+        # F stays as a single subtotal row; O is expanded into priorities.
+        assert [t[1] for t in f_rows] == ["[ORDERS].[ORDER_PRIORITY].[All]"]
+        assert "[ORDERS].[ORDER_PRIORITY].&[HIGH]" in [t[1] for t in o_rows]

@@ -54,7 +54,7 @@ def tokenize(text: str) -> list[Tok]:
                     break
             out.append(Tok("name", "".join(parts)))
             i = k + 1
-        elif c in "(){},*&":
+        elif c in "(){},*&-":
             out.append(Tok("punct", c))
             i += 1
         elif c == ".":
@@ -97,6 +97,14 @@ class HierSpec:
     include_all: bool = True     # drill/members: include the All member
     members: list[str] = field(default_factory=list)  # explicit leaf keys
     children_of_all: bool = False  # drill: include the All member's children
+    #: Collapse support: when set, this hierarchy's LEAF members appear only
+    #: under parent members that pass the constraint. `parent_key` names the
+    #: constraining hierarchy ((TABLE, FIELD) uppercased); exclude lists the
+    #: parents that stay collapsed, include (when not None) the only parents
+    #: that expand.
+    parent_key: tuple | None = None
+    parent_exclude: list[str] = field(default_factory=list)
+    parent_include: list[str] | None = None
 
 
 @dataclass
@@ -185,6 +193,29 @@ class _Parser:
                 inner += self.parse_set()
             self.expect_punct(")")
             return inner
+        if t.kind == "punct" and t.value == "-":
+            # Unary set complement, Excel's collapse idiom: {-{m}} inside a
+            # DrilldownMember means "every member EXCEPT these".
+            self.next()
+            inner = self.parse_set()
+            return [("except", inner)]
+        if t.kind == "word" and t.value == "DRILLDOWNMEMBER":
+            # DrilldownMember(base, drillSet [, RECURSIVE | hierarchy]):
+            # base supplies the tuples, drillSet says which parent members
+            # expand, the optional hierarchy is what they expand INTO.
+            self.next()
+            self.expect_punct("(")
+            base = self.parse_set()
+            self.expect_punct(",")
+            drill = self.parse_set()
+            target: list = []
+            while self.peek() and self.peek().kind == "punct" and self.peek().value == ",":
+                self.next()
+                if self.accept_word("RECURSIVE"):
+                    continue
+                target = self.parse_set()
+            self.expect_punct(")")
+            return [("drillmember", base, drill, target)]
         if t.kind == "word" and t.value == "DRILLDOWNLEVEL":
             self.next()
             self.expect_punct("(")
