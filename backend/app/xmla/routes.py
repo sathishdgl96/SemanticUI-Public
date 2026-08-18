@@ -150,7 +150,7 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
     try:
         entry = acquire_entry(db, session)
         with entry.lock:
-            session.bind(entry)
+            session.bind(entry, db)
             if xmla_request.verb == "Discover":
                 inner = discover.handle(session, xmla_request)
             else:

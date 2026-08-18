@@ -50,12 +50,15 @@ class XmlaSession:
     last_seen: float = field(default_factory=time.monotonic)
     entry: Any = None
     views: list | None = None
+    #: Request-scoped, set by bind() and only valid under entry.lock.
+    db: Any = None
 
     def touch(self) -> None:
         self.last_seen = time.monotonic()
 
-    def bind(self, entry: Any) -> None:
+    def bind(self, entry: Any, db: Any = None) -> None:
         self.entry = entry
+        self.db = db
 
     @property
     def conn(self) -> Any:
@@ -68,6 +71,66 @@ class XmlaSession:
 
     def describe(self, database: str, schema: str, view: str) -> dict:
         return get_cache().describe(self.entry, database, schema, view)
+
+    def user_hierarchies(self, view: dict) -> list[dict]:
+        """Hierarchies this user defined on reports over this view.
+
+        The report builder is where drill paths are authored; surfacing them
+        over XMLA is what gives Excel true multi-level hierarchies -- one
+        draggable field with a native drill and a multilevel filter tree.
+        Only reports in workspaces the caller belongs to contribute, so the
+        catalog can never leak a colleague's modelling.
+
+        Returns [{"name", "home", "levels": [(table, field), ...]}, ...],
+        deduplicated by name (first definition wins), levels validated
+        against the live describe.
+        """
+        if self.db is None:
+            return []
+        from app.db.models import Report, WorkspaceMember
+
+        detail = self.describe(view["database"], view["schema"], view["name"])
+        known = {
+            (d["table"].upper(), d["name"].upper()): (d["table"], d["name"])
+            for d in detail.get("dimensions", [])
+        }
+        field_names = {name for _, name in known}
+        rows = (
+            self.db.query(Report)
+            .join(WorkspaceMember, WorkspaceMember.workspace_id == Report.workspace_id)
+            .filter(WorkspaceMember.user_id == self.user_id)
+            .all()
+        )
+        out: list[dict] = []
+        seen: set[str] = set()
+        for report in rows:
+            if (report.view_database or "").upper() != view["database"].upper():
+                continue
+            if (report.view_schema or "").upper() != view["schema"].upper():
+                continue
+            if (report.view_name or "").upper() != view["name"].upper():
+                continue
+            for h in (report.definition or {}).get("hierarchies", []):
+                name = (h.get("name") or "").strip()
+                if not name or name.upper() in seen:
+                    continue
+                levels = []
+                for ref in h.get("levels", []):
+                    table, _, field_name = str(ref).partition(".")
+                    hit = known.get((table.upper(), field_name.upper()))
+                    if hit is None:
+                        levels = []
+                        break
+                    levels.append(hit)
+                if len(levels) < 2:
+                    continue  # one level is just the attribute hierarchy
+                # A hierarchy named like a field of its home table would
+                # collide with that attribute hierarchy's unique name.
+                if name.upper() in field_names:
+                    continue
+                seen.add(name.upper())
+                out.append({"name": name, "home": levels[0][0], "levels": levels})
+        return out
 
 
 class SessionStore:

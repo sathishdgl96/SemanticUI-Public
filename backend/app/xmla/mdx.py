@@ -105,6 +105,15 @@ class HierSpec:
     parent_key: tuple | None = None
     parent_exclude: list[str] = field(default_factory=list)
     parent_include: list[str] | None = None
+    #: USER hierarchies (kind "userhier"): a drill path over several fields.
+    #: `levels` is [(table, field), ...]; members are value PATHS. A path in
+    #: `drilled_paths` shows its children; `drilled_depths` marks whole
+    #: depths drilled (the except-form collapse), minus `undrilled_paths`.
+    levels: list = field(default_factory=list)
+    drilled_paths: set = field(default_factory=set)
+    undrilled_paths: set = field(default_factory=set)
+    drilled_depths: set = field(default_factory=set)
+    member_paths: list = field(default_factory=list)
 
 
 @dataclass

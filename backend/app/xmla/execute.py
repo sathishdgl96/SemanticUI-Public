@@ -40,7 +40,8 @@ def empty_dataset() -> str:
 
 # ------------------------------------------------------- axis interpretation
 
-def _classify(entries, detail, exists_filters: list | None = None) -> list[HierSpec]:
+def _classify(entries, detail, exists_filters: list | None = None,
+              user_hiers: dict | None = None) -> list[HierSpec]:
     """Axis entries from the parser -> [measures spec?] + [field specs].
 
     `exists_filters`, when given, collects equality filters contributed by
@@ -53,10 +54,18 @@ def _classify(entries, detail, exists_filters: list | None = None) -> list[HierS
     def field_spec(table: str, name: str) -> HierSpec:
         key = (table.upper(), name.upper())
         if key not in fields:
-            fields[key] = HierSpec(
-                kind="drill", table=table, hier_field=name,
-                include_all=False, children_of_all=False,
-            )
+            uh = (user_hiers or {}).get(key)
+            if uh is not None:
+                fields[key] = HierSpec(
+                    kind="userhier", table=uh["home"], hier_field=uh["name"],
+                    include_all=False, children_of_all=False,
+                    levels=list(uh["levels"]),
+                )
+            else:
+                fields[key] = HierSpec(
+                    kind="drill", table=table, hier_field=name,
+                    include_all=False, children_of_all=False,
+                )
         return fields[key]
 
     def on_member(ref: MemberRef, drilled: bool) -> None:
@@ -70,6 +79,40 @@ def _classify(entries, detail, exists_filters: list | None = None) -> list[HierS
         table, name = ref.parts[0], ref.parts[1]
         spec = field_spec(table, name)
         rest = ref.parts[2:]
+        if spec.kind == "userhier":
+            is_all = (len(rest) == 1 and not ref.keyed[2]
+                      and rest[0].upper() in ("ALL", "(ALL)"))
+            path = () if (not rest or is_all) else tuple(rest)
+            if ref.suffix == "CHILDREN":
+                spec.drilled_paths.add(path)
+                if not path:
+                    spec.include_all = True
+                return
+            if ref.suffix == "MEMBERS":
+                if not rest:
+                    spec.include_all = True
+                    spec.drilled_paths.add(())
+                elif is_all:
+                    spec.include_all = True
+                else:
+                    # a LEVEL's members: every path down to that depth
+                    depth = next(
+                        (i for i, (_, n) in enumerate(spec.levels, start=1)
+                         if n.upper() == rest[0].upper()),
+                        0,
+                    )
+                    if depth:
+                        spec.drilled_depths.update(range(0, depth))
+                return
+            if not path:
+                spec.include_all = True
+                if drilled:
+                    spec.drilled_paths.add(())
+                return
+            spec.member_paths.append(path)
+            if drilled:
+                spec.drilled_paths.add(path)
+            return
         if ref.suffix == "CHILDREN":
             # Only the All member has children in a two-level attribute
             # hierarchy. A LEAF's .Children is the empty set -- answering
@@ -163,15 +206,35 @@ def _classify(entries, detail, exists_filters: list | None = None) -> list[HierS
             nonlocal parent
             out = []
             for e in entries:
-                if isinstance(e, MemberRef) and not e.is_measure and len(e.parts) == 3:
-                    parent = (e.parts[0].upper(), e.parts[1].upper())
+                if not (isinstance(e, MemberRef) and not e.is_measure
+                        and len(e.parts) >= 3):
+                    continue
+                key = (e.parts[0].upper(), e.parts[1].upper())
+                if (user_hiers or {}).get(key) is not None:
+                    # Drilling a user-hierarchy member: its PATH expands.
+                    field_spec(e.parts[0], e.parts[1]).drilled_paths.add(
+                        tuple(e.parts[2:])
+                    )
+                    continue
+                if len(e.parts) == 3:
+                    parent = key
                     out.append(e.parts[2])
                     walk(e)  # the named member also belongs to the base axis
             return out
 
         for e in drill:
             if isinstance(e, tuple) and e[0] == "except":
-                exclude.extend(leaf_values(e[1]))
+                for inner in e[1]:
+                    if (isinstance(inner, MemberRef) and not inner.is_measure
+                            and len(inner.parts) >= 3):
+                        key = (inner.parts[0].upper(), inner.parts[1].upper())
+                        if (user_hiers or {}).get(key) is not None:
+                            uspec = field_spec(inner.parts[0], inner.parts[1])
+                            path = tuple(inner.parts[2:])
+                            uspec.undrilled_paths.add(path)
+                            uspec.drilled_depths.add(len(path))
+                            continue
+                    exclude.extend(leaf_values([inner]))
             elif isinstance(e, MemberRef):
                 include = (include or []) + leaf_values([e])
         if parent is not None:

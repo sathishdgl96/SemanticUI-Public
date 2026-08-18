@@ -43,6 +43,29 @@ def _unique_name(*parts: str) -> str:
     return ".".join(f"[{p}]" for p in parts)
 
 
+def _bracket(value: str) -> str:
+    """A value inside [...] with ] doubled, the MDX escape."""
+    return str(value).replace("]", "]]")
+
+
+def user_hierarchies(session, view: dict) -> list[dict]:
+    """The user-defined drill paths this session may see for this view.
+
+    [{"name", "home", "levels": [(table, field), ...]}]. Guarded so the
+    plain fakes in tests (and a session bound without a DB) simply have
+    none.
+    """
+    fn = getattr(session, "user_hierarchies", None)
+    return fn(view) if callable(fn) else []
+
+
+def path_unique_name(home: str, name: str, path: tuple) -> str:
+    out = f"[{_bracket(home)}].[{_bracket(name)}]"
+    for value in path:
+        out += f".&[{_bracket('' if value is None else str(value))}]"
+    return out
+
+
 def handle(session, request) -> str:
     handler = _HANDLERS.get(request.request_type, _empty)
     return handler(session, request)
@@ -394,6 +417,31 @@ def _mdschema_hierarchies(session, request) -> str:
                     "PARENT_CHILD": False,
                 })
                 ordinal += 1
+        for uh in user_hierarchies(session, v):
+            rows.append({
+                "CATALOG_NAME": CATALOG(), "SCHEMA_NAME": None,
+                "CUBE_NAME": cube,
+                "DIMENSION_UNIQUE_NAME": _unique_name(uh["home"]),
+                "HIERARCHY_NAME": uh["name"],
+                "HIERARCHY_UNIQUE_NAME": _unique_name(uh["home"], uh["name"]),
+                "HIERARCHY_CAPTION": uh["name"],
+                "DIMENSION_TYPE": 3,
+                "HIERARCHY_CARDINALITY": 1000,
+                "DEFAULT_MEMBER": _unique_name(uh["home"], uh["name"]) + ".[All]",
+                "ALL_MEMBER": _unique_name(uh["home"], uh["name"]) + ".[All]",
+                "STRUCTURE": 0,
+                "IS_VIRTUAL": False, "IS_READWRITE": False,
+                "DIMENSION_UNIQUE_SETTINGS": 1,
+                "DIMENSION_IS_VISIBLE": True,
+                "HIERARCHY_IS_VISIBLE": True,
+                "HIERARCHY_ORDINAL": ordinal,
+                "DIMENSION_IS_SHARED": True,
+                "HIERARCHY_ORIGIN": 1,  # user hierarchy: the multilevel tree
+                "CUBE_SOURCE": 1,
+                "HIERARCHY_VISIBILITY": 1,
+                "PARENT_CHILD": False,
+            })
+            ordinal += 1
         metrics = detail.get("metrics", [])
         if metrics:
             first = metrics[0]
@@ -470,6 +518,35 @@ def _mdschema_levels(session, request) -> str:
                     "LEVEL_CAPTION": f["name"],
                     "LEVEL_NUMBER": 1, "LEVEL_CARDINALITY": 1000,
                     "LEVEL_TYPE": 0,  # MDLEVEL_TYPE_REGULAR
+                    "CUSTOM_ROLLUP_SETTINGS": 0,
+                    "LEVEL_UNIQUE_SETTINGS": 1,
+                    "LEVEL_IS_VISIBLE": True,
+                })
+        for uh in user_hierarchies(session, v):
+            hu = _unique_name(uh["home"], uh["name"])
+            rows.append({
+                "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
+                "DIMENSION_UNIQUE_NAME": _unique_name(uh["home"]),
+                "HIERARCHY_UNIQUE_NAME": hu,
+                "LEVEL_NAME": "(All)",
+                "LEVEL_UNIQUE_NAME": f"{hu}.[(All)]",
+                "LEVEL_CAPTION": "(All)",
+                "LEVEL_NUMBER": 0, "LEVEL_CARDINALITY": 1,
+                "LEVEL_TYPE": 1,
+                "CUSTOM_ROLLUP_SETTINGS": 0,
+                "LEVEL_UNIQUE_SETTINGS": 3,
+                "LEVEL_IS_VISIBLE": True,
+            })
+            for number, (_, level_field) in enumerate(uh["levels"], start=1):
+                rows.append({
+                    "CATALOG_NAME": CATALOG(), "CUBE_NAME": cube,
+                    "DIMENSION_UNIQUE_NAME": _unique_name(uh["home"]),
+                    "HIERARCHY_UNIQUE_NAME": hu,
+                    "LEVEL_NAME": level_field,
+                    "LEVEL_UNIQUE_NAME": f"{hu}.[{_bracket(level_field)}]",
+                    "LEVEL_CAPTION": level_field,
+                    "LEVEL_NUMBER": number, "LEVEL_CARDINALITY": 1000,
+                    "LEVEL_TYPE": 0,
                     "CUSTOM_ROLLUP_SETTINGS": 0,
                     "LEVEL_UNIQUE_SETTINGS": 1,
                     "LEVEL_IS_VISIBLE": True,
@@ -754,30 +831,40 @@ def _discover_enumerators(session, request) -> str:
     return rows_to_xml(columns, [])
 
 
-def _member_values(session, view: dict, table: str, field: str) -> list:
-    """The hierarchy's leaf values, from a live DISTINCT on the view.
-
-    Capped: Excel's filter dropdown does not want a million rows, and
-    HIERARCHY_CARDINALITY already promises no precision here.
+def _level_rows(session, view: dict, fields: list, prefix: tuple = ()) -> list:
+    """DISTINCT rows of `fields` [(table, name), ...], the first len(prefix)
+    of them pinned to the prefix values -- how one branch of a hierarchy
+    tree is fetched. Capped: Excel's filter dropdown does not want a
+    million rows, and HIERARCHY_CARDINALITY already promises no precision.
     """
     from app.config import get_settings
     from app.semantic.query import SemanticQueryRequest, build_semantic_sql
     from app.snowflake import gateway
 
+    refs = [f"{t}.{n}" for t, n in fields]
+    filters = [
+        {"id": f"m{i}", "field": refs[i], "op": "is",
+         "values": ["" if v is None else str(v)]}
+        for i, v in enumerate(prefix)
+    ]
     request = SemanticQueryRequest.model_validate({
         "database": view["database"],
         "schema": view["schema"],
         "view": view["name"],
-        "dimensions": [f"{table}.{field}"],
+        "dimensions": refs,
         "metrics": [],
-        "filters": [],
-        "orderBy": [{"field": f"{table}.{field}", "direction": "asc"}],
+        "filters": filters,
+        "orderBy": [{"field": r, "direction": "asc"} for r in refs],
         "limit": 1000,
     })
     detail = session.describe(view["database"], view["schema"], view["name"])
     sql, params, limit = build_semantic_sql(detail, request, max_rows=1000)
     result = gateway.run_query(session.conn, sql, max_rows=limit, params=params)
-    return [row[0] for row in result.rows]
+    return result.rows
+
+
+def _member_values(session, view: dict, table: str, field: str) -> list:
+    return [row[0] for row in _level_rows(session, view, [(table, field)])]
 
 
 #: MDTREEOP bits, [MS-SSAS]: 1 children, 2 siblings, 4 parent, 8 self,
@@ -843,8 +930,115 @@ def _mdschema_members(session, request) -> str:
     if view is None:
         return rows_to_xml(columns, [])
 
-    u = f"[{table}].[{field}]"
     cube = cube_name(view)
+
+    # A USER hierarchy: [home].[name] where name is a drill path, not a
+    # field. Members are PATHS -- [home].[H].&[v1].&[v2] -- and the
+    # nonzero CHILDREN_CARDINALITY on non-leaf depths is what makes the
+    # filter dropdown draw its + expanders.
+    uh = next(
+        (h for h in user_hierarchies(session, view)
+         if h["home"].upper() == table.upper()
+         and h["name"].upper() == field.upper()),
+        None,
+    )
+    if uh is not None:
+        hu = _unique_name(uh["home"], uh["name"])
+        levels = uh["levels"]
+
+        def hier_row(path: tuple, ordinal: int) -> dict:
+            depth = len(path)
+            caption = "" if path[-1] is None else str(path[-1])
+            return {
+                "CATALOG_NAME": CATALOG(), "SCHEMA_NAME": None,
+                "CUBE_NAME": cube,
+                "DIMENSION_UNIQUE_NAME": _unique_name(uh["home"]),
+                "HIERARCHY_UNIQUE_NAME": hu,
+                "LEVEL_UNIQUE_NAME": f"{hu}.[{_bracket(levels[depth - 1][1])}]",
+                "LEVEL_NUMBER": depth,
+                "MEMBER_ORDINAL": ordinal,
+                "MEMBER_NAME": caption,
+                "MEMBER_UNIQUE_NAME": path_unique_name(uh["home"], uh["name"], path),
+                "MEMBER_TYPE": 1,
+                "MEMBER_CAPTION": caption,
+                "CHILDREN_CARDINALITY": 1000 if depth < len(levels) else 0,
+                "PARENT_LEVEL": depth - 1,
+                "PARENT_UNIQUE_NAME": (
+                    path_unique_name(uh["home"], uh["name"], path[:-1])
+                    if len(path) > 1 else f"{hu}.[All]"
+                ),
+                "PARENT_COUNT": 1,
+            }
+
+        def hier_all_row() -> dict:
+            return {
+                "CATALOG_NAME": CATALOG(), "SCHEMA_NAME": None,
+                "CUBE_NAME": cube,
+                "DIMENSION_UNIQUE_NAME": _unique_name(uh["home"]),
+                "HIERARCHY_UNIQUE_NAME": hu,
+                "LEVEL_UNIQUE_NAME": f"{hu}.[(All)]",
+                "LEVEL_NUMBER": 0, "MEMBER_ORDINAL": 0,
+                "MEMBER_NAME": "All",
+                "MEMBER_UNIQUE_NAME": f"{hu}.[All]",
+                "MEMBER_TYPE": 2, "MEMBER_CAPTION": "All",
+                "CHILDREN_CARDINALITY": 1000,
+                "PARENT_LEVEL": 0, "PARENT_UNIQUE_NAME": None,
+                "PARENT_COUNT": 0,
+            }
+
+        path = tuple(parts[2:])
+        path_keyed = keyed[2:]
+        is_all = (len(path) == 1 and not path_keyed[0]
+                  and path[0].upper() in ("ALL", "(ALL)"))
+        hier_rows: list[dict] = []
+        if member:
+            if is_all:
+                if tree_op & _TREE_SELF:
+                    hier_rows.append(hier_all_row())
+                if tree_op & _TREE_CHILDREN:
+                    for i, row_values in enumerate(
+                        _level_rows(session, view, levels[:1]), start=1
+                    ):
+                        hier_rows.append(hier_row((row_values[0],), i))
+            else:
+                depth = len(path)
+                if tree_op & _TREE_SELF and depth <= len(levels):
+                    hier_rows.append(hier_row(path, 1))
+                if tree_op & _TREE_CHILDREN and depth < len(levels):
+                    for i, row_values in enumerate(
+                        _level_rows(session, view, levels[: depth + 1], path),
+                        start=1,
+                    ):
+                        hier_rows.append(hier_row(tuple(row_values), i))
+                if tree_op & _TREE_PARENT:
+                    if depth > 1:
+                        hier_rows.append(hier_row(path[:-1], 1))
+                    else:
+                        hier_rows.append(hier_all_row())
+        elif level:
+            wanted_level = (tail or "").upper()
+            if wanted_level in ("(ALL)", "ALL"):
+                hier_rows.append(hier_all_row())
+            else:
+                depth = next(
+                    (i for i, (_, n) in enumerate(levels, start=1)
+                     if n.upper() == wanted_level),
+                    0,
+                )
+                if depth:
+                    for i, row_values in enumerate(
+                        _level_rows(session, view, levels[:depth]), start=1
+                    ):
+                        hier_rows.append(hier_row(tuple(row_values), i))
+        else:
+            hier_rows.append(hier_all_row())
+            for i, row_values in enumerate(
+                _level_rows(session, view, levels[:1]), start=1
+            ):
+                hier_rows.append(hier_row((row_values[0],), i))
+        return rows_to_xml(columns, hier_rows)
+
+    u = f"[{table}].[{field}]"
 
     def row(name_, unique, caption, level_name, level_num, mtype, ordinal,
             children, parent_unique):
