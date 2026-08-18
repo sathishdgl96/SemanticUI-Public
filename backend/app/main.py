@@ -48,7 +48,25 @@ def create_app() -> FastAPI:
         """Name and logo for whoever is looking -- the login page needs it
         before anyone is signed in, so this is deliberately public."""
         current = get_settings()
-        return {"name": current.app_name, "logoUrl": current.app_logo_url}
+        logo = current.app_logo_url
+        if not logo and current.app_logo_file:
+            logo = "/api/branding/logo"
+        return {"name": current.app_name, "logoUrl": logo}
+
+    @app.get("/api/branding/logo")
+    def branding_logo():
+        """The SEMANTICUI_APP_LOGO_FILE, served by the app itself: a logo
+        that lives on the server's disk without needing a web host."""
+        import os
+
+        from fastapi.responses import FileResponse
+
+        from app.errors import ApiError
+
+        path = get_settings().app_logo_file
+        if not path or not os.path.isfile(path):
+            raise ApiError("HTTP_ERROR", 404, "No logo file is configured.")
+        return FileResponse(path)
 
     from app.auth.routes import router as auth_router
     from app.auth.dev import router as dev_router

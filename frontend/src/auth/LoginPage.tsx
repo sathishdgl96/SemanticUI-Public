@@ -95,7 +95,16 @@ export default function LoginPage() {
     <main className="login">
       <h1>
         {branding.logoUrl ? (
-          <img className="brand-logo" src={branding.logoUrl} alt="" />
+          <img
+              className="brand-logo"
+              src={branding.logoUrl}
+              alt=""
+              onError={(e) => {
+                // A dead logo URL must not render as a broken-image icon;
+                // hiding it leaves the name to carry the brand.
+                e.currentTarget.style.display = "none";
+              }}
+            />
         ) : (
           <span className="brand-mark" aria-hidden="true" />
         )}

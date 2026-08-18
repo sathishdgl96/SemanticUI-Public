@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     #: Absolute URL or absolute path to a logo image; absent means the
     #: built-in mark.
     app_logo_url: str | None = None
+    #: A logo as a FILE ON DISK; the backend serves it at /api/branding/logo
+    #: so the browser never needs filesystem access. app_logo_url wins when
+    #: both are set (it is the more explicit instruction).
+    app_logo_file: str | None = None
 
     auth_mode: Literal["oauth", "dev"] = "dev"
     environment: Literal["development", "production"] = "development"
