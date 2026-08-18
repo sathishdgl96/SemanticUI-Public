@@ -1,9 +1,11 @@
 r"""POST /xmla: the endpoint Excel's MSOLAP provider talks to.
 
-Auth is HTTP Basic, username "account\user" (or account/user), password the
-caller's own Snowflake password -- mapped onto the same connection machinery
-password dev-login uses, so every Discover and Execute runs as the caller.
-TLS is the deployment's business, exactly as it already is for dev-login.
+Auth is HTTP Basic carrying a CONNECT TOKEN in the password field (the
+username is ignored -- Excel requires one, "token" reads well). The token
+was minted by the signed-in app UI and resolves to that app session: its
+user, its workspace rights, its cached Snowflake connection. The adapter
+never opens Snowflake connections of its own. TLS is the deployment's
+business, exactly as it already is for the rest of the API.
 
 Two deliberate oddities, both learned from the client rather than the spec:
 
@@ -20,12 +22,14 @@ import binascii
 import logging
 import os
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy.orm import Session
 
+from app.db.base import get_db
 from app.errors import ApiError
 from app.xmla import discover
 from app.xmla.soap import envelope, fault, parse_request
-from app.xmla.state import get_store
+from app.xmla.state import acquire_entry, get_store
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -53,11 +57,12 @@ def _unauthorized() -> Response:
             "WWW-Authenticate": 'Basic realm="SemanticUI XMLA"',
             **_NEGOTIATION,
         },
-        content="Snowflake credentials required",
+        content="Connect token required (Basic auth, token as the password)",
     )
 
 
-def _credentials(request: Request) -> tuple[str, str] | None:
+def _token(request: Request) -> str | None:
+    """The connect token out of Basic auth; the username half is ignored."""
     header = request.headers.get("Authorization", "")
     if not header.startswith("Basic "):
         return None
@@ -65,10 +70,10 @@ def _credentials(request: Request) -> tuple[str, str] | None:
         decoded = base64.b64decode(header[6:]).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError):
         return None
-    username, sep, password = decoded.partition(":")
+    _, sep, password = decoded.partition(":")
     if not sep:
         return None
-    return username, password
+    return password
 
 
 #: Set SEMANTICUI_XMLA_TRACE to a file path to capture every request and
@@ -77,9 +82,11 @@ def _credentials(request: Request) -> tuple[str, str] | None:
 _TRACE = os.environ.get("SEMANTICUI_XMLA_TRACE")
 
 
-def _trace(direction: str, payload: bytes, headers=None) -> None:
+def _trace(direction: str, payload, headers=None) -> None:
     if not _TRACE:
         return
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
     with open(_TRACE, "ab") as f:
         marker = chr(10) + "----- " + direction + " -----" + chr(10)
         f.write(marker.encode())
@@ -93,15 +100,16 @@ def _trace(direction: str, payload: bytes, headers=None) -> None:
 
 
 @router.post("/xmla")
-async def xmla(request: Request) -> Response:
+async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
     body = await request.body()
     _trace("request", body, headers=request.headers.items())
     try:
         xmla_request = parse_request(body)
     except Exception:
         logger.exception("unparseable XMLA request")
-        return Response(content=fault("XMLA_PARSE", "unparseable request"),
-                        media_type="text/xml", headers=_NEGOTIATION)
+        out = fault("XMLA_PARSE", "unparseable request")
+        _trace("response", out)
+        return Response(content=out, media_type="text/xml", headers=_NEGOTIATION)
 
     store = get_store()
     session = None
@@ -110,11 +118,11 @@ async def xmla(request: Request) -> Response:
         session = store.get(session_id)
 
     if session is None:
-        credentials = _credentials(request)
-        if credentials is None:
+        token = _token(request)
+        if token is None:
             return _unauthorized()
         try:
-            session_id, session = store.open(*credentials)
+            session_id, session = store.open(db, token)
         except ApiError as exc:
             logger.info("XMLA auth failed: %s", exc.message)
             return _unauthorized()
@@ -138,7 +146,9 @@ async def xmla(request: Request) -> Response:
         "yes" if xmla_request.session_id else ("new" if xmla_request.wants_session else "-"),
     )
     try:
-        with session.lock:
+        entry = acquire_entry(db, session)
+        with entry.lock:
+            session.bind(entry)
             if xmla_request.verb == "Discover":
                 inner = discover.handle(session, xmla_request)
             else:
@@ -146,8 +156,9 @@ async def xmla(request: Request) -> Response:
 
                 inner = handle_execute(session, xmla_request)
     except ApiError as exc:
-        return Response(content=fault(exc.code, exc.message),
-                        media_type="text/xml", headers=_NEGOTIATION)
+        out = fault(exc.code, exc.message)
+        _trace("response", out)
+        return Response(content=out, media_type="text/xml", headers=_NEGOTIATION)
     except Exception:
         logger.exception(
             "XMLA %s failed (%s)", xmla_request.verb, xmla_request.request_type

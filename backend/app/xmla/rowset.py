@@ -19,22 +19,45 @@ from app.xmla.soap import ROWSET_NS
 #: is a string; booleans are the literal "true"/"false" the spec wants.
 _XSD = {"string": "xsd:string", "int": "xsd:int", "boolean": "xsd:boolean",
         "unsignedShort": "xsd:unsignedShort", "unsignedInt": "xsd:unsignedInt",
-        "short": "xsd:short", "dateTime": "xsd:dateTime"}
+        "short": "xsd:short", "dateTime": "xsd:dateTime",
+        #: "uuid" is the named simpleType the schema declares itself (the
+        #: shape Excel-accepted servers use for *_GUID columns); "untyped"
+        #: omits the type attribute entirely.
+        "uuid": "uuid", "untyped": None}
+
+#: Declared once per schema when any column is a uuid, byte-for-byte the
+#: pattern type Mondrian serves to Excel.
+_UUID_TYPE = (
+    '<xsd:simpleType name="uuid"><xsd:restriction base="xsd:string">'
+    '<xsd:pattern value="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}'
+    '-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"/>'
+    "</xsd:restriction></xsd:simpleType>"
+)
 
 
 class Column:
-    def __init__(self, name: str, type_: str = "string") -> None:
+    def __init__(self, name: str, type_: str = "string", *, required: bool = False) -> None:
         self.name = name
         self.type = type_
+        #: Required columns are declared without minOccurs="0". The flag is
+        #: as load-bearing as the type: it is part of the layout the client
+        #: binds against.
+        self.required = required
 
 
 def rows_to_xml(columns: list[Column], rows: list[dict]) -> str:
     """The <return> element for a Discover response."""
-    fields = "".join(
-        f'<xsd:element sql:field="{escape(c.name)}" name="{escape(c.name)}" '
-        f'type="{_XSD[c.type]}" minOccurs="0"/>'
-        for c in columns
-    )
+    parts = []
+    for c in columns:
+        xsd_type = _XSD[c.type]
+        type_attr = f' type="{xsd_type}"' if xsd_type else ""
+        min_attr = "" if c.required else ' minOccurs="0"'
+        parts.append(
+            f'<xsd:element sql:field="{escape(c.name)}" name="{escape(c.name)}"'
+            f"{type_attr}{min_attr}/>"
+        )
+    fields = "".join(parts)
+    uuid_type = _UUID_TYPE if any(c.type == "uuid" for c in columns) else ""
     schema = (
         f'<xsd:schema targetNamespace="{ROWSET_NS}" '
         'xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
@@ -45,6 +68,7 @@ def rows_to_xml(columns: list[Column], rows: list[dict]) -> str:
         "<xsd:complexType><xsd:sequence>"
         '<xsd:element maxOccurs="unbounded" minOccurs="0" name="row" type="row"/>'
         "</xsd:sequence></xsd:complexType></xsd:element>"
+        f"{uuid_type}"
         '<xsd:complexType name="row"><xsd:sequence>'
         f"{fields}"
         "</xsd:sequence></xsd:complexType>"

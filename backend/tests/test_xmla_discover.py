@@ -11,10 +11,11 @@ from xml.etree import ElementTree
 
 import pytest
 
-from app.xmla import state as xmla_state
+from app.auth import connect_token
+from app.auth.sessions import create_session
 from app.xmla.rowset import Column, rows_to_xml
 from app.xmla.soap import ROWSET_NS, envelope, parse_request
-from app.xmla.state import SessionStore, split_username
+from app.xmla.state import SessionStore
 
 #: Captured from the wire, 2026-08-18. Excel's very first request.
 CAPTURED_DISCOVER_PROPERTIES = (
@@ -102,19 +103,6 @@ class TestRowset:
     def test_values_are_escaped(self):
         xml = rows_to_xml([Column("A")], [{"A": "a<b&c"}])
         assert "a&lt;b&amp;c" in xml
-
-
-class TestUsernameSplit:
-    def test_backslash_and_slash_both_work(self):
-        assert split_username("acme-x\\alice") == ("acme-x", "alice")
-        assert split_username("acme-x/alice") == ("acme-x", "alice")
-
-    def test_a_bare_username_is_refused_with_instructions(self):
-        from app.errors import ApiError
-
-        with pytest.raises(ApiError) as excinfo:
-            split_username("alice")
-        assert "account" in excinfo.value.message.lower()
 
 
 class FakeSession:
@@ -240,69 +228,45 @@ class TestDiscover:
         assert root.find(".//{urn:schemas-microsoft-com:xml-analysis}DiscoverResponse") is not None or True
 
 
-class ProbeableConnection:
-    """The smallest connection the store will now accept: it must answer the
-    identity probe, because the feed's user lookup depends on it."""
-
-    class _Cursor:
-        def execute(self, sql, params=None):
-            return self
-
-        def fetchone(self):
-            return ("ACME", "ALICE")
-
-        def close(self):
-            pass
-
-    def cursor(self):
-        return self._Cursor()
-
-    def close(self):
-        pass
-
-
 class TestSessionStore:
-    def test_same_credentials_reuse_one_connection(self, monkeypatch):
-        opened = []
+    """The store maps connect tokens to app sessions; it owns no connections."""
 
-        def fake_connect(**kwargs):
-            opened.append(kwargs["user"])
-            return ProbeableConnection()
+    @staticmethod
+    def _token(db):
+        sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+        raw, _ = connect_token.mint(db, sess)
+        return raw
 
-        monkeypatch.setattr(xmla_state.sf_connect, "connect_dev", fake_connect)
+    def test_the_same_token_reuses_one_xmla_session(self, db):
+        raw = self._token(db)
         store = SessionStore()
-        id1, s1 = store.open("acme/alice", "pw")
-        id2, s2 = store.open("acme/alice", "pw")
+        id1, s1 = store.open(db, raw)
+        id2, s2 = store.open(db, raw)
         assert id1 == id2 and s1 is s2
-        assert opened == ["alice"]
 
-    def test_different_passwords_do_not_share(self, monkeypatch):
-        # The digest covers the password: a wrong password must never ride an
-        # existing session opened with the right one.
-        opened = []
+    def test_a_wrong_token_is_refused(self, db):
+        from app.errors import ApiError
 
-        def fake_connect(**kwargs):
-            opened.append(1)
-            return ProbeableConnection()
-
-        monkeypatch.setattr(xmla_state.sf_connect, "connect_dev", fake_connect)
+        self._token(db)
         store = SessionStore()
-        id1, _ = store.open("acme/alice", "pw")
-        id2, _ = store.open("acme/alice", "other")
-        assert id1 != id2
-        assert len(opened) == 2
+        with pytest.raises(ApiError) as excinfo:
+            store.open(db, "xlt_not-a-real-token")
+        assert excinfo.value.status == 401
 
-    def test_end_closes_and_forgets(self, monkeypatch):
-        closed = []
-
-        def fake_connect(**kwargs):
-            conn = ProbeableConnection()
-            conn.close = lambda: closed.append(1)
-            return conn
-
-        monkeypatch.setattr(xmla_state.sf_connect, "connect_dev", fake_connect)
+    def test_a_replaced_token_stops_working(self, db):
+        # Minting again is revocation: the old value must die immediately.
+        sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+        old, _ = connect_token.mint(db, sess)
+        connect_token.mint(db, sess)
         store = SessionStore()
-        sid, _ = store.open("acme/alice", "pw")
+        from app.errors import ApiError
+
+        with pytest.raises(ApiError):
+            store.open(db, old)
+
+    def test_end_forgets_the_mapping(self, db):
+        raw = self._token(db)
+        store = SessionStore()
+        sid, _ = store.open(db, raw)
         store.end(sid)
-        assert closed == [1]
         assert store.get(sid) is None

@@ -36,6 +36,16 @@ class DbSession(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    #: The Excel/Power Query bearer: sha256 hex of a token the UI showed
+    #: exactly once. Only the hash is stored; presenting the raw token is the
+    #: only way in, and it rides on THIS session -- its connection, its user,
+    #: its lifetime. NULL means no token has been minted (or it was revoked).
+    connect_token_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    connect_token_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     user: Mapped[User] = relationship()
 

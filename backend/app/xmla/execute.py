@@ -12,13 +12,16 @@ from app.xmla.soap import MDDATASET_NS
 
 
 def empty_dataset() -> str:
-    """A well-formed, empty mddataset ExecuteResponse."""
+    """The canonical answer to a statement-less Execute.
+
+    Real SSAS replies with the EMPTY-namespace root, not an empty mddataset;
+    ADOMD.NET rejects the mddataset variant as "unrecognizable" (verified on
+    the wire, 2026-08-18), so the distinction is load-bearing.
+    """
     return (
         '<ExecuteResponse xmlns="urn:schemas-microsoft-com:xml-analysis">'
         "<return>"
-        f'<root xmlns="{MDDATASET_NS}" '
-        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        'xmlns:xsd="http://www.w3.org/2001/XMLSchema"/>'
+        '<root xmlns="urn:schemas-microsoft-com:xml-analysis:empty"/>'
         "</return></ExecuteResponse>"
     )
 

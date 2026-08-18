@@ -1,8 +1,9 @@
 r"""The Power Query feed: one visual's numbers over plain HTTP.
 
 The product rules under test are the same two as everywhere else: every
-query runs on the CALLER'S OWN Snowflake connection, and the workspace --
-not the Snowflake login -- decides which reports may be read.
+query runs on the CALLER'S OWN connection -- reached through the connect
+token, which names their signed-in app session -- and the workspace decides
+which reports may be read.
 """
 
 import base64
@@ -12,7 +13,7 @@ import pytest
 from app.errors import ApiError
 from app.feed.render import to_csv, to_json
 from app.feed.service import build_feed_request
-from app.xmla import state as xmla_state
+from app.snowflake.provider import get_cache
 from tests.test_report_routes import sign_in
 from tests.test_semantic_routes import ScriptedConnection
 
@@ -188,9 +189,9 @@ def basic(username: str, password: str) -> dict:
 
 
 @pytest.fixture
-def feed_report(client, db, monkeypatch):
-    """A signed-in user, their report, and a scripted Snowflake connection
-    behind the feed's Basic auth."""
+def feed_report(client, db):
+    """A signed-in user, their report, their scripted connection in the app
+    cache, and a connect token minted through the real endpoint."""
     sess = sign_in(client, db)
     db.commit()
     from app.db.models import User, Workspace, WorkspaceMember
@@ -216,27 +217,27 @@ def feed_report(client, db, monkeypatch):
     db.add(report)
     db.commit()
 
-    monkeypatch.setattr(
-        xmla_state.sf_connect, "connect_dev", lambda **kw: ScriptedConnection()
-    )
-    # A fresh store per test: the digest cache must not leak between tests.
-    monkeypatch.setattr(xmla_state, "_store", None)
+    conn = ScriptedConnection()
+    get_cache().put(sess.id, conn, rebuildable=False)
+    minted = client.post("/api/connect/token")
+    assert minted.status_code == 200, minted.text
+    token = minted.json()["token"]
     visual_id = report.definition["pages"][0]["visuals"][0]["id"]
-    return report, visual_id, user
+    return report, visual_id, token, conn
 
 
 class TestRoute:
     def test_no_credentials_prompts_basic(self, client, db, feed_report):
-        report, visual_id, _ = feed_report
+        report, visual_id, _, _ = feed_report
         response = client.get(f"/api/feed/reports/{report.id}/visuals/{visual_id}.csv")
         assert response.status_code == 401
         assert "Basic" in response.headers["WWW-Authenticate"]
 
-    def test_csv_comes_back_for_the_report_owner(self, client, db, feed_report):
-        report, visual_id, user = feed_report
+    def test_csv_comes_back_for_the_token_holder(self, client, db, feed_report):
+        report, visual_id, token, _ = feed_report
         response = client.get(
             f"/api/feed/reports/{report.id}/visuals/{visual_id}.csv",
-            headers=basic(f"{user.snowflake_account}/{user.snowflake_user}", "pw"),
+            headers=basic("token", token),
         )
         assert response.status_code == 200, response.text
         assert response.headers["content-type"].startswith("text/csv")
@@ -246,62 +247,53 @@ class TestRoute:
         assert response.headers["X-Truncated"] == "false"
 
     def test_json_variant(self, client, db, feed_report):
-        report, visual_id, user = feed_report
+        report, visual_id, token, _ = feed_report
         response = client.get(
             f"/api/feed/reports/{report.id}/visuals/{visual_id}.json",
-            headers=basic(f"{user.snowflake_account}/{user.snowflake_user}", "pw"),
+            headers=basic("token", token),
         )
         body = response.json()
         assert body["columns"] == ["ORDER_DATE", "TOTAL_REVENUE"]
         assert body["truncated"] is False
 
-    def test_unknown_app_user_is_not_found_not_forbidden(
-        self, client, db, feed_report, monkeypatch
-    ):
-        # Valid Snowflake credentials, no app account: reported exactly like
-        # a non-member, so the feed does not reveal which reports exist. The
-        # fake probes as the STRANGER Snowflake says it is -- identity comes
-        # from the connection, not from the typed username.
-        class StrangerConnection:
-            class _Cursor:
-                def execute(self, sql, params=None):
-                    return self
-
-                def fetchone(self):
-                    return ("ACME", "STRANGER")
-
-                def close(self):
-                    pass
-
-            def cursor(self):
-                return self._Cursor()
-
-            def close(self):
-                pass
-
-        monkeypatch.setattr(
-            xmla_state.sf_connect, "connect_dev", lambda **kw: StrangerConnection()
-        )
-        report, visual_id, _ = feed_report
+    def test_a_wrong_token_is_unauthorized(self, client, db, feed_report):
+        report, visual_id, _, _ = feed_report
         response = client.get(
             f"/api/feed/reports/{report.id}/visuals/{visual_id}.csv",
-            headers=basic("ACME/STRANGER", "pw"),
+            headers=basic("token", "xlt_wrong"),
+        )
+        assert response.status_code == 401
+
+    def test_a_strangers_token_gets_not_found_not_forbidden(
+        self, client, db, feed_report
+    ):
+        # A perfectly valid token whose user is not a member of the report's
+        # workspace: reported as not-found, so the feed does not reveal
+        # which reports exist.
+        from app.auth import connect_token
+        from app.auth.sessions import create_session
+
+        stranger = create_session(db, account="ACME", user="STRANGER", mode="dev")
+        get_cache().put(stranger.id, ScriptedConnection(), rebuildable=False)
+        token, _ = connect_token.mint(db, stranger)
+        report, visual_id, _, _ = feed_report
+        response = client.get(
+            f"/api/feed/reports/{report.id}/visuals/{visual_id}.csv",
+            headers=basic("token", token),
         )
         assert response.status_code == 404
 
     def test_a_url_filter_reaches_the_sql_as_a_bound_parameter(
         self, client, db, feed_report
     ):
-        report, visual_id, user = feed_report
+        report, visual_id, token, conn = feed_report
         response = client.get(
             f"/api/feed/reports/{report.id}/visuals/{visual_id}.csv",
             params={"f.CUSTOMERS.REGION": "WE'ST"},
-            headers=basic(f"{user.snowflake_account}/{user.snowflake_user}", "pw"),
+            headers=basic("token", token),
         )
         assert response.status_code == 200
-        store = xmla_state.get_store()
-        session = next(iter(store._by_id.values()))
-        sql = session.conn.cursor_obj.executed[-1]
+        sql = conn.cursor_obj.executed[-1]
         assert "WE'ST" not in sql          # value never becomes SQL text
         assert "?" in sql
-        assert "WE'ST" in session.conn.cursor_obj.bound[-1]
+        assert "WE'ST" in conn.cursor_obj.bound[-1]

@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError } from "../api/client";
-import { downloadOdc, fetchConnectDetails } from "../api/exports";
+import { createConnectToken, downloadOdc, fetchConnectDetails } from "../api/exports";
 import type { SheetRequest } from "../api/types";
 
 interface Props {
@@ -18,6 +18,10 @@ export default function ConnectPanel({ reportId, sheets, feedVisuals = [], onClo
     queryKey: ["connect", reportId, sheets],
     queryFn: () => fetchConnectDetails(reportId, sheets),
   });
+
+  // The token appears exactly once, right here; only its hash exists
+  // server-side, so there is nothing to re-fetch later.
+  const mintToken = useMutation({ mutationFn: createConnectToken });
 
   // One file per query, because one ODC holds one query -- which is also one
   // table in Excel, so the mapping is the one a person expects.
@@ -68,12 +72,48 @@ export default function ConnectPanel({ reportId, sheets, feedVisuals = [], onClo
       {feedVisuals.length > 0 && (
         <section className="connect-feed">
           <h4>Power Query — works with nothing installed</h4>
+          <div className="connect-sql-head">
+            <strong>Connection token</strong>
+            {mintToken.data ? (
+              <span className="connect-actions">
+                <code>{mintToken.data.token}</code>
+                <button
+                  type="button"
+                  className="link"
+                  aria-label="Copy connection token"
+                  onClick={() => copy("connect-token", mintToken.data.token)}
+                >
+                  {copied === "connect-token" ? "Copied" : "Copy token"}
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => mintToken.mutate()}
+                disabled={mintToken.isPending}
+              >
+                {mintToken.isPending ? "Creating…" : "Create token"}
+              </button>
+            )}
+          </div>
+          {mintToken.isError && (
+            <p role="alert">
+              {mintToken.error instanceof ApiError
+                ? mintToken.error.message
+                : "Could not create a token."}
+            </p>
+          )}
+          <p className="tile-hint">
+            The token stands in for your password in Excel — it is shown only
+            once, lives at most a day, dies when you sign out, and creating a
+            new one replaces it. Your Snowflake password never goes into
+            Excel.
+          </p>
           <ol className="connect-steps">
             <li>In Excel: Data → From Web → paste a URL below.</li>
             <li>
-              Choose <strong>Basic</strong>: username{" "}
-              <code>your-account/your-username</code>, password your own
-              Snowflake password.
+              Choose <strong>Basic</strong>: username <code>token</code>,
+              password the connection token above.
             </li>
             <li>Load. Data → Refresh All re-runs the query as you.</li>
           </ol>

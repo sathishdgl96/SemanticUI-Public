@@ -169,18 +169,20 @@ def _restricted_views(session, request) -> list[dict]:
 
 def _mdschema_cubes(session, request) -> str:
     columns = [
-        Column("CATALOG_NAME"), Column("SCHEMA_NAME"), Column("CUBE_NAME"),
-        Column("CUBE_TYPE"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"),
+        Column("CUBE_NAME", required=True), Column("CUBE_TYPE", required=True),
+        Column("BASE_CUBE_NAME"), Column("CUBE_GUID", "uuid"),
+        Column("CREATED_ON", "dateTime"),
         Column("LAST_SCHEMA_UPDATE", "dateTime"),
+        Column("SCHEMA_UPDATED_BY"),
         Column("LAST_DATA_UPDATE", "dateTime"),
-        Column("DESCRIPTION"),
-        Column("IS_DRILLTHROUGH_ENABLED", "boolean"),
-        Column("IS_LINKABLE", "boolean"),
-        Column("IS_WRITE_ENABLED", "boolean"),
-        Column("IS_SQL_ENABLED", "boolean"),
-        Column("CUBE_CAPTION"), Column("BASE_CUBE_NAME"),
-        Column("CUBE_SOURCE", "unsignedShort"),
-        Column("PREFERRED_QUERY_PATTERNS", "unsignedShort"),
+        Column("DATA_UPDATED_BY"),
+        Column("IS_DRILLTHROUGH_ENABLED", "boolean", required=True),
+        Column("IS_WRITE_ENABLED", "boolean", required=True),
+        Column("IS_LINKABLE", "boolean", required=True),
+        Column("IS_SQL_ENABLED", "boolean", required=True),
+        Column("CUBE_CAPTION"), Column("DESCRIPTION"),
+        Column("CUBE_SOURCE", "int"),
     ]
     # A FIXED timestamp: Excel keys its metadata cache on it, and a value
     # that moved between requests would look like a cube changing under it.
@@ -192,15 +194,13 @@ def _mdschema_cubes(session, request) -> str:
             "CUBE_TYPE": "CUBE",
             "LAST_SCHEMA_UPDATE": "2024-01-01T00:00:00",
             "LAST_DATA_UPDATE": "2024-01-01T00:00:00",
-            "DESCRIPTION": v.get("comment") or "",
             "IS_DRILLTHROUGH_ENABLED": False,
-            "IS_LINKABLE": False,
             "IS_WRITE_ENABLED": False,
+            "IS_LINKABLE": False,
             "IS_SQL_ENABLED": False,
             "CUBE_CAPTION": v["name"],
-            "BASE_CUBE_NAME": None,
+            "DESCRIPTION": v.get("comment") or "",
             "CUBE_SOURCE": 1,
-            "PREFERRED_QUERY_PATTERNS": 0,
         }
         for v in _restricted_views(session, request)
     ]
@@ -264,17 +264,21 @@ def _mdschema_measuregroup_dimensions(session, request) -> str:
 
 def _mdschema_dimensions(session, request) -> str:
     columns = [
-        Column("CATALOG_NAME"), Column("SCHEMA_NAME"), Column("CUBE_NAME"),
-        Column("DIMENSION_NAME"),
-        Column("DIMENSION_UNIQUE_NAME"), Column("DIMENSION_CAPTION"),
-        Column("DIMENSION_ORDINAL", "unsignedInt"),
-        Column("DIMENSION_TYPE", "unsignedShort"),
-        Column("DIMENSION_CARDINALITY", "unsignedInt"),
-        Column("DEFAULT_HIERARCHY"), Column("DESCRIPTION"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"),
+        Column("CUBE_NAME", required=True),
+        Column("DIMENSION_NAME", required=True),
+        Column("DIMENSION_UNIQUE_NAME", required=True),
+        Column("DIMENSION_GUID", "uuid"),
+        Column("DIMENSION_CAPTION", required=True),
+        Column("DIMENSION_ORDINAL", "unsignedInt", required=True),
+        Column("DIMENSION_TYPE", "short", required=True),
+        Column("DIMENSION_CARDINALITY", "unsignedInt", required=True),
+        Column("DEFAULT_HIERARCHY", required=True),
+        Column("DESCRIPTION"),
         Column("IS_VIRTUAL", "boolean"),
         Column("IS_READWRITE", "boolean"),
         Column("DIMENSION_UNIQUE_SETTINGS", "int"),
-        Column("DIMENSION_MASTER_NAME"),
+        Column("DIMENSION_MASTER_UNIQUE_NAME"),
         Column("DIMENSION_IS_VISIBLE", "boolean"),
     ]
     rows = []
@@ -296,7 +300,6 @@ def _mdschema_dimensions(session, request) -> str:
                 "DESCRIPTION": "",
                 "IS_VIRTUAL": False, "IS_READWRITE": False,
                 "DIMENSION_UNIQUE_SETTINGS": 1,
-                "DIMENSION_MASTER_NAME": None,
                 "DIMENSION_IS_VISIBLE": True,
             })
         # The measures dimension: every cube has one, and Excel asks for it.
@@ -312,7 +315,6 @@ def _mdschema_dimensions(session, request) -> str:
             "DESCRIPTION": "",
             "IS_VIRTUAL": False, "IS_READWRITE": False,
             "DIMENSION_UNIQUE_SETTINGS": 1,
-            "DIMENSION_MASTER_NAME": None,
             "DIMENSION_IS_VISIBLE": True,
         })
     return rows_to_xml(columns, rows)
@@ -320,26 +322,30 @@ def _mdschema_dimensions(session, request) -> str:
 
 def _mdschema_hierarchies(session, request) -> str:
     columns = [
-        Column("CATALOG_NAME"), Column("SCHEMA_NAME"), Column("CUBE_NAME"),
-        Column("DIMENSION_UNIQUE_NAME"),
-        Column("HIERARCHY_NAME"), Column("HIERARCHY_UNIQUE_NAME"),
-        Column("HIERARCHY_CAPTION"), Column("DIMENSION_TYPE", "unsignedShort"),
-        Column("HIERARCHY_CARDINALITY", "unsignedInt"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"),
+        Column("CUBE_NAME", required=True),
+        Column("DIMENSION_UNIQUE_NAME", required=True),
+        Column("HIERARCHY_NAME", required=True),
+        Column("HIERARCHY_UNIQUE_NAME", required=True),
+        Column("HIERARCHY_GUID", "uuid"),
+        Column("HIERARCHY_CAPTION", required=True),
+        Column("DIMENSION_TYPE", "short", required=True),
+        Column("HIERARCHY_CARDINALITY", "unsignedInt", required=True),
         Column("DEFAULT_MEMBER"), Column("ALL_MEMBER"),
         Column("DESCRIPTION"),
-        Column("STRUCTURE", "unsignedShort"), Column("IS_VIRTUAL", "boolean"),
-        Column("IS_READWRITE", "boolean"),
-        Column("DIMENSION_UNIQUE_SETTINGS", "int"),
-        Column("DIMENSION_MASTER_UNIQUE_NAME"),
-        Column("DIMENSION_IS_VISIBLE", "boolean"),
-        Column("HIERARCHY_ORDINAL", "unsignedInt"),
-        Column("DIMENSION_IS_SHARED", "boolean"),
-        Column("HIERARCHY_IS_VISIBLE", "boolean"),
+        Column("STRUCTURE", "short", required=True),
+        Column("IS_VIRTUAL", "boolean", required=True),
+        Column("IS_READWRITE", "boolean", required=True),
+        Column("DIMENSION_UNIQUE_SETTINGS", "int", required=True),
+        Column("DIMENSION_IS_VISIBLE", "boolean", required=True),
+        Column("HIERARCHY_IS_VISIBLE", "boolean", required=True),
+        Column("HIERARCHY_ORDINAL", "unsignedInt", required=True),
+        Column("DIMENSION_IS_SHARED", "boolean", required=True),
         Column("HIERARCHY_ORIGIN", "unsignedShort"),
         Column("HIERARCHY_DISPLAY_FOLDER"),
-        Column("INSTANCE_SELECTION", "unsignedShort"),
-        Column("GROUPING_BEHAVIOR", "short"),
-        Column("STRUCTURE_TYPE"),
+        Column("CUBE_SOURCE", "unsignedShort"),
+        Column("HIERARCHY_VISIBILITY", "unsignedShort"),
+        Column("PARENT_CHILD", "boolean"),
     ]
     rows = []
     for v in _restricted_views(session, request):
@@ -360,20 +366,17 @@ def _mdschema_hierarchies(session, request) -> str:
                     "HIERARCHY_CARDINALITY": 1000,
                     "DEFAULT_MEMBER": f"{unique}.[All]",
                     "ALL_MEMBER": f"{unique}.[All]",
-                    "DESCRIPTION": "",
                     "STRUCTURE": 0,
                     "IS_VIRTUAL": False, "IS_READWRITE": False,
                     "DIMENSION_UNIQUE_SETTINGS": 1,
-                    "DIMENSION_MASTER_UNIQUE_NAME": None,
                     "DIMENSION_IS_VISIBLE": True,
+                    "HIERARCHY_IS_VISIBLE": True,
                     "HIERARCHY_ORDINAL": ordinal,
                     "DIMENSION_IS_SHARED": True,
-                    "HIERARCHY_IS_VISIBLE": True,
                     "HIERARCHY_ORIGIN": 2,  # attribute hierarchy
-                    "HIERARCHY_DISPLAY_FOLDER": "",
-                    "INSTANCE_SELECTION": 0,
-                    "GROUPING_BEHAVIOR": 1,
-                    "STRUCTURE_TYPE": "Natural",
+                    "CUBE_SOURCE": 1,
+                    "HIERARCHY_VISIBILITY": 1,
+                    "PARENT_CHILD": False,
                 })
                 ordinal += 1
     return rows_to_xml(columns, rows)
@@ -381,18 +384,21 @@ def _mdschema_hierarchies(session, request) -> str:
 
 def _mdschema_levels(session, request) -> str:
     columns = [
-        Column("CATALOG_NAME"), Column("SCHEMA_NAME"), Column("CUBE_NAME"),
-        Column("DIMENSION_UNIQUE_NAME"),
-        Column("HIERARCHY_UNIQUE_NAME"), Column("LEVEL_NAME"),
-        Column("LEVEL_UNIQUE_NAME"), Column("LEVEL_CAPTION"),
-        Column("LEVEL_NUMBER", "unsignedInt"),
-        Column("LEVEL_CARDINALITY", "unsignedInt"),
-        Column("LEVEL_TYPE", "int"),
-        Column("CUSTOM_ROLLUP_SETTINGS", "int"),
-        Column("LEVEL_UNIQUE_SETTINGS", "int"),
-        Column("LEVEL_IS_VISIBLE", "boolean"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"),
+        Column("CUBE_NAME", required=True),
+        Column("DIMENSION_UNIQUE_NAME", required=True),
+        Column("HIERARCHY_UNIQUE_NAME", required=True),
+        Column("LEVEL_NAME", required=True),
+        Column("LEVEL_UNIQUE_NAME", required=True),
+        Column("LEVEL_GUID", "uuid"),
+        Column("LEVEL_CAPTION", required=True),
+        Column("LEVEL_NUMBER", "unsignedInt", required=True),
+        Column("LEVEL_CARDINALITY", "unsignedInt", required=True),
+        Column("LEVEL_TYPE", "int", required=True),
+        Column("CUSTOM_ROLLUP_SETTINGS", "int", required=True),
+        Column("LEVEL_UNIQUE_SETTINGS", "int", required=True),
+        Column("LEVEL_IS_VISIBLE", "boolean", required=True),
         Column("DESCRIPTION"),
-        Column("LEVEL_ORIGIN", "unsignedShort"),
     ]
     rows = []
     for v in _restricted_views(session, request):
@@ -413,8 +419,6 @@ def _mdschema_levels(session, request) -> str:
                     "CUSTOM_ROLLUP_SETTINGS": 0,
                     "LEVEL_UNIQUE_SETTINGS": 3,
                     "LEVEL_IS_VISIBLE": True,
-                    "DESCRIPTION": "",
-                    "LEVEL_ORIGIN": 2,
                 })
                 rows.append({
                     "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
@@ -428,24 +432,28 @@ def _mdschema_levels(session, request) -> str:
                     "CUSTOM_ROLLUP_SETTINGS": 0,
                     "LEVEL_UNIQUE_SETTINGS": 1,
                     "LEVEL_IS_VISIBLE": True,
-                    "DESCRIPTION": "",
-                    "LEVEL_ORIGIN": 2,
                 })
     return rows_to_xml(columns, rows)
 
 
 def _mdschema_measures(session, request) -> str:
     columns = [
-        Column("CATALOG_NAME"), Column("SCHEMA_NAME"), Column("CUBE_NAME"),
-        Column("MEASURE_NAME"),
-        Column("MEASURE_UNIQUE_NAME"), Column("MEASURE_CAPTION"),
-        Column("MEASURE_AGGREGATOR", "int"), Column("DATA_TYPE", "unsignedShort"),
-        Column("NUMERIC_PRECISION", "unsignedShort"),
-        Column("NUMERIC_SCALE", "short"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"),
+        Column("CUBE_NAME", required=True),
+        Column("MEASURE_NAME", required=True),
+        Column("MEASURE_UNIQUE_NAME", required=True),
+        Column("MEASURE_CAPTION", required=True),
+        Column("MEASURE_GUID", "uuid"),
+        Column("MEASURE_AGGREGATOR", "int", required=True),
+        Column("DATA_TYPE", "unsignedShort", required=True),
+        Column("MEASURE_IS_VISIBLE", "boolean", required=True),
+        Column("LEVELS_LIST"),
         Column("DESCRIPTION"),
-        Column("MEASURE_IS_VISIBLE", "boolean"), Column("MEASUREGROUP_NAME"),
+        Column("MEASUREGROUP_NAME"),
         Column("MEASURE_DISPLAY_FOLDER"),
         Column("DEFAULT_FORMAT_STRING"),
+        Column("CUBE_SOURCE", "unsignedShort"),
+        Column("MEASURE_VISIBILITY", "unsignedShort"),
     ]
     rows = []
     for v in _restricted_views(session, request):
@@ -462,13 +470,11 @@ def _mdschema_measures(session, request) -> str:
                 # might act on.
                 "MEASURE_AGGREGATOR": 127,
                 "DATA_TYPE": 5,  # DBTYPE_R8
-                "NUMERIC_PRECISION": 16,
-                "NUMERIC_SCALE": 255,
-                "DESCRIPTION": m.get("comment") or "",
                 "MEASURE_IS_VISIBLE": True,
+                "DESCRIPTION": m.get("comment") or "",
                 "MEASUREGROUP_NAME": "Measures",
-                "MEASURE_DISPLAY_FOLDER": "",
-                "DEFAULT_FORMAT_STRING": None,
+                "CUBE_SOURCE": 1,
+                "MEASURE_VISIBILITY": 1,
             })
     return rows_to_xml(columns, rows)
 
@@ -494,8 +500,8 @@ _ROWSET_RESTRICTIONS = {
     "MDSCHEMA_HIERARCHIES": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_NAME", "xsd:string"), ("HIERARCHY_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_ORIGIN", "xsd:unsignedShort"), ("CUBE_SOURCE", "xsd:unsignedShort"), ("HIERARCHY_VISIBILITY", "xsd:unsignedShort")],
     "MDSCHEMA_LEVELS": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_UNIQUE_NAME", "xsd:string"), ("LEVEL_NAME", "xsd:string"), ("LEVEL_UNIQUE_NAME", "xsd:string"), ("LEVEL_ORIGIN", "xsd:unsignedShort"), ("CUBE_SOURCE", "xsd:unsignedShort"), ("LEVEL_VISIBILITY", "xsd:unsignedShort")],
     "MDSCHEMA_MEASURES": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("MEASURE_NAME", "xsd:string"), ("MEASURE_UNIQUE_NAME", "xsd:string"), ("MEASUREGROUP_NAME", "xsd:string"), ("CUBE_SOURCE", "xsd:unsignedShort"), ("MEASURE_VISIBILITY", "xsd:unsignedShort")],
-    "MDSCHEMA_MEMBERS": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_UNIQUE_NAME", "xsd:string"), ("LEVEL_UNIQUE_NAME", "xsd:string"), ("LEVEL_NUMBER", "xsd:unsignedInt"), ("MEMBER_NAME", "xsd:string"), ("MEMBER_UNIQUE_NAME", "xsd:string"), ("MEMBER_TYPE", "xsd:int"), ("MEMBER_CAPTION", "xsd:string"), ("CUBE_SOURCE", "xsd:unsignedShort"), ("TREE_OP", "xsd:int")],
-    "MDSCHEMA_PROPERTIES": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_UNIQUE_NAME", "xsd:string"), ("LEVEL_UNIQUE_NAME", "xsd:string"), ("MEMBER_UNIQUE_NAME", "xsd:string"), ("PROPERTY_TYPE", "xsd:int"), ("PROPERTY_NAME", "xsd:string"), ("PROPERTY_ORIGIN", "xsd:unsignedShort"), ("PROPERTY_CONTENT_TYPE", "xsd:int"), ("PROPERTY_VISIBILITY", "xsd:unsignedShort"), ("CUBE_SOURCE", "xsd:unsignedShort")],
+    "MDSCHEMA_MEMBERS": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_UNIQUE_NAME", "xsd:string"), ("LEVEL_UNIQUE_NAME", "xsd:string"), ("LEVEL_NUMBER", "xsd:unsignedInt"), ("MEMBER_NAME", "xsd:string"), ("MEMBER_UNIQUE_NAME", "xsd:string"), ("MEMBER_CAPTION", "xsd:string"), ("MEMBER_TYPE", "xsd:int"), ("TREE_OP", "xsd:int"), ("CUBE_SOURCE", "xsd:unsignedShort")],
+    "MDSCHEMA_PROPERTIES": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("HIERARCHY_UNIQUE_NAME", "xsd:string"), ("LEVEL_UNIQUE_NAME", "xsd:string"), ("MEMBER_UNIQUE_NAME", "xsd:string"), ("PROPERTY_NAME", "xsd:string"), ("PROPERTY_TYPE", "xsd:short"), ("PROPERTY_CONTENT_TYPE", "xsd:short"), ("PROPERTY_ORIGIN", "xsd:unsignedShort"), ("CUBE_SOURCE", "xsd:unsignedShort"), ("PROPERTY_VISIBILITY", "xsd:unsignedShort")],
     "MDSCHEMA_MEASUREGROUPS": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("MEASUREGROUP_NAME", "xsd:string")],
     "MDSCHEMA_MEASUREGROUP_DIMENSIONS": [("CATALOG_NAME", "xsd:string"), ("SCHEMA_NAME", "xsd:string"), ("CUBE_NAME", "xsd:string"), ("MEASUREGROUP_NAME", "xsd:string"), ("DIMENSION_UNIQUE_NAME", "xsd:string"), ("DIMENSION_VISIBILITY", "xsd:unsignedShort")],
     "MDSCHEMA_FUNCTIONS": [("LIBRARY_NAME", "xsd:string"), ("INTERFACE_NAME", "xsd:string"), ("FUNCTION_NAME", "xsd:string"), ("ORIGIN", "xsd:int")],
@@ -589,12 +595,70 @@ def _discover_keywords(session, request) -> str:
     return rows_to_xml([Column("Keyword")], [])
 
 
+#: The cell properties every answer set carries, exactly the list a real
+#: SSAS advertises. Excel reads this (PROPERTY_TYPE=2) while planning its
+#: pivot queries; a server with NO cell properties is a server whose cells
+#: cannot even hold a VALUE, and the client treats it accordingly.
+#: (name, DBTYPE): 12=VARIANT, 130=WSTR, 19=UI4, 18=UI2, 3=I4.
+_CELL_PROPERTIES = [
+    ("VALUE", 12),
+    ("FORMATTED_VALUE", 130),
+    ("CELL_ORDINAL", 19),
+    ("FORMAT_STRING", 130),
+    ("FORE_COLOR", 19),
+    ("BACK_COLOR", 19),
+    ("FONT_NAME", 130),
+    ("FONT_SIZE", 18),
+    ("FONT_FLAGS", 3),
+    ("LANGUAGE", 19),
+]
+
+
 def _mdschema_properties(session, request) -> str:
     columns = [
-        Column("CATALOG_NAME"), Column("CUBE_NAME"), Column("PROPERTY_TYPE", "unsignedShort"),
-        Column("PROPERTY_NAME"), Column("PROPERTY_CAPTION"), Column("DATA_TYPE", "unsignedShort"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"), Column("CUBE_NAME"),
+        Column("DIMENSION_UNIQUE_NAME"), Column("HIERARCHY_UNIQUE_NAME"),
+        Column("LEVEL_UNIQUE_NAME"), Column("MEMBER_UNIQUE_NAME"),
+        Column("PROPERTY_TYPE", "short"),
+        Column("PROPERTY_NAME"), Column("PROPERTY_CAPTION"),
+        Column("DATA_TYPE", "unsignedShort"),
+        Column("PROPERTY_CONTENT_TYPE", "short"),
+        Column("DESCRIPTION"),
+        Column("PROPERTY_ORIGIN", "unsignedShort"),
+        Column("PROPERTY_IS_VISIBLE", "boolean"),
     ]
-    return rows_to_xml(columns, [])
+    wanted = request.restrictions.get("PROPERTY_TYPE")
+    try:
+        mask = int(wanted[0]) if wanted and wanted[0] else 3
+    except ValueError:
+        mask = 3
+    rows = []
+    if mask & 2:  # MDPROP_CELL
+        for name, dbtype in _CELL_PROPERTIES:
+            rows.append({
+                "CATALOG_NAME": CATALOG,
+                "PROPERTY_TYPE": 2,
+                "PROPERTY_NAME": name,
+                "PROPERTY_CAPTION": name,
+                "DATA_TYPE": dbtype,
+                "PROPERTY_CONTENT_TYPE": 0,
+                "PROPERTY_ORIGIN": 1,
+                "PROPERTY_IS_VISIBLE": True,
+            })
+    if mask & 1:  # MDPROP_MEMBER: the intrinsics every member answers.
+        for name, dbtype in (("MEMBER_KEY", 130), ("MEMBER_NAME", 130),
+                             ("MEMBER_VALUE", 12)):
+            rows.append({
+                "CATALOG_NAME": CATALOG,
+                "PROPERTY_TYPE": 1,
+                "PROPERTY_NAME": name,
+                "PROPERTY_CAPTION": name,
+                "DATA_TYPE": dbtype,
+                "PROPERTY_CONTENT_TYPE": 0,
+                "PROPERTY_ORIGIN": 1,
+                "PROPERTY_IS_VISIBLE": True,
+            })
+    return rows_to_xml(columns, rows)
 
 
 def _mdschema_kpis(session, request) -> str:

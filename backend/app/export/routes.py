@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth import connect_token
 from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession
@@ -31,6 +32,20 @@ class SheetRequest(BaseModel):
 
 class ExportBody(BaseModel):
     sheets: list[SheetRequest] = Field(default_factory=list, max_length=MAX_VISUALS)
+
+
+@router.post("/api/connect/token")
+def create_connect_token(
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Mint the Excel/Power Query bearer for the calling session.
+
+    Shown once by the UI and never retrievable again; minting again replaces
+    the previous token, which is also how a user revokes one deliberately.
+    """
+    token, expires = connect_token.mint(db, sess)
+    return {"token": token, "expiresAt": expires.isoformat()}
 
 
 def _filename(report_name: str) -> str:

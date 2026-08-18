@@ -9,12 +9,12 @@ undocumented Microsoft handshake.
 
 Two rules carried over unchanged from the rest of the product:
 
-* Credentials are the caller's own. HTTP Basic opens their Snowflake
-  connection; nothing is served from anyone else's.
-* The workspace decides visibility. The Snowflake login proves who you are;
-  the report is only served if `require_access` says that user may open it in
-  the app. Being able to log into Snowflake is not being allowed to read a
-  colleague's report definition.
+* Every query runs on the caller's own connection. The connect token in
+  HTTP Basic resolves to the caller's APP SESSION, and the query runs on
+  that session's cached Snowflake connection -- the feed never opens one.
+* The workspace decides visibility. The token proves which app user is
+  asking; the report is only served if `require_access` says that user may
+  open it in the app.
 
 The query is built from the STORED definition -- the same wells, the same
 three filter scopes -- so the feed shows what the report shows. A hierarchy
@@ -22,11 +22,12 @@ on an axis serves its top level, exactly as a freshly opened report does.
 """
 
 import uuid
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Report, User
+from app.db.models import Report
 from app.errors import ApiError
 from app.reports.catalog import HIERARCHY_PREFIX, wells_to_query
 from app.reports.filters import is_active
@@ -34,40 +35,8 @@ from app.reports.migrate import migrate_definition
 from app.semantic.predicates import resolve_field
 from app.semantic.query import SemanticQueryRequest, build_semantic_sql
 from app.snowflake import gateway
+from app.snowflake.provider import get_cache
 from app.workspaces.access import require_access
-from app.xmla.state import XmlaSession
-
-
-def app_user(db: Session, session: XmlaSession) -> uuid.UUID:
-    """The app user these Snowflake credentials belong to.
-
-    Matched on what SNOWFLAKE says the connection is (the probed account
-    locator and user), not on what the caller typed: an account has two
-    names -- the org identifier used to connect and the locator dev-login
-    stored -- and comparing across them 404s every legitimate caller.
-    Case-insensitive on both halves, because Snowflake identifiers are.
-    No row means they have never signed into the app and so cannot be a
-    member of any workspace -- reported exactly like a non-member, as a
-    not-found, so the feed does not reveal which reports exist.
-    """
-    from sqlalchemy import func
-
-    account = session.probed_account or session.account
-    user = session.probed_user or session.user
-    row = (
-        db.query(User)
-        .filter(func.upper(User.snowflake_account) == account.upper())
-        .filter(func.upper(User.snowflake_user) == user.upper())
-        .one_or_none()
-    )
-    if row is None:
-        raise ApiError(
-            "HTTP_ERROR",
-            404,
-            "No SemanticUI account for these Snowflake credentials. Sign in "
-            "to the app once first.",
-        )
-    return row.id
 
 
 def _visual_and_page(definition: dict, visual_id: str) -> tuple[dict, dict]:
@@ -167,7 +136,8 @@ def build_feed_request(
 
 def run_feed(
     db: Session,
-    session: XmlaSession,
+    user_id: uuid.UUID,
+    entry: Any,
     report_id: str,
     visual_id: str,
     *,
@@ -175,17 +145,16 @@ def run_feed(
     limit: int | None,
 ) -> tuple[list[str], list[list], bool]:
     """(column names, rows, truncated) for one visual, on the caller's own
-    connection."""
-    user_id = app_user(db, session)
+    app-session connection (`entry` is that session's cache entry)."""
     report = require_access(db, user_id, report_id, need="viewer")
     if not report.view_name:
         raise ApiError(
             "HTTP_ERROR", 404, "This report is not bound to a semantic view yet."
         )
 
-    with session.lock:
-        detail = session.describe(
-            report.view_database, report.view_schema, report.view_name
+    with entry.lock:
+        detail = get_cache().describe(
+            entry, report.view_database, report.view_schema, report.view_name
         )
         request = build_feed_request(
             report, visual_id, extra_filters=extra_filters, limit=limit, detail=detail
@@ -197,7 +166,7 @@ def run_feed(
             detail, request, max_rows=get_settings().export_row_cap
         )
         result = gateway.run_query(
-            session.conn, sql, max_rows=effective_limit, params=params
+            entry.conn, sql, max_rows=effective_limit, params=params
         )
 
     return [c["name"] for c in result.columns], result.rows, result.truncated

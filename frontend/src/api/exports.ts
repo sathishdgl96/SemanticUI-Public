@@ -1,6 +1,19 @@
 import { ApiError, apiFetch } from "./client";
 import type { ConnectResponse, SheetRequest } from "./types";
 
+export interface ConnectTokenResponse {
+  token: string;
+  expiresAt: string;
+}
+
+/** Mint the Excel/Power Query bearer for the current session. Shown once;
+ *  minting again replaces (revokes) the previous token. */
+export function createConnectToken(): Promise<ConnectTokenResponse> {
+  return apiFetch<ConnectTokenResponse>("/api/connect/token", {
+    method: "POST",
+  });
+}
+
 export function fetchConnectDetails(
   reportId: string,
   sheets: SheetRequest[],

@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://semanticui:semanticui@localhost:5432/semanticui"
 
     session_ttl_hours: int = 8
+    #: Lifetime of an Excel connect token. The session TTL still applies on
+    #: top: a token dies with its session no matter what this says.
+    connect_token_ttl_hours: int = 24
     connection_idle_ttl_seconds: int = 900
     connection_cache_max: int = 100
     statement_timeout_seconds: int = 60

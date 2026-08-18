@@ -3,10 +3,10 @@ r"""GET /api/feed/... -- the URLs Power Query refreshes.
     /api/feed/reports/{report}/visuals/{visual}.csv
     /api/feed/reports/{report}/visuals/{visual}.json
 
-Auth is HTTP Basic -- username "account/user" (or account\user), password the
-caller's own Snowflake password -- through the same session store the XMLA
-adapter built, so repeated refreshes reuse one connection instead of logging
-in per request. Under /api deliberately: the dev proxy and any production
+Auth is HTTP Basic carrying a connect token in the password field; the
+username is ignored ("token" reads well in the Excel prompt). The token
+resolves to the caller's signed-in app session and its cached Snowflake
+connection. Under /api deliberately: the dev proxy and any production
 reverse proxy already route that prefix, so the URL shown in the app works
 verbatim in Excel.
 
@@ -26,11 +26,12 @@ import logging
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from app.auth import connect_token
 from app.db.base import get_db
 from app.errors import ApiError
 from app.feed import service
 from app.feed.render import to_csv, to_json
-from app.xmla.state import get_store
+from app.snowflake.provider import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +43,14 @@ def _unauthorized() -> Response:
         status_code=401,
         headers={"WWW-Authenticate": 'Basic realm="SemanticUI feed"'},
         content=(
-            "Snowflake credentials required: username ACCOUNT/USER, "
-            "password your Snowflake password."
+            "Connect token required: any username, the token from the "
+            "report's Connect panel as the password."
         ),
     )
 
 
-def _session(request: Request):
+def _app_session(request: Request, db: Session):
+    """The app session the Basic-auth connect token resolves to, or None."""
     header = request.headers.get("Authorization", "")
     if not header.startswith("Basic "):
         return None
@@ -56,11 +58,10 @@ def _session(request: Request):
         decoded = base64.b64decode(header[6:]).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError):
         return None
-    username, sep, password = decoded.partition(":")
+    _, sep, password = decoded.partition(":")
     if not sep:
         return None
-    _, session = get_store().open(username, password)
-    return session
+    return connect_token.resolve(db, password)
 
 
 def _feed(
@@ -70,16 +71,18 @@ def _feed(
     visual_id: str,
     limit: int | None,
 ) -> tuple[list[str], list[list], bool]:
-    session = _session(request)
-    if session is None:
-        raise ApiError("AUTH_REQUIRED", 401, "credentials required")
+    dbsess = _app_session(request, db)
+    if dbsess is None:
+        raise ApiError("AUTH_REQUIRED", 401, "connect token required")
+    entry = get_cache().acquire(db, dbsess)
     extra = {
         key[2:]: value
         for key, value in request.query_params.items()
         if key.startswith("f.") and len(key) > 2
     }
     return service.run_feed(
-        db, session, report_id, visual_id, extra_filters=extra, limit=limit
+        db, dbsess.user_id, entry, report_id, visual_id,
+        extra_filters=extra, limit=limit,
     )
 
 
