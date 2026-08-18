@@ -174,7 +174,9 @@ def test_report_row_stores_no_query_results(client, db):
     }
     # Visuals live inside pages now, and still carry nothing but their own
     # definition -- no rows, no results.
-    assert set(row.definition["pages"][0]) == {"id", "name", "visuals", "filters"}
+    assert set(row.definition["pages"][0]) == {
+        "id", "name", "kind", "visuals", "filters",
+    }
 
 
 def test_get_serves_a_row_stored_before_the_pages_bump_as_v3(client, db):
