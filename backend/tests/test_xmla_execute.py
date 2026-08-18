@@ -539,3 +539,37 @@ class TestUserHierarchy:
         cells = {int(c.get("CellOrdinal")): c.find("m:Value", NS).text
                  for c in root.findall(".//m:CellData/m:Cell", NS)}
         assert cells == {0: "25", 1: "3", 2: "22", 3: "15", 4: "7"}
+
+
+class TestLevelMembers:
+    """The header dropdown's per-level lists: each level, flat, on demand."""
+
+    def _level(self, name, geo_gateway_ready=None):
+        return handle_execute(GeoSession(), FakeRequest(
+            "SELECT {AddCalculatedMembers({[CUSTOMERS].[Geo].[" + name + "].Members})} "
+            "DIMENSION PROPERTIES MEMBER_TYPE ON COLUMNS "
+            "FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS] "
+            "CELL PROPERTIES CELL_ORDINAL"
+        ))
+
+    def test_level_one_is_regions_only(self, geo_gateway):
+        members = axis_members(self._level("REGION"))
+        assert [m[0] for m in members] == [
+            "[CUSTOMERS].[Geo].&[ASIA]",
+            "[CUSTOMERS].[Geo].&[EUROPE]",
+        ]
+        assert all(m[1] == 1 for m in members)
+
+    def test_level_two_is_nations_only_not_a_mixed_tree(self, geo_gateway):
+        members = axis_members(self._level("NATION"))
+        assert [m[0] for m in members] == [
+            "[CUSTOMERS].[Geo].&[ASIA].&[JAPAN]",
+            "[CUSTOMERS].[Geo].&[EUROPE].&[FRANCE]",
+            "[CUSTOMERS].[Geo].&[EUROPE].&[GERMANY]",
+        ]
+        assert all(m[1] == 2 for m in members)
+
+    def test_level_three_is_customers_only(self, geo_gateway):
+        members = axis_members(self._level("CUSTOMER_NAME"))
+        assert len(members) == 4
+        assert all(m[1] == 3 for m in members)

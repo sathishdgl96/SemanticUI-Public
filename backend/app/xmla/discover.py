@@ -1031,11 +1031,24 @@ def _mdschema_members(session, request) -> str:
                     ):
                         hier_rows.append(hier_row(tuple(row_values), i))
         else:
-            hier_rows.append(hier_all_row())
-            for i, row_values in enumerate(
-                _level_rows(session, view, levels[:1]), start=1
-            ):
-                hier_rows.append(hier_row((row_values[0],), i))
+            number = first("LEVEL_NUMBER")
+            try:
+                depth = int(number) if number not in (None, "") else None
+            except ValueError:
+                depth = None
+            if depth == 0:
+                hier_rows.append(hier_all_row())
+            elif depth is not None and 1 <= depth <= len(levels):
+                for i, row_values in enumerate(
+                    _level_rows(session, view, levels[:depth]), start=1
+                ):
+                    hier_rows.append(hier_row(tuple(row_values), i))
+            else:
+                hier_rows.append(hier_all_row())
+                for i, row_values in enumerate(
+                    _level_rows(session, view, levels[:1]), start=1
+                ):
+                    hier_rows.append(hier_row((row_values[0],), i))
         return rows_to_xml(columns, hier_rows)
 
     u = f"[{table}].[{field}]"

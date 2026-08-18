@@ -96,14 +96,17 @@ def _classify(entries, detail, exists_filters: list | None = None,
                 elif is_all:
                     spec.include_all = True
                 else:
-                    # a LEVEL's members: every path down to that depth
+                    # Level.Members: exactly that level's members, FLAT.
+                    # Returning a drilled tree here is how the dropdown
+                    # ended up showing one mixed level instead of each
+                    # level on demand.
                     depth = next(
                         (i for i, (_, n) in enumerate(spec.levels, start=1)
                          if n.upper() == rest[0].upper()),
                         0,
                     )
                     if depth:
-                        spec.drilled_depths.update(range(0, depth))
+                        spec.flat_depths.add(depth)
                 return
             if not path:
                 spec.include_all = True
@@ -471,6 +474,13 @@ class _Engine:
                 },
                 None,
             ))
+        for depth in sorted(spec.flat_depths):
+            if 1 <= depth <= len(levels):
+                table = self._run(
+                    [self._surrogate(t, n) for t, n in levels[:depth]]
+                )
+                for key in table:
+                    emit(key)
         if drilled(()):
             walk(())
         for path in spec.member_paths:

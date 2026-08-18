@@ -114,6 +114,9 @@ class HierSpec:
     undrilled_paths: set = field(default_factory=set)
     drilled_depths: set = field(default_factory=set)
     member_paths: list = field(default_factory=list)
+    #: Level.Members: emit ALL paths at these depths, flat -- the filter
+    #: dropdown's per-level list, not a drilled tree.
+    flat_depths: set = field(default_factory=set)
 
 
 @dataclass
