@@ -253,13 +253,18 @@ class _Parser:
             self.expect_punct("}")
             return out
         if t.kind == "punct" and t.value == "(":
-            # parenthesised set or tuple
+            # Parenthesised set or TUPLE. A multi-member tuple keeps its
+            # grouping: ([F], [1-URGENT]) is one combination of two
+            # hierarchies, and flattening it loses exactly the meaning
+            # Excel's per-tuple filters depend on.
             self.next()
             out = self.parse_set()
             while self.peek() and self.peek().kind == "punct" and self.peek().value == ",":
                 self.next()
                 out += self.parse_set()
             self.expect_punct(")")
+            if len(out) > 1 and all(isinstance(e, MemberRef) for e in out):
+                return [("tuple", out)]
             return out
         if t.kind == "name":
             return [self.parse_member()]

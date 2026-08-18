@@ -338,3 +338,77 @@ class TestFilterDropdownShapes:
             "[ORDERS].[ORDER_PRIORITY].&[HIGH]",
             "[ORDERS].[ORDER_PRIORITY].&[LOW]",
         }
+
+
+class TestTupleFilters:
+    """Excel's per-tuple filter: uncheck one child under one parent only.
+
+    The kept combinations arrive as TUPLES in the subselect; they must
+    reach Snowflake as one (fields) IN ((values), ...) predicate so every
+    aggregate -- leaf, subtotal, grand total -- is recomputed over exactly
+    the kept combinations.
+    """
+
+    KEPT_TUPLES = (
+        "SELECT NON EMPTY CrossJoin("
+        "Hierarchize(AddCalculatedMembers({DrilldownLevel({[ORDERS].[ORDER_STATUS].[All]})})), "
+        "Hierarchize(AddCalculatedMembers({DrilldownLevel({[ORDERS].[ORDER_PRIORITY].[All]})}))"
+        ") DIMENSION PROPERTIES PARENT_UNIQUE_NAME ON COLUMNS "
+        "FROM (SELECT ({"
+        "([ORDERS].[ORDER_STATUS].&[F],[ORDERS].[ORDER_PRIORITY].&[LOW]), "
+        "([ORDERS].[ORDER_STATUS].&[O],[ORDERS].[ORDER_PRIORITY].&[HIGH]), "
+        "([ORDERS].[ORDER_STATUS].&[O],[ORDERS].[ORDER_PRIORITY].&[LOW])"
+        "}) ON COLUMNS FROM [SEMANTIC_DEMO.TPCH.TPCH_SALES_ANALYTICS]) "
+        "WHERE ([Measures].[ORDERS.TOTAL_ORDER_VALUE])"
+    )
+
+    def test_tuples_parse_without_flattening(self):
+        q = parse_mdx(self.KEPT_TUPLES)
+        entries = q.subselect_filters[0]
+        assert all(isinstance(e, tuple) and e[0] == "tuple" for e in entries)
+
+    def test_kept_tuples_become_one_bound_combo_predicate(self, monkeypatch):
+        captured = []
+
+        def fake_run_query(conn, sql, *, max_rows, params=None):
+            captured.append((sql, list(params or [])))
+            # Route on the DIMENSIONS clause: the combo predicate mentions
+            # both columns in EVERY statement, so bare substrings lie.
+            import re as _re
+
+            m = _re.search(r"DIMENSIONS (.*?)(?:METRICS|WHERE|$)", sql, _re.S)
+            dims = m.group(1) if m else ""
+            has_status = "ORDER_STATUS" in dims
+            has_priority = "ORDER_PRIORITY" in dims
+            if has_status and has_priority:
+                rows = [["F", "LOW", 2], ["O", "HIGH", 3], ["O", "LOW", 4]]
+            elif has_status:
+                rows = [["F", 2], ["O", 7]]
+            elif has_priority:
+                rows = [["HIGH", 3], ["LOW", 6]]
+            else:
+                rows = [[9]]
+            return QueryResult(columns=[], rows=rows, truncated=False, sfqid=None)
+
+        monkeypatch.setattr(execute_module.gateway, "run_query", fake_run_query)
+        xml = handle_execute(TwoFieldSession(), FakeRequest(self.KEPT_TUPLES))
+
+        # EVERY query carried the combo predicate, values bound.
+        for sql, params in captured:
+            assert ") IN ((" in sql
+            assert "F" in params and "LOW" in params
+            assert "'F'" not in sql
+        # The unkept combination (F, HIGH) never appears on the axis.
+        root = ElementTree.fromstring(xml).find(".//m:root", NS)
+        tuples = [
+            tuple(m.find("m:UName", NS).text for m in t.findall("m:Member", NS))
+            for t in root.findall(".//m:Axes/m:Axis[@name='Axis0']/m:Tuples/m:Tuple", NS)
+        ]
+        leaf_pairs = {
+            (t[0], t[1]) for t in tuples
+            if "&" in t[0] and "&" in t[1]
+        }
+        assert ("[ORDERS].[ORDER_STATUS].&[F]",
+                "[ORDERS].[ORDER_PRIORITY].&[HIGH]") not in leaf_pairs
+        assert ("[ORDERS].[ORDER_STATUS].&[O]",
+                "[ORDERS].[ORDER_PRIORITY].&[HIGH]") in leaf_pairs

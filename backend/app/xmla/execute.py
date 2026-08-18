@@ -112,6 +112,9 @@ def _classify(entries, detail, exists_filters: list | None = None) -> list[HierS
                     walk(e, drilled)
         elif isinstance(entry, tuple) and entry[0] == "drillmember":
             on_drillmember(entry[1], entry[2], entry[3])
+        elif isinstance(entry, tuple) and entry[0] == "tuple":
+            for e in entry[1]:
+                walk(e, drilled)
         elif isinstance(entry, tuple) and entry[0] == "exists":
             for e in entry[1]:
                 walk(e, drilled)
@@ -207,6 +210,9 @@ class _Engine:
         self.q = q
         self._results: dict[frozenset, dict] = {}
         self.filters: list[dict] = []
+        #: ([field, ...], [[value, ...], ...]) rows kept by per-tuple
+        #: filters -- Excel's "uncheck this child under this parent only".
+        self.include_combos: list = []
         self.slicer_members: list[dict] = []
         self.measures: list[str] = []
 
@@ -230,7 +236,8 @@ class _Engine:
             "limit": None,
         })
         sql, params, limit = build_semantic_sql(
-            self.detail, request, max_rows=get_settings().export_row_cap
+            self.detail, request, max_rows=get_settings().export_row_cap,
+            include_combos=self.include_combos,
         )
         result = gateway.run_query(
             self.session.conn, sql, max_rows=limit, params=params
@@ -301,7 +308,29 @@ class _Engine:
             else:
                 self._member_filter(ref)
         for entries in q.subselect_filters:
-            for spec in _classify(entries, self.detail):
+            # Tuple entries keep their combination: they become one
+            # (fields) IN ((values), ...) predicate, which is what makes
+            # "1-URGENT unchecked under F but kept under O" reach Snowflake
+            # as a fact rather than dissolving into two independent lists.
+            combos: dict[tuple, list[list]] = {}
+            plain = []
+            for entry in entries:
+                if isinstance(entry, tuple) and entry[0] == "tuple":
+                    refs = [e for e in entry[1]
+                            if isinstance(e, MemberRef) and not e.is_measure
+                            and len(e.parts) == 3]
+                    if len(refs) >= 2:
+                        key = tuple(f"{r.parts[0]}.{r.parts[1]}" for r in refs)
+                        combos.setdefault(key, []).append(
+                            [r.parts[2] for r in refs]
+                        )
+                        continue
+                    plain.extend(refs)
+                    continue
+                plain.append(entry)
+            for key, rows in combos.items():
+                self.include_combos.append((list(key), rows))
+            for spec in _classify(plain, self.detail):
                 if spec.kind == "measures":
                     continue
                 if spec.members:

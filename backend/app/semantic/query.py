@@ -7,7 +7,7 @@ from app.errors import ApiError
 from app.reports.filters import FilterList
 from app.semantic.discovery import quote_ident
 from app.semantic.joins import plan_join
-from app.semantic.predicates import build_filter_predicates
+from app.semantic.predicates import build_filter_predicates, resolve_field
 
 
 class OrderBy(BaseModel):
@@ -159,12 +159,24 @@ def bridged_through(detail: dict, req: SemanticQueryRequest) -> str | None:
 
 
 def build_semantic_sql(
-    detail: dict, req: SemanticQueryRequest, *, max_rows: int, today: date | None = None
+    detail: dict,
+    req: SemanticQueryRequest,
+    *,
+    max_rows: int,
+    today: date | None = None,
+    include_combos: list[tuple[list[str], list[list]]] | None = None,
 ) -> tuple[str, list[Any], int]:
     """Return (sql, params, effective_limit).
 
     `params` is positional and must be handed to the cursor as-is: it holds
     every filter VALUE, none of which appears anywhere in `sql`.
+
+    `include_combos` is an INTERNAL extension (the XMLA engine's, not the
+    API's): each ([field, ...], [[value, ...], ...]) entry keeps only rows
+    whose field COMBINATION is in the list -- `(a, b) IN ((?, ?), ...)`.
+    This is how Excel's per-tuple filter ("uncheck 1-URGENT under F only")
+    reaches Snowflake, so subtotals and grand totals are recomputed over
+    exactly the kept combinations, non-additive metrics included.
     """
     dims = _resolve_fields(detail, req.dimensions, "dimensions")
     mets = _resolve_fields(detail, req.metrics, "metrics")
@@ -234,6 +246,21 @@ def build_semantic_sql(
     # on. Verified against a real account; see
     # docs/superpowers/specs/2026-08-15-filter-spike-findings.md.
     predicates, params = build_filter_predicates(detail, req.filters, today=today)
+    for fields, rows in include_combos or []:
+        if not fields or not rows:
+            continue
+        resolved = [resolve_field(detail, f) for f in fields]
+        lhs = "(" + ", ".join(
+            f"{quote_ident(t)}.{quote_ident(n)}" for t, n in resolved
+        ) + ")"
+        one = "(" + ", ".join(["?"] * len(resolved)) + ")"
+        predicates.append(f"{lhs} IN ({', '.join([one] * len(rows))})")
+        for row in rows:
+            if len(row) != len(resolved):
+                raise ApiError(
+                    "QUERY_ERROR", 400, "combo filter row width mismatch"
+                )
+            params.extend(row)
     if predicates:
         parts.append("WHERE " + " AND ".join(predicates))
 
