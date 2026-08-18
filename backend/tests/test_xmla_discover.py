@@ -195,8 +195,11 @@ class TestDiscover:
             )
         )
         by_name = {r["HIERARCHY_UNIQUE_NAME"]: r for r in rows}
+        # Attribute hierarchies for every field, plus the [Measures]
+        # hierarchy Excel needs before it will let a measure onto a pivot.
         assert set(by_name) == {
             "[CUSTOMERS].[REGION]", "[CUSTOMERS].[SEGMENT]", "[ORDERS].[ORDER_DATE]",
+            "[Measures]",
         }
         assert by_name["[CUSTOMERS].[REGION]"]["ALL_MEMBER"] == "[CUSTOMERS].[REGION].[All]"
 

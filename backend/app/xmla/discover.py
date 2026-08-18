@@ -379,6 +379,32 @@ def _mdschema_hierarchies(session, request) -> str:
                     "PARENT_CHILD": False,
                 })
                 ordinal += 1
+        metrics = detail.get("metrics", [])
+        if metrics:
+            first = metrics[0]
+            rows.append({
+                "CATALOG_NAME": CATALOG, "SCHEMA_NAME": None,
+                "CUBE_NAME": cube,
+                "DIMENSION_UNIQUE_NAME": "[Measures]",
+                "HIERARCHY_NAME": "Measures",
+                "HIERARCHY_UNIQUE_NAME": "[Measures]",
+                "HIERARCHY_CAPTION": "Measures",
+                "DIMENSION_TYPE": 2,  # MD_DIMTYPE_MEASURE
+                "HIERARCHY_CARDINALITY": len(metrics),
+                "DEFAULT_MEMBER":
+                    f"[Measures].[{first['table']}.{first['name']}]",
+                "STRUCTURE": 0,
+                "IS_VIRTUAL": False, "IS_READWRITE": False,
+                "DIMENSION_UNIQUE_SETTINGS": 1,
+                "DIMENSION_IS_VISIBLE": True,
+                "HIERARCHY_IS_VISIBLE": True,
+                "HIERARCHY_ORDINAL": ordinal,
+                "DIMENSION_IS_SHARED": False,
+                "HIERARCHY_ORIGIN": 1,
+                "CUBE_SOURCE": 1,
+                "HIERARCHY_VISIBILITY": 1,
+                "PARENT_CHILD": False,
+            })
     return rows_to_xml(columns, rows)
 
 
@@ -433,6 +459,24 @@ def _mdschema_levels(session, request) -> str:
                     "LEVEL_UNIQUE_SETTINGS": 1,
                     "LEVEL_IS_VISIBLE": True,
                 })
+        # The Measures dimension's single level, as Mondrian/SSAS emit it.
+        # Excel models a measure field through this row.
+        metrics = detail.get("metrics", [])
+        if metrics:
+            rows.append({
+                "CATALOG_NAME": CATALOG, "CUBE_NAME": cube,
+                "DIMENSION_UNIQUE_NAME": "[Measures]",
+                "HIERARCHY_UNIQUE_NAME": "[Measures]",
+                "LEVEL_NAME": "MeasuresLevel",
+                "LEVEL_UNIQUE_NAME": "[Measures].[MeasuresLevel]",
+                "LEVEL_CAPTION": "MeasuresLevel",
+                "LEVEL_NUMBER": 0,
+                "LEVEL_CARDINALITY": len(metrics),
+                "LEVEL_TYPE": 0,
+                "CUSTOM_ROLLUP_SETTINGS": 0,
+                "LEVEL_UNIQUE_SETTINGS": 3,
+                "LEVEL_IS_VISIBLE": True,
+            })
     return rows_to_xml(columns, rows)
 
 
@@ -645,19 +689,10 @@ def _mdschema_properties(session, request) -> str:
                 "PROPERTY_ORIGIN": 1,
                 "PROPERTY_IS_VISIBLE": True,
             })
-    if mask & 1:  # MDPROP_MEMBER: the intrinsics every member answers.
-        for name, dbtype in (("MEMBER_KEY", 130), ("MEMBER_NAME", 130),
-                             ("MEMBER_VALUE", 12)):
-            rows.append({
-                "CATALOG_NAME": CATALOG,
-                "PROPERTY_TYPE": 1,
-                "PROPERTY_NAME": name,
-                "PROPERTY_CAPTION": name,
-                "DATA_TYPE": dbtype,
-                "PROPERTY_CONTENT_TYPE": 0,
-                "PROPERTY_ORIGIN": 1,
-                "PROPERTY_IS_VISIBLE": True,
-            })
+    # MDPROP_MEMBER (mask & 1): member-property rows are LEVEL-SCOPED and
+    # exist only for levels that carry custom properties -- which attribute
+    # hierarchies over semantic-view fields never do. The correct answer is
+    # no rows; unscoped "intrinsics" here made Excel abandon adding fields.
     return rows_to_xml(columns, rows)
 
 

@@ -147,13 +147,21 @@ def envelope(inner: str, *, session_id: str | None = None) -> bytes:
 
 
 def fault(code: str, message: str) -> bytes:
-    """A SOAP fault. Used only where the CLIENT can act on it."""
+    """A SOAP fault. Used only where the CLIENT can act on it.
+
+    ErrorCode is NUMERIC on the wire: ADOMD parses it with a number parser
+    and dies on a symbolic code (verified live -- FormatException). The
+    symbolic code survives in Source; the message carries the real story.
+    """
     from xml.sax.saxutils import escape
 
     return envelope(
         "<soap:Fault>"
         f"<faultcode>soap:Server</faultcode>"
         f"<faultstring>{escape(message)}</faultstring>"
-        f"<detail><Error ErrorCode=\"{escape(code)}\"/></detail>"
+        "<detail>"
+        f'<Error ErrorCode="3238658121" Description="{escape(message)}" '
+        f'Source="SemanticUI ({escape(code)})" HelpFile=""/>'
+        "</detail>"
         "</soap:Fault>"
     )
