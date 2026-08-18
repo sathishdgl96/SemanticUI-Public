@@ -50,6 +50,7 @@ def create_app() -> FastAPI:
     from app.cortex.routes import router as ask_router
     from app.export.routes import router as export_router
     from app.semantic.routes import router as semantic_router
+    from app.xmla.routes import router as xmla_router
 
     app.include_router(auth_router)
     app.include_router(dev_router)
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(explores_router)
     app.include_router(workspaces_router)
     app.include_router(ask_router)
+    app.include_router(xmla_router)
     app.include_router(export_router)
 
     @app.get("/healthz")

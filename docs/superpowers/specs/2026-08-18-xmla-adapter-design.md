@@ -54,6 +54,41 @@ as the rest of the product. Session reuse is keyed on the XMLA `Session`
 SOAP header backed by the existing per-session connection cache. TLS is the
 deployment's job, exactly as it already is for dev-login.
 
+## Where slice 1 actually stands (2026-08-18, end of first day)
+
+Eleven COM-driven Excel runs, each fix derived from the wire trace of the
+one before. What the real client taught us, none of it documented:
+
+1. `PivotCaches().Create(xlExternal, string)` fails before any network;
+   `Connections.Add2` + the connection OBJECT reaches the wire.
+2. MSOLAP begins its session with an Execute carrying NO statement -- the
+   BeginSession header's vehicle. Faulting it hangs Excel; it is a no-op.
+3. The Session response header must be in `urn:schemas-microsoft-com:
+   xml-analysis`. In the Analysis Services engine namespace the client
+   waits forever: an unrecognised grant is no grant.
+4. `DISCOVER_SCHEMA_ROWSETS` answered without per-row `SchemaGuid` AND the
+   nested `Restrictions` structure is retried three times and then the
+   session is ended. With the canonical shape it is read once and accepted.
+5. Basic auth works exactly as designed: 401 -> credentials -> 200, and the
+   pre-session Discovers ride the credentials-digest connection.
+
+**The wall:** after reading the capability list, the client sends
+EndSession -- before requesting a single cube. Five hypotheses tested at
+that point (rowset GUIDs, nested restrictions, SSAS's own MdpropMdx*
+capability mask incl. named sets, the full roster of empty standard rowsets
+KPIs/SETS/FUNCTIONS/ACTIONS, joining the X-Transport-Caps negotiation with
+all-zeros). None moved it.
+
+**The structural finding:** MSOLAP is not a generic XMLA client. The
+industry's answer to "Excel to a non-Microsoft XMLA server" has been
+client-side ODBO-to-XMLA bridges (Simba O2X, the open-source XMLA Connect)
+precisely because MSOLAP's acceptance criteria are undocumented,
+version-specific (reports of raw connections succeeding involve the old
+MSOLAP.6, not today's 17), and possibly include the proprietary binary
+transport it offers in X-Transport-Caps-Negotiation-Flags. The protocol IS
+documented ([MS-SSAS], [MS-SSAS-T]) -- as a reverse-engineering map, not a
+checklist.
+
 ## Slices (each verified in Excel before the next starts)
 
 1. **Handshake** — SOAP envelope parse/build, DISCOVER_PROPERTIES,
