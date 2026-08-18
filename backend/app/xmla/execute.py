@@ -68,6 +68,19 @@ def _classify(entries, detail) -> list[HierSpec]:
         if ref.suffix == "CHILDREN":
             spec.children_of_all = True
             return
+        if ref.suffix == "MEMBERS":
+            # [T].[F].Members = All + leaves; [T].[F].[F].Members = the leaf
+            # LEVEL's members; [T].[F].[(All)].Members = just the All member.
+            if not rest:
+                spec.include_all = True
+                spec.children_of_all = True
+            elif rest[0].upper() == name.upper():
+                spec.children_of_all = True
+            elif rest[0].upper() in ("(ALL)", "ALL"):
+                spec.include_all = True
+            else:
+                raise MdxUnsupported(f"members of level {ref.parts}")
+            return
         if not rest or (len(rest) == 1 and rest[0].upper() == "ALL"):
             spec.include_all = True
             if drilled:
@@ -236,7 +249,14 @@ class _Engine:
         )
 
         # Build each axis's tuple list plus a resolver from tuple index to
-        # (leaf-field assignment, measure index).
+        # (leaf-field assignment, measure index). An axis may carry several
+        # hierarchies (Excel's CrossJoin of drilldowns): its tuples are the
+        # cross product of each hierarchy's member list, first hierarchy
+        # outermost, exactly CrossJoin's enumeration order. Combinations of
+        # leaf members that the data never produces are pruned, which is
+        # what NON EMPTY means for the shapes Excel sends.
+        from itertools import product
+
         axes_out = []       # (name, hierarchy names, tuples)
         resolvers = []      # per axis: list of (assignments dict, measure)
         for index, specs in enumerate(axis_specs):
@@ -244,12 +264,11 @@ class _Engine:
             field_specs = [s for s in specs if s.kind != "measures"]
             has_measures = any(s.kind == "measures" for s in specs)
             measure_list = list(range(len(self.measures))) if has_measures else [None]
-            if len(field_specs) > 1:
-                raise MdxUnsupported("more than one hierarchy per axis")
-            members = []    # (member dict, assignment)
-            if field_specs:
-                spec = field_specs[0]
+
+            per_spec = []   # per hierarchy: [(member dict, assignment|None)]
+            for spec in field_specs:
                 values = list(self._run([spec]).keys())
+                members = []
                 if spec.include_all:
                     members.append((self._all_member(spec, len(values)), None))
                 if spec.children_of_all:
@@ -264,15 +283,23 @@ class _Engine:
                         members.append(
                             (self._leaf_member(spec, value), {spec_key(spec): value})
                         )
-            else:
-                members.append((None, None))
+                per_spec.append(members)
 
             tuples, resolver, hier_names = [], [], []
-            for member, assignment in members:
+            field_spec_by_key = {spec_key(s): s for s in field_specs}
+            for combo in (product(*per_spec) if per_spec else [()]):
+                assignment: dict = {}
+                for _, a in combo:
+                    if a:
+                        assignment.update(a)
+                # NON EMPTY: a combination of leaf members that never occurs
+                # together in the data contributes no tuple at all.
+                if len(assignment) > 1:
+                    group = [field_spec_by_key[k] for k in assignment]
+                    if tuple(assignment[spec_key(s)] for s in group) not in self._run(group):
+                        continue
                 for mi in measure_list:
-                    tup = []
-                    if member is not None:
-                        tup.append(member)
+                    tup = [m for m, _ in combo]
                     if mi is not None:
                         tup.append(self._measure_member(self.measures[mi]))
                     if not tup:
@@ -281,9 +308,9 @@ class _Engine:
                     resolver.append((assignment, mi))
             if not tuples:
                 continue
-            if field_specs:
+            for spec in field_specs:
                 hier_names.append((
-                    self._hier_uname(field_specs[0]),
+                    self._hier_uname(spec),
                     ["PARENT_UNIQUE_NAME", "HIERARCHY_UNIQUE_NAME"],
                 ))
             if has_measures:
@@ -398,4 +425,7 @@ def handle_execute(session, request) -> str:
     if view is None:
         raise ApiError("XMLA_MDX", 404, f"unknown cube {q.cube!r}")
     detail = session.describe(view["database"], view["schema"], view["name"])
-    return _Engine(session, view, detail, q).execute()
+    try:
+        return _Engine(session, view, detail, q).execute()
+    except MdxUnsupported as exc:
+        raise ApiError("XMLA_MDX", 400, f"unsupported MDX: {exc}") from exc

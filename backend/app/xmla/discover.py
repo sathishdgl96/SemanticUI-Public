@@ -739,16 +739,165 @@ def _discover_enumerators(session, request) -> str:
     return rows_to_xml(columns, [])
 
 
+def _member_values(session, view: dict, table: str, field: str) -> list:
+    """The hierarchy's leaf values, from a live DISTINCT on the view.
+
+    Capped: Excel's filter dropdown does not want a million rows, and
+    HIERARCHY_CARDINALITY already promises no precision here.
+    """
+    from app.config import get_settings
+    from app.semantic.query import SemanticQueryRequest, build_semantic_sql
+    from app.snowflake import gateway
+
+    request = SemanticQueryRequest.model_validate({
+        "database": view["database"],
+        "schema": view["schema"],
+        "view": view["name"],
+        "dimensions": [f"{table}.{field}"],
+        "metrics": [],
+        "filters": [],
+        "orderBy": [{"field": f"{table}.{field}", "direction": "asc"}],
+        "limit": 1000,
+    })
+    detail = session.describe(view["database"], view["schema"], view["name"])
+    sql, params, limit = build_semantic_sql(detail, request, max_rows=1000)
+    result = gateway.run_query(session.conn, sql, max_rows=limit, params=params)
+    return [row[0] for row in result.rows]
+
+
+#: MDTREEOP bits, [MS-SSAS]: 1 children, 2 siblings, 4 parent, 8 self,
+#: 16 descendants, 32 ancestors.
+_TREE_CHILDREN, _TREE_PARENT, _TREE_SELF = 1, 4, 8
+
+
 def _mdschema_members(session, request) -> str:
-    # Filled in with the Execute slice; an empty answer is valid until then.
+    """Members on demand: how Excel populates filter dropdowns and slicers."""
     columns = [
-        Column("CATALOG_NAME"), Column("CUBE_NAME"), Column("DIMENSION_UNIQUE_NAME"),
-        Column("HIERARCHY_UNIQUE_NAME"), Column("LEVEL_UNIQUE_NAME"),
-        Column("LEVEL_NUMBER", "unsignedInt"), Column("MEMBER_NAME"),
-        Column("MEMBER_UNIQUE_NAME"), Column("MEMBER_CAPTION"),
-        Column("MEMBER_TYPE", "int"), Column("CHILDREN_CARDINALITY", "unsignedInt"),
+        Column("CATALOG_NAME"), Column("SCHEMA_NAME"),
+        Column("CUBE_NAME", required=True),
+        Column("DIMENSION_UNIQUE_NAME", required=True),
+        Column("HIERARCHY_UNIQUE_NAME", required=True),
+        Column("LEVEL_UNIQUE_NAME", required=True),
+        Column("LEVEL_NUMBER", "unsignedInt", required=True),
+        Column("MEMBER_ORDINAL", "unsignedInt", required=True),
+        Column("MEMBER_NAME", required=True),
+        Column("MEMBER_UNIQUE_NAME", required=True),
+        Column("MEMBER_TYPE", "int", required=True),
+        Column("MEMBER_GUID", "uuid"),
+        Column("MEMBER_CAPTION", required=True),
+        Column("CHILDREN_CARDINALITY", "unsignedInt", required=True),
+        Column("PARENT_LEVEL", "unsignedInt", required=True),
+        Column("PARENT_UNIQUE_NAME"),
+        Column("PARENT_COUNT", "unsignedInt", required=True),
     ]
-    return rows_to_xml(columns, [])
+    r = request.restrictions
+
+    def first(name):
+        vals = r.get(name)
+        return vals[0] if vals else None
+
+    hier = first("HIERARCHY_UNIQUE_NAME") or ""
+    level = first("LEVEL_UNIQUE_NAME") or ""
+    member = first("MEMBER_UNIQUE_NAME") or ""
+    try:
+        tree_op = int(first("TREE_OP") or _TREE_SELF)
+    except ValueError:
+        tree_op = _TREE_SELF
+
+    # Resolve [TABLE].[FIELD] out of whichever restriction carries it. A
+    # member path may use key access ("].&[BUILDING]"), so parse bracketed
+    # segments properly rather than splitting on "].[".
+    import re as _re
+
+    source = member or level or hier
+    segments = _re.findall(r"(&?)\[((?:[^\]]|\]\])*)\]", source or "")
+    parts = [text for _, text in segments]
+    keyed = [bool(amp) for amp, _ in segments]
+    if len(parts) < 2:
+        return rows_to_xml(columns, [])
+    table, field = parts[0], parts[1]
+    tail = parts[2] if len(parts) > 2 else None
+    tail_keyed = keyed[2] if len(keyed) > 2 else False
+
+    wanted = request.restrictions.get("CUBE_NAME")
+    view = None
+    for v in session.list_views():
+        if not wanted or not wanted[0] or cube_name(v) == wanted[0]:
+            view = v
+            break
+    if view is None:
+        return rows_to_xml(columns, [])
+
+    u = f"[{table}].[{field}]"
+    cube = cube_name(view)
+
+    def row(name_, unique, caption, level_name, level_num, mtype, ordinal,
+            children, parent_unique):
+        return {
+            "CATALOG_NAME": CATALOG, "SCHEMA_NAME": None,
+            "CUBE_NAME": cube,
+            "DIMENSION_UNIQUE_NAME": f"[{table}]",
+            "HIERARCHY_UNIQUE_NAME": u,
+            "LEVEL_UNIQUE_NAME": level_name,
+            "LEVEL_NUMBER": level_num,
+            "MEMBER_ORDINAL": ordinal,
+            "MEMBER_NAME": name_,
+            "MEMBER_UNIQUE_NAME": unique,
+            "MEMBER_TYPE": mtype,  # 1 regular, 2 all
+            "MEMBER_CAPTION": caption,
+            "CHILDREN_CARDINALITY": children,
+            "PARENT_LEVEL": 0,
+            "PARENT_UNIQUE_NAME": parent_unique,
+            "PARENT_COUNT": 1 if parent_unique else 0,
+        }
+
+    def all_row(children):
+        return row("All", f"{u}.[All]", "All", f"{u}.[(All)]", 0, 2, 0,
+                   children, None)
+
+    def leaf_rows(values, start=0):
+        out = []
+        for index, value in enumerate(values, start=start):
+            caption = "" if value is None else str(value)
+            out.append(row(
+                caption, f"{u}.&[{caption}]", caption,
+                f"{u}.[{field}]", 1, 1, index, 0, f"{u}.[All]",
+            ))
+        return out
+
+    rows = []
+    is_all_member = (member and not tail_keyed
+                     and (tail or "").upper() in ("ALL", "(ALL)"))
+    is_leaf_member = member and not is_all_member and tail is not None
+
+    if member:
+        if is_all_member:
+            if tree_op & _TREE_SELF:
+                rows.append(all_row(len(_member_values(session, view, table, field))
+                                    if tree_op == _TREE_SELF else 0))
+            if tree_op & _TREE_CHILDREN:
+                values = _member_values(session, view, table, field)
+                if rows:
+                    rows[0]["CHILDREN_CARDINALITY"] = len(values)
+                rows.extend(leaf_rows(values, start=1))
+        elif is_leaf_member:
+            if tree_op & _TREE_SELF:
+                caption = tail
+                rows.append(row(caption, f"{u}.&[{caption}]", caption,
+                                f"{u}.[{field}]", 1, 1, 1, 0, f"{u}.[All]"))
+            if tree_op & _TREE_PARENT:
+                rows.append(all_row(0))
+    elif level:
+        if (tail or "").upper() in ("(ALL)", "ALL"):
+            rows.append(all_row(0))
+        else:
+            rows.extend(leaf_rows(_member_values(session, view, table, field), start=1))
+    else:
+        values = _member_values(session, view, table, field)
+        rows.append(all_row(len(values)))
+        rows.extend(leaf_rows(values, start=1))
+
+    return rows_to_xml(columns, rows)
 
 
 _HANDLERS = {
