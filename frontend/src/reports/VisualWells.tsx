@@ -1,4 +1,4 @@
-import { useDroppable } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { Visual } from "../api/types";
 import {
   AGGREGATIONS,
@@ -15,6 +15,53 @@ interface Props {
   /** Refs the view exposes as raw FACTS; those get an aggregation picker. */
   factRefs?: string[];
 }
+
+/** One field chip: draggable by its handle so it can be reordered within
+ *  its well or moved to another well of the same kind, and a drop target so
+ *  a dragged chip can land IN FRONT of it. The handle carries the listeners
+ *  rather than the whole chip -- the remove button and the aggregation
+ *  picker have to stay ordinary clicks. */
+function WellChip({
+  wellKey, refName, kind, children,
+}: {
+  wellKey: string;
+  refName: string;
+  kind: FieldKind;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: `chip:${wellKey}:${refName}`,
+    data: { ref: refName, kind, fromWell: wellKey, chip: true },
+  });
+  const drop = useDroppable({
+    id: `chipdrop:${wellKey}:${refName}`,
+    data: { ref: refName, well: wellKey },
+  });
+  return (
+    <span
+      className="chip"
+      data-kind={kind}
+      data-dragging={isDragging || undefined}
+      data-drop={drop.isOver || undefined}
+      ref={(el) => {
+        setNodeRef(el);
+        drop.setNodeRef(el);
+      }}
+    >
+      <button
+        type="button"
+        className="chip-handle"
+        aria-label={`Reorder ${refName}`}
+        {...attributes}
+        {...listeners}
+      >
+        ⠿
+      </button>
+      {children}
+    </span>
+  );
+}
+
 
 function Well({
   spec, refs, onRemove, factRefs, aggregations, onAggregationChange,
@@ -51,7 +98,7 @@ function Well({
           // the choice there would imply it could be overridden.
           const isFact = factRefs.has(ref.toUpperCase());
           return (
-            <span className="chip" key={ref} data-kind={spec.kind}>
+            <WellChip key={ref} wellKey={spec.key} refName={ref} kind={spec.kind}>
               <span className="chip-glyph">{spec.kind === "metric" ? "Σ" : "⬦"}</span>
               <span className="chip-label">{ref}</span>
               {isFact && (
@@ -72,7 +119,7 @@ function Well({
                       aria-label={`Remove ${ref}`} onClick={() => onRemove(ref)}>
                 &times;
               </button>
-            </span>
+            </WellChip>
           );
         })
       )}

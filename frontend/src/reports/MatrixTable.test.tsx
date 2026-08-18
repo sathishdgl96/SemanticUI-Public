@@ -73,6 +73,27 @@ describe("MatrixTable", () => {
     expect(screen.getByRole("columnheader", { name: "Total" })).toBeInTheDocument();
   });
 
+  it("collapses and expands the whole hierarchy from the toolbar", async () => {
+    render(<MatrixTable visual={visual()} result={nested} />);
+    expect(screen.getAllByText("RETAIL")).toHaveLength(2);
+
+    await userEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+    expect(screen.queryByText("RETAIL")).toBeNull();
+    // The group rows keep their subtotals while collapsed.
+    expect(screen.getByRole("row", { name: /EAST/ }).textContent).toContain("15");
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand all" }));
+    expect(screen.getAllByText("RETAIL")).toHaveLength(2);
+  });
+
+  it("offers no hierarchy toolbar on a flat matrix", () => {
+    const flat = visual({
+      wells: { rows: ["C.REGION"], columns: [], values: ["O.REVENUE"] },
+    });
+    render(<MatrixTable visual={flat} result={nested} />);
+    expect(screen.queryByRole("toolbar")).toBeNull();
+  });
+
   it("hides every total when subtotals are switched off", () => {
     render(
       <MatrixTable

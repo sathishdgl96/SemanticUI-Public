@@ -1491,6 +1491,47 @@ button.secondary:hover,
   font-weight: 600;
 }
 
+.matrix-toolbar {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  padding: 2px 4px;
+}
+
+.matrix-toolbar button {
+  border: 1px solid var(--border, #d2d0ce);
+  background: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 0 5px;
+}
+
+.matrix-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chip-handle {
+  border: none;
+  background: none;
+  cursor: grab;
+  padding: 0 2px;
+  color: var(--ink-subtle, #605e5c);
+  font-size: 11px;
+  touch-action: none;
+}
+
+.chip[data-dragging] {
+  opacity: 0.5;
+}
+
+.chip[data-drop] {
+  outline: 2px solid var(--accent, #0078d4);
+  outline-offset: 1px;
+}
+
 /* A sheet page: the pivot IS the page. */
 .canvas.sheet {
   display: block;

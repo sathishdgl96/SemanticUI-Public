@@ -57,6 +57,7 @@ import HierarchyPane from "./HierarchyPane";
 import ImportPanel from "./ImportPanel";
 import { normalizeDefinition } from "./normalize";
 import VisualPicker, { changeVisualType } from "./VisualPicker";
+import { moveWellRef } from "./wellOrder";
 import VisualWells from "./VisualWells";
 
 /** `apiFetch` only ever throws real `ApiError` instances, so `instanceof`
@@ -769,9 +770,33 @@ export default function BuilderPage() {
   exportSheetsRef.current = exportSheets;
 
   const onDragEnd = (event: DragEndEvent) => {
-    const visual = activePage.visuals.find((v) => v.id === selectedId);
+    // `selected`, not a fresh lookup: on a sheet page the pivot is pinned
+    // and drops must land in it without a click-to-select first.
+    const visual = selected;
     const overId = String(event.over?.id ?? "");
-    const data = event.active.data.current as { ref: string; kind: FieldKind } | undefined;
+    const data = event.active.data.current as
+      | { ref: string; kind: FieldKind; fromWell?: string; chip?: boolean }
+      | undefined;
+
+    // A chip drag rearranges: within its well (nesting order is meaning,
+    // not cosmetics -- in a matrix it IS the drill order), or into another
+    // well of the same kind. Chips never create filters or duplicates, so
+    // this branch owns them entirely.
+    if (data?.chip && data.fromWell && visual) {
+      if (overId.startsWith("chipdrop:")) {
+        const rest = overId.slice("chipdrop:".length);
+        const [toWell, beforeRef] = [
+          rest.slice(0, rest.indexOf(":")),
+          rest.slice(rest.indexOf(":") + 1),
+        ];
+        replaceVisual(moveWellRef(visual, data.fromWell, data.ref, toWell, beforeRef));
+      } else if (overId.startsWith("well:")) {
+        replaceVisual(
+          moveWellRef(visual, data.fromWell, data.ref, overId.slice("well:".length)),
+        );
+      }
+      return;
+    }
     // Filter scopes first: the well branch below returns early for any id it
     // does not recognise, so it would swallow these.
     const scope =
