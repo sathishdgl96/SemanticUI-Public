@@ -143,6 +143,31 @@ export default function ConnectPanel({ reportId, sheets, feedVisuals = [], onClo
         </section>
       )}
 
+      {/* The PivotTable path: a real OLAP connection over the same token.
+          Excel treats the semantic view as a cube — drag fields, drill,
+          slice, filter, and every query runs live on your connection. */}
+      <section className="connect-feed">
+        <h4>PivotTable — live cube via Analysis Services</h4>
+        <ol className="connect-steps">
+          <li>
+            In Excel: Data → Get Data → From Database → From Analysis
+            Services.
+          </li>
+          <li>
+            Server name: <code>{`${window.location.origin}/xmla`}</code>
+          </li>
+          <li>
+            Choose "Use the following User Name and Password": username{" "}
+            <code>token</code>, password the connection token above.
+          </li>
+          <li>
+            Pick your semantic view from the cube list and Finish — Excel
+            builds a PivotTable with your entities as fields and metrics as
+            measures. Drill, slice and filter run live on Snowflake as you.
+          </li>
+        </ol>
+      </section>
+
 
       {details.data?.sheets.map((sheet, index) => (
         <div key={sheet.title} className="connect-sql">

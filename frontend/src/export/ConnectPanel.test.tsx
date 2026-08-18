@@ -137,7 +137,11 @@ describe("ConnectPanel", () => {
     wrap(<ConnectPanel reportId="r1" sheets={SHEETS} onClose={() => {}} />);
     await userEvent.click(await screen.findByText(/connect by hand instead/i));
     expect(screen.getByText(/ODBC driver/i)).toBeInTheDocument();
-    expect(screen.getByText(/Get Data/i)).toBeInTheDocument();
+    // Both the manual Snowflake route and the Analysis Services route say
+    // "Get Data" now, so assert the manual one specifically.
+    expect(
+      screen.getByText(/From Database → From Snowflake/i),
+    ).toBeInTheDocument();
   });
 
   it("says plainly that no data flows through this app once connected", async () => {
