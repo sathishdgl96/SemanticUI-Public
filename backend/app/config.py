@@ -119,6 +119,16 @@ class Settings(BaseSettings):
                 )
             if not self.oauth_client_id:
                 raise ValueError("oauth mode requires oauth_client_id")
+            # An external IdP mints a token for whatever scope is asked
+            # for. Omit it and Entra rejects the request outright
+            # (AADSTS900144) while Okta issues a token whose audience is
+            # not Snowflake -- failures a long way from the cause.
+            if self.oauth_authorize_url and not self.oauth_scope:
+                raise ValueError(
+                    "an external IdP requires oauth_scope naming the "
+                    "Snowflake role scope (plus offline_access, or no "
+                    "refresh token is issued)"
+                )
             # An external IdP may register this app as a PUBLIC client (an
             # Entra SPA registration cannot hold a secret); PKCE is what
             # protects the code there. Snowflake OAuth has no such mode.

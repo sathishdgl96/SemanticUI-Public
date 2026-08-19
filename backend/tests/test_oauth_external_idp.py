@@ -142,3 +142,10 @@ class TestConfigurationGuards:
         # It names the account the token is spent against, whoever issued it.
         with pytest.raises(ValueError, match="snowflake_account"):
             entra_settings(snowflake_account=None)
+
+    def test_an_external_idp_must_be_told_which_scope_to_mint(self):
+        # Without it Entra refuses the request outright (AADSTS900144) and
+        # Okta issues a token with the wrong audience -- both a long way
+        # from the missing setting. Refuse at startup, where it is obvious.
+        with pytest.raises(ValueError, match="oauth_scope"):
+            entra_settings(oauth_scope=None)
