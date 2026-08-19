@@ -58,16 +58,26 @@ def _session_parameters() -> dict:
 KEEP_ALIVE = {"client_session_keep_alive": True}
 
 
-def connect_oauth(token: str) -> Any:
+def connect_oauth(token: str, user: str | None = None) -> Any:
+    """Open a connection with an OAuth access token.
+
+    `user` is required by Snowflake in practice: without it the connector
+    sends an empty login name and Snowflake answers 390100 "Incorrect
+    username or password" with a literal "None:" where the name belongs.
+    It is passed only when known, so the key is absent rather than empty.
+    """
     settings = get_settings()
-    return snowflake.connector.connect(
-        account=settings.snowflake_account,
-        authenticator="oauth",
-        token=token,
-        session_parameters=_session_parameters(),
-        paramstyle=PARAMSTYLE,
+    kwargs: dict[str, Any] = {
+        "account": settings.snowflake_account,
+        "authenticator": "oauth",
+        "token": token,
+        "session_parameters": _session_parameters(),
+        "paramstyle": PARAMSTYLE,
         **KEEP_ALIVE,
-    )
+    }
+    if user:
+        kwargs["user"] = user
+    return snowflake.connector.connect(**kwargs)
 
 
 def load_private_key(pem: str, passphrase: str | None) -> bytes:

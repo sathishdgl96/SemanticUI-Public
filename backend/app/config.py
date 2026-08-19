@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     #: plus offline_access, or no refresh token comes back. Entra:
     #: "api://<app-id-uri>/session:role:<role> offline_access"
     oauth_scope: str | None = None
+    #: Which token claim names the Snowflake user. Empty tries the usual
+    #: ones in order (upn, preferred_username, email, sub). Set it when
+    #: the IdP carries the login name somewhere else -- it must agree
+    #: with EXTERNAL_OAUTH_TOKEN_USER_MAPPING_CLAIM on the integration.
+    oauth_user_claim: str | None = None
 
     # Where /auth/callback sends the browser after a successful login. The
     # backend does not serve the SPA itself (see README "Serving the SPA

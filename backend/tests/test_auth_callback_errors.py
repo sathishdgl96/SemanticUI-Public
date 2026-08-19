@@ -57,7 +57,7 @@ class TestSnowflakeRefusesTheToken:
     ):
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token):
+        def refuse(token, user=None):
             raise TOKEN_REJECTED
 
         response = arrive_at_callback(client, monkeypatch, connect=refuse)
@@ -73,7 +73,7 @@ class TestSnowflakeRefusesTheToken:
     def test_the_token_never_reaches_the_browser(self, make_client, monkeypatch):
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token):
+        def refuse(token, user=None):
             raise TOKEN_REJECTED
 
         response = arrive_at_callback(client, monkeypatch, connect=refuse)
@@ -84,7 +84,7 @@ class TestSnowflakeRefusesTheToken:
         # the next request to reuse.
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token):
+        def refuse(token, user=None):
             raise TOKEN_REJECTED
 
         response = arrive_at_callback(client, monkeypatch, connect=refuse)
@@ -97,6 +97,6 @@ class TestSnowflakeRefusesTheToken:
         monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
 
         response = arrive_at_callback(
-            client, monkeypatch, connect=lambda token: FakeConnection()
+            client, monkeypatch, connect=lambda token, user=None: FakeConnection()
         )
         assert response.status_code == 303

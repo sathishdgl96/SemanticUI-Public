@@ -239,6 +239,11 @@ def do_run(backend_port: int, frontend_port: int) -> None:
         [
             str(venv_python()), "-m", "uvicorn", "app.main:app",
             "--port", str(port), "--host", "127.0.0.1", "--reload",
+            # Watch the application only. Uvicorn's default is the whole
+            # working directory, so writing a test, running the suite, or
+            # touching the SQLite file restarts the server mid-request --
+            # which reads as the app crashing.
+            "--reload-dir", "app",
         ],
         cwd=str(BACKEND),
         stdout=subprocess.PIPE,

@@ -161,6 +161,14 @@ class ConnectionCache:
             _close_quietly(c)
         return result
 
+    @staticmethod
+    def _login_name(db: Session, sess: DbSession) -> str | None:
+        """The Snowflake user this session signed in as."""
+        from app.db.models import User
+
+        user = db.get(User, sess.user_id)
+        return user.snowflake_user if user else None
+
     def _build_oauth(self, db: Session, sess: DbSession) -> Any:
         token = decrypt_token(sess.access_token_enc)
         expires_at = sess.access_expires_at
@@ -182,7 +190,9 @@ class ConnectionCache:
                 sess.refresh_token_enc = encrypt_token(tok.refresh_token)
             sess.access_expires_at = now + timedelta(seconds=tok.expires_in)
             db.commit()
-        return sf_connect.connect_oauth(token)
+        # The rebuilt connection must present the same login name the
+        # original did, or it fails the way a nameless one does (390100).
+        return sf_connect.connect_oauth(token, user=self._login_name(db, sess))
 
     def evict(self, session_id: str) -> None:
         with self._lock:

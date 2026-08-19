@@ -33,6 +33,48 @@ _STATE_MAX_ENTRIES = 10_000
 _states: dict[str, tuple[float, str]] = {}
 
 
+#: Claims that carry a login name, best first. Entra puts the UPN in
+#: `upn` (v1 tokens) or `preferred_username` (v2); Okta uses `sub`.
+_IDENTITY_CLAIMS = ("upn", "preferred_username", "email", "sub")
+
+
+def identity_from_token(token: str, claim: str | None = None) -> str | None:
+    """The login name an OAuth access token claims to carry.
+
+    Snowflake wants the user ALONGSIDE the token: `authenticator=oauth`
+    with no user sends an empty login name, and Snowflake answers
+    390100 "Incorrect username or password" with a literal "None:" where
+    the name should be.
+
+    The signature is deliberately NOT verified and this value carries no
+    authority. Snowflake verifies the token itself and refuses any user
+    that disagrees with the claim its security integration maps, so a
+    forged name cannot buy access -- it only decides which name to
+    present. Returns None for anything that is not a readable JWT, which
+    leaves the connector's own error to speak.
+    """
+    import base64
+    import json
+
+    parts = (token or "").split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    try:
+        # JWTs are base64url WITHOUT padding; b64decode demands it.
+        padded = payload + "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(padded))
+    except Exception:
+        return None
+    if not isinstance(claims, dict):
+        return None
+    for name in ((claim,) if claim else _IDENTITY_CLAIMS):
+        value = claims.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 @dataclass
 class TokenResponse:
     access_token: str

@@ -86,7 +86,12 @@ def oauth_callback(
     except OAuthRefreshError:
         return _reject_oauth_callback("OAuth code exchange failed")
     try:
-        conn = sf_connect.connect_oauth(tok.access_token)
+        conn = sf_connect.connect_oauth(
+            tok.access_token,
+            user=oauth_mod.identity_from_token(
+                tok.access_token, claim=get_settings().oauth_user_claim
+            ),
+        )
     except Exception as exc:
         # The IdP authenticated the user and issued a token, but Snowflake
         # will not accept it -- the EXTERNAL_OAUTH security integration is

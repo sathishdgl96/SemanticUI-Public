@@ -50,7 +50,7 @@ def test_oauth_builds_once_and_reuses(db, monkeypatch):
     )
     calls = []
     monkeypatch.setattr(
-        sf_connect, "connect_oauth", lambda token: calls.append(token) or FakeConnection()
+        sf_connect, "connect_oauth", lambda token, user=None: calls.append(token) or FakeConnection()
     )
     cache = make_cache()
     e1 = cache.acquire(db, sess)
@@ -74,7 +74,7 @@ def test_oauth_refreshes_expired_token(db, monkeypatch):
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
     used = []
     monkeypatch.setattr(
-        sf_connect, "connect_oauth", lambda token: used.append(token) or FakeConnection()
+        sf_connect, "connect_oauth", lambda token, user=None: used.append(token) or FakeConnection()
     )
     cache = make_cache()
     cache.acquire(db, sess)
@@ -132,7 +132,7 @@ def test_concurrent_acquire_same_session_leaks_nothing(db_factory, monkeypatch):
     created: list[FakeConnection] = []
     created_lock = threading.Lock()
 
-    def fake_connect_oauth(token):
+    def fake_connect_oauth(token, user=None):
         conn = FakeConnection()
         with created_lock:
             created.append(conn)
@@ -290,7 +290,7 @@ def test_oauth_acquire_marks_its_entry_rebuildable(db, monkeypatch):
         access_token="at-1", refresh_token="rt-1",
         access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
     )
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: FakeConnection())
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None: FakeConnection())
     cache = ConnectionCache(idle_ttl=900, max_size=10, retain_ttl=28800)
     entry = cache.acquire(db, sess)
     assert entry.rebuildable is True

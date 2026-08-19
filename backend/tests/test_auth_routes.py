@@ -79,7 +79,7 @@ def test_oauth_callback_creates_session_and_caches_conn(make_client, db, monkeyp
     conn = FakeConnection()
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
     monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier" if s == "good-state" else None)
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: conn)
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None: conn)
     monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
     # Simulate the browser having received the state cookie from a prior
     # /auth/login redirect.
@@ -118,7 +118,7 @@ def test_oauth_callback_redirects_to_configured_post_login_url(
 
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
     monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier" if s == "good-state" else None)
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: FakeConnection())
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None: FakeConnection())
     monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
     client.cookies.set(OAUTH_STATE_COOKIE, "good-state")
 
@@ -212,7 +212,7 @@ def test_oauth_callback_closes_connection_when_probe_identity_fails(
     conn = FakeConnection()
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
     monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: conn)
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None: conn)
 
     def boom(c):
         raise RuntimeError("probe failed")
