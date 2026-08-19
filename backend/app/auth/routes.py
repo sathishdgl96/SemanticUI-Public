@@ -113,16 +113,20 @@ def oauth_callback(
         # Claim NAMES, never values: the first question is always whether
         # the mapped claim is even in the token (Snowflake's own verifier
         # calls that EXTERNAL_OAUTH_USER_CLAIM_MISSING).
+        present = ",".join(oauth_mod.claim_names(tok.access_token))
         logger.warning(
             "Snowflake refused the IdP token: %s (claims present: %s)",
-            exc, ",".join(oauth_mod.claim_names(tok.access_token)),
+            exc, present,
         )
         return _reject_oauth_callback(
             "Signed in with your identity provider, but Snowflake refused "
             "the token. Check the EXTERNAL_OAUTH security integration: its "
             "issuer and audience must match the IdP, and the mapped claim "
             "must match the Snowflake user's LOGIN_NAME.",
-            detail=str(exc),
+            # The claim NAMES settle the usual question -- is the mapped
+            # claim even in this token, and is it one that names a person
+            # rather than an opaque id? Names only, never their values.
+            detail=f"{exc} | claims in token: {present}",
         )
     try:
         account, user = sf_connect.probe_identity(conn)
