@@ -1,3 +1,5 @@
+"""Engine, declarative base, and the per-request session dependency."""
+
 from collections.abc import Iterator
 from functools import lru_cache
 

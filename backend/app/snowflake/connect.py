@@ -1,3 +1,9 @@
+"""Opens Snowflake connections; every connection parameter set here.
+
+qmark paramstyle (server-side binds) and session keep-alive are
+deliberate and load-bearing -- see PARAMSTYLE and KEEP_ALIVE below.
+"""
+
 from typing import Any
 
 import snowflake.connector

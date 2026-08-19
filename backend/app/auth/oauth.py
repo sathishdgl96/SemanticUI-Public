@@ -1,3 +1,10 @@
+"""The OAuth authorization-code client (with PKCE) for Snowflake SSO.
+
+State is single-use and expiring; the PKCE verifier is bound to it, so
+an intercepted authorization code is useless without the verifier that
+never left this process.
+"""
+
 import secrets
 import time
 from dataclasses import dataclass

@@ -1,3 +1,10 @@
+"""Fernet encryption for at-rest OAuth tokens, keyed from the app secret.
+
+Sessions must survive a process restart, so tokens live in the database
+-- but only encrypted under a key derived from SEMANTICUI_SECRET_KEY,
+which production refuses to leave at the default.
+"""
+
 import base64
 import hashlib
 

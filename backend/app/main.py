@@ -1,3 +1,12 @@
+"""The application factory: middleware, routers, serving order.
+
+Order is load-bearing. The request-context middleware wraps everything
+so every log line and audit row carries a request id; security headers
+apply to every response, errors included; and the SPA static mount
+registers LAST so it can only claim paths no API route did (its 404
+fallback serves the shell page for client-side deep links).
+"""
+
 import logging
 import secrets
 import threading

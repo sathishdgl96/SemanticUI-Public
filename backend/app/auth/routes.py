@@ -1,3 +1,5 @@
+"""Sign-in, OAuth callback, logout, /api/me -- the session lifecycle."""
+
 import secrets
 from datetime import datetime, timedelta, timezone
 

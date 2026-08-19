@@ -1,3 +1,9 @@
+"""Saved explores: ad-hoc explorer sessions persisted like documents.
+
+Same ownership model as reports: workspace-scoped, membership checked
+at the gate, owner_user_id as provenance only.
+"""
+
 import uuid
 
 from sqlalchemy import select

@@ -1,3 +1,10 @@
+"""/api/export and /api/connect: workbooks, connect tokens, ODC files.
+
+Exported documents carry no identity and no credentials. The connect
+token is minted here, shown once, and stored only as a hash; filenames
+are sanitised because they derive from report names.
+"""
+
 import re
 
 from fastapi import APIRouter, Depends, Response

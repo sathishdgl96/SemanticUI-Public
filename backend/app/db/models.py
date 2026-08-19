@@ -1,3 +1,11 @@
+"""The whole relational schema, one class per table.
+
+Nothing security-relevant is stored in the clear: OAuth tokens are
+encrypted at rest, connect tokens exist only as sha256 digests, and
+audit events reference sessions by hash. Columns change only alongside
+a migration in backend/migrations.
+"""
+
 import uuid
 from datetime import datetime, timezone
 

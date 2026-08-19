@@ -1,3 +1,10 @@
+"""ApiError is the one exception the API raises on purpose.
+
+Handlers map it to a stable {code, message, detail} JSON shape. The
+validation handler strips pydantic's raw `input` so a failing field
+(e.g. a pasted private key) is never echoed back in a response.
+"""
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse

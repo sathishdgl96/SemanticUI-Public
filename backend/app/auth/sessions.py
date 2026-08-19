@@ -1,3 +1,11 @@
+"""App sessions: the identity every other surface resolves through.
+
+The browser carries only the opaque cookie id; OAuth tokens sit on the
+row encrypted. Feed tokens and XMLA connect tokens resolve to a session
+rather than directly to a user, so logout or expiry revokes every
+connected client at once -- that is the revocation story, on purpose.
+"""
+
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone

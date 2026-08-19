@@ -1,3 +1,9 @@
+"""/api/reports/{id}/ask: one Cortex completion over the report's view.
+
+No agentic loop -- one prompt, one completion, executed on the
+caller's own connection like every other query.
+"""
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session

@@ -1,3 +1,5 @@
+"""/api/explores: list/create/get/update/delete/export saved explores."""
+
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

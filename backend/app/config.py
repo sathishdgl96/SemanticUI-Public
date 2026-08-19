@@ -1,3 +1,11 @@
+"""Every SEMANTICUI_* environment variable, in one typed place.
+
+Settings are read once per process (lru_cache) and re-read in tests via
+cache_clear. The validators are the production guardrail: a deployment
+that still carries dev auth, the default secret key, the XMLA trace
+flag or a localhost database refuses to boot rather than run insecure.
+"""
+
 from functools import lru_cache
 from typing import Literal
 

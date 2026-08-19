@@ -1,3 +1,10 @@
+"""Runs one query and maps connector errors to actionable ApiErrors.
+
+The errno/sqlstate tables turn Snowflake's session-gone errors into
+AUTH_EXPIRED, which is what lets callers tell "connection died --
+rebuild or re-login" apart from "your query is wrong".
+"""
+
 from dataclasses import dataclass
 from typing import Any
 

@@ -1,3 +1,9 @@
+"""/api/reports: the HTTP shell around reports.service.
+
+Routes stay thin -- resolve the session, call the service, record the
+audit event. Denials are recorded value-free at the gate.
+"""
+
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

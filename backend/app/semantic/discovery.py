@@ -1,3 +1,10 @@
+"""SHOW / DESCRIBE SEMANTIC VIEW, parsed into plain dicts.
+
+These statement kinds cannot take bound parameters, so identifiers go
+through quote_ident (which refuses embedded quotes) and results are
+row-capped like any other query.
+"""
+
 from typing import Any
 
 from app.config import get_settings

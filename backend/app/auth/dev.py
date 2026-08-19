@@ -1,3 +1,11 @@
+"""Development sign-in: password, key-pair, or external browser.
+
+This is the path production refuses at startup. The submitted
+credential opens the Snowflake connection that becomes the session's
+cached connection; the server keeps no copy of the credential, so a
+lost connection means signing in again -- accepted, for development.
+"""
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request

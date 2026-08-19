@@ -1,3 +1,11 @@
+"""Report CRUD, import and move -- always inside the caller's workspaces.
+
+Membership is checked at the single workspace gate (non-members get
+404, so existence never leaks); owner_user_id is provenance only,
+never authorization. Imports re-validate every field reference against
+the live DESCRIBE before a definition is accepted.
+"""
+
 import uuid
 
 from sqlalchemy import select

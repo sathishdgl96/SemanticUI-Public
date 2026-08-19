@@ -1,3 +1,9 @@
+"""/api/workspaces: create/rename/delete and membership administration.
+
+Non-members see 404, members below the required role see 403 -- the
+API never reveals which workspaces exist to those outside them.
+"""
+
 import uuid
 from typing import Literal
 

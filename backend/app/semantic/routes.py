@@ -1,3 +1,9 @@
+"""/api/semantic-views and /api/query/semantic: browse and run.
+
+Every query runs on the caller's own cached connection; there is no
+service account anywhere in this codebase.
+"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 

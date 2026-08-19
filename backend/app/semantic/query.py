@@ -1,3 +1,11 @@
+"""Compiles a report definition into one SEMANTIC_VIEW() statement.
+
+The contract that matters: every user-influenced VALUE (filter values,
+member keys, include_combos) becomes a bound placeholder -- values
+never appear in SQL text -- and every field REFERENCE is validated
+against the view's DESCRIBE before it is used.
+"""
+
 from datetime import date
 from typing import Any, Literal
 

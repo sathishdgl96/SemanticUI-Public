@@ -1,3 +1,13 @@
+"""The per-app-session Snowflake connection cache.
+
+One connection per session, guarded by a per-entry lock. OAuth entries
+rebuild silently from the stored refresh token; dev/key-pair entries
+ARE the only copy of the credential, so they are retained for the
+session lifetime and losing one means signing in again. discard() is
+the self-healing path for connections that died server-side while
+still reporting open.
+"""
+
 import threading
 import time
 from dataclasses import dataclass, field
