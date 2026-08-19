@@ -67,7 +67,7 @@ class TestAudit:
         assert raw not in str(mint[0].detail)
 
     def test_events_carry_the_request_id(self, client, db):
-        sess = sign_in(client, db)
+        sign_in(client, db)
         db.commit()
         created = client.post(
             "/api/reports", json={"definition": valid_definition()},
