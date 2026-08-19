@@ -17,6 +17,24 @@ from app.xmla.mdx import HierSpec
 _DRILLED = 0x10000
 
 
+def canon(value) -> str:
+    """A member value as MDX spells it.
+
+    Paths parsed out of MDX are always STRINGS; the values behind them
+    come from Snowflake with their own types (a year is an int, a date a
+    date). Comparing the two forms directly silently fails every prefix,
+    drill-state and de-duplication test on a non-text level -- expanding
+    2023 shows nothing, and its collapse state is forgotten. Every
+    comparison goes through here; the RAW value is what stays in the
+    assignment, because the grouping tables are keyed by it.
+    """
+    return "" if value is None else str(value)
+
+
+def canon_path(path) -> tuple:
+    return tuple(canon(v) for v in path)
+
+
 class MemberBuilders:
     """Member construction, mixed into the engine.
 
@@ -59,21 +77,28 @@ class MemberBuilders:
         """(member, assignment) pairs for a user hierarchy on an axis, in
         Hierarchize order: each shown path, parents before children, with
         children under every drilled path. Values come from prefix-scoped
-        DISTINCT group-bys, one per depth, cached like every grouping."""
+        DISTINCT group-bys, one per depth, cached like every grouping.
+
+        Paths are matched CANONICALLY (see `canon`) so a numeric or date
+        level behaves like a text one; the raw value travels on in the
+        assignment, which is what the grouping tables are keyed by.
+        """
         levels = spec.levels
         hu = self._hier_uname(spec)
+        drilled_paths = {canon_path(p) for p in spec.drilled_paths}
+        undrilled_paths = {canon_path(p) for p in spec.undrilled_paths}
 
         def drilled(path: tuple) -> bool:
-            if path in spec.undrilled_paths:
+            if path in undrilled_paths:
                 return False
-            return path in spec.drilled_paths or len(path) in spec.drilled_depths
+            return path in drilled_paths or len(path) in spec.drilled_depths
 
         def member(path: tuple) -> dict:
             depth = len(path)
             caption = "" if path[-1] is None else str(path[-1])
             info = 0
             if depth < len(levels):
-                info = (_DRILLED if drilled(path) else 0) | 1000
+                info = (_DRILLED if drilled(canon_path(path)) else 0) | 1000
             return {
                 "hierarchy": hu,
                 "uname": path_unique_name(spec.table, spec.hier_field, path),
@@ -97,26 +122,30 @@ class MemberBuilders:
             }
 
         def children(prefix: tuple) -> list:
+            """Raw keys one level under this CANONICAL prefix."""
             depth = len(prefix) + 1
             if depth > len(levels):
                 return []
-            table = self._run([self._surrogate(t, n) for t, n in levels[:depth]])
-            return [k for k in table if k[: len(prefix)] == prefix]
+            index = self._prefix_groups(
+                [self._surrogate(t, n) for t, n in levels[:depth]]
+            )
+            return index.get(prefix, [])
 
         out: list = []
         emitted: set = set()
 
         def emit(path: tuple) -> None:
-            if path in emitted:
+            key = canon_path(path)
+            if key in emitted:
                 return
-            emitted.add(path)
+            emitted.add(key)
             out.append((member(path), assignment(path)))
 
         def walk(prefix: tuple) -> None:
             for key in children(prefix):
                 emit(key)
-                if drilled(key):
-                    walk(key)
+                if drilled(canon_path(key)):
+                    walk(canon_path(key))
 
         if spec.include_all:
             info = (_DRILLED if drilled(()) else 0) | 1000
@@ -141,12 +170,17 @@ class MemberBuilders:
         if drilled(()):
             walk(())
         for path in spec.member_paths:
-            emit(path)
-            if drilled(path):
-                walk(path)
+            key = canon_path(path)
+            # Resolve the MDX path to the RAW values behind it, so the
+            # assignment matches the grouping table's keys. A path the
+            # data no longer produces still shows (its cell comes back
+            # empty) rather than vanishing from a non-NON-EMPTY axis.
+            emit(self._resolve_path(levels, key) or path)
+            if drilled(key):
+                walk(key)
         # A drilled path whose own member is not shown (the dropdown asks
         # for [H].&[EUROPE].Children alone) still answers its children.
-        for path in sorted(spec.drilled_paths, key=len):
+        for path in sorted(drilled_paths, key=len):
             if path and path not in emitted:
                 walk(path)
         return out

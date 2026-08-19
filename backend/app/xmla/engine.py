@@ -24,7 +24,7 @@ from app.xmla import dataset
 from app.xmla.classify import _classify
 from app.xmla.discover import path_unique_name, user_hierarchies
 from app.xmla.mdx import HierSpec, MdxQuery, MemberRef
-from app.xmla.members import _DRILLED, MemberBuilders
+from app.xmla.members import _DRILLED, MemberBuilders, canon_path
 
 
 def _valid_measures(detail: dict, names: list[str]) -> list[str]:
@@ -52,7 +52,18 @@ class _Engine(MemberBuilders):
         #: Per-level stand-in specs, so hierarchy path members share the
         #: same grouping and cell machinery as plain attribute fields.
         self._surrogates: dict[tuple, HierSpec] = {}
-        self._results: dict[frozenset, dict] = {}
+        #: Grouping results keyed by the ORDERED field tuple: the same
+        #: fields in a different order give differently-keyed rows, so a
+        #: set-keyed cache hands back tables whose columns do not line up.
+        self._results: dict[tuple, dict] = {}
+        #: field SET -> the ordered key already computed for it, so a
+        #: permutation is answered by reordering in memory, never a
+        #: second trip to Snowflake.
+        self._orders: dict[frozenset, tuple] = {}
+        self._prefix_cache: dict[tuple, dict] = {}
+        self._distincts: dict[tuple, list] = {}
+        #: (hierarchy, path) selections from Exists / subselects.
+        self.selected_paths: list = []
         self.filters: list[dict] = []
         #: ([field, ...], [[value, ...], ...]) rows kept by per-tuple
         #: filters -- Excel's "uncheck this child under this parent only".
@@ -65,9 +76,20 @@ class _Engine(MemberBuilders):
         """Aggregate metrics grouped by these fields; cached per grouping.
         Returns {tuple(dim values): [metric values...]}, insertion-ordered.
         """
-        key = frozenset((s.table.upper(), s.hier_field.upper()) for s in group_fields)
+        key = tuple((s.table.upper(), s.hier_field.upper()) for s in group_fields)
         if key in self._results:
             return self._results[key]
+        # The same fields in another order: the rows are already here,
+        # they just need their columns permuted.
+        seen_order = self._orders.get(frozenset(key))
+        if seen_order is not None and len(seen_order) == len(key):
+            positions = [seen_order.index(k) for k in key]
+            table = {
+                tuple(row_key[p] for p in positions): value
+                for row_key, value in self._results[seen_order].items()
+            }
+            self._results[key] = table
+            return table
         dims = [f"{s.table}.{s.hier_field}" for s in group_fields]
         request = SemanticQueryRequest.model_validate({
             "database": self.view["database"],
@@ -91,7 +113,120 @@ class _Engine(MemberBuilders):
         for row in result.rows:
             table[tuple(row[:n])] = list(row[n:])
         self._results[key] = table
+        self._orders.setdefault(frozenset(key), key)
         return table
+
+    def _prefix_groups(self, group_fields: list[HierSpec]) -> dict:
+        """{canonical prefix: [raw keys]} over a grouping, built once.
+
+        Walking a tree asks "which rows start with this prefix?" once per
+        expanded member; scanning the whole table each time is quadratic
+        on a wide pivot. One pass builds every prefix instead.
+        """
+        key = tuple((s.table.upper(), s.hier_field.upper()) for s in group_fields)
+        cached = self._prefix_cache.get(key)
+        if cached is not None:
+            return cached
+        index: dict[tuple, list] = {}
+        for row_key in self._run(group_fields):
+            path = canon_path(row_key)
+            for depth in range(len(path) + 1):
+                index.setdefault(path[:depth], []).append(row_key)
+        self._prefix_cache[key] = index
+        return index
+
+    def _resolve_path(self, levels: list, path: tuple):
+        """The raw values behind a canonical MDX path, or None if the data
+        does not produce it."""
+        depth = len(path)
+        if not 1 <= depth <= len(levels):
+            return None
+        index = self._prefix_groups(
+            [self._surrogate(t, n) for t, n in levels[:depth]]
+        )
+        hits = index.get(path)
+        return hits[0] if hits else None
+
+    def _distinct(self, level_fields: list) -> list:
+        """DISTINCT rows of these levels, UNFILTERED and cached.
+
+        Deliberately not `_run`: this resolves what a hierarchy CONTAINS
+        while the filters are still being assembled, and `_run` would
+        cache a table built from a half-built filter list and then serve
+        it to the cell lookups.
+        """
+        key = tuple((t.upper(), n.upper()) for t, n in level_fields)
+        if key in self._distincts:
+            return self._distincts[key]
+        dims = [f"{t}.{n}" for t, n in level_fields]
+        request = SemanticQueryRequest.model_validate({
+            "database": self.view["database"],
+            "schema": self.view["schema"],
+            "view": self.view["name"],
+            "dimensions": dims,
+            "metrics": [],
+            "filters": [],
+            "orderBy": [{"field": d, "direction": "asc"} for d in dims],
+            "limit": None,
+        })
+        sql, params, limit = build_semantic_sql(
+            self.detail, request, max_rows=get_settings().export_row_cap
+        )
+        result = gateway.run_query(
+            self.session.conn, sql, max_rows=limit, params=params
+        )
+        rows = [tuple(row[: len(dims)]) for row in result.rows]
+        self._distincts[key] = rows
+        return rows
+
+    def _apply_path_selections(self) -> None:
+        """Hierarchy path selections -> ONE tuple-IN predicate each.
+
+        Ticking boxes in a hierarchy's filter dropdown selects PATHS. Per
+        level they would widen into their cartesian -- EUROPE/FRANCE plus
+        ASIA/JAPAN would also admit EUROPE/JAPAN -- so the combination
+        travels to Snowflake intact. Selections shallower than the
+        deepest one (a whole branch ticked beside a single leaf) expand
+        to full paths first, so one predicate carries them all.
+        """
+        by_hier: dict[tuple, list] = {}
+        levels_of: dict[tuple, list] = {}
+        for uh, path in self.selected_paths:
+            key = (uh["home"].upper(), uh["name"].upper())
+            levels_of[key] = list(uh["levels"])
+            paths = by_hier.setdefault(key, [])
+            canon = canon_path(path)
+            if canon not in paths:
+                paths.append(canon)
+        for key, paths in by_hier.items():
+            levels = levels_of[key]
+            depth = min(max(len(p) for p in paths), len(levels))
+            if depth < 1:
+                continue
+            if depth == 1:
+                table, name = levels[0]
+                self.filters.append({
+                    "id": f"mdx{len(self.filters)}",
+                    "field": f"{table}.{name}",
+                    "op": "is",
+                    "values": [p[0] for p in paths],
+                })
+                continue
+            index: dict[tuple, list] = {}
+            for row in self._distinct(levels[:depth]):
+                path = canon_path(row)
+                for k in range(len(path) + 1):
+                    index.setdefault(path[:k], []).append(row)
+            rows, seen = [], set()
+            for path in paths:
+                for row in index.get(path[:depth], []):
+                    if row not in seen:
+                        seen.add(row)
+                        rows.append(list(row))
+            if rows:
+                self.include_combos.append(
+                    ([f"{t}.{n}" for t, n in levels[:depth]], rows)
+                )
 
     def _surrogate(self, table: str, name: str) -> HierSpec:
         key = (table.upper(), name.upper())
@@ -107,7 +242,8 @@ class _Engine(MemberBuilders):
         q = self.q
         axis_specs = [
             _classify(entries, self.detail, exists_filters=self.filters,
-                      user_hiers=self.user_hiers)
+                      user_hiers=self.user_hiers,
+                      path_sink=self.selected_paths)
             if entries else []
             for entries in q.axes
         ]
@@ -128,12 +264,32 @@ class _Engine(MemberBuilders):
             plain = []
             for entry in entries:
                 if isinstance(entry, tuple) and entry[0] == "tuple":
-                    refs = [e for e in entry[1]
-                            if isinstance(e, MemberRef) and not e.is_measure
-                            and len(e.parts) == 3]
-                    if len(refs) >= 2:
-                        key = tuple(f"{r.parts[0]}.{r.parts[1]}" for r in refs)
-                        combos.setdefault(key, []).append(
+                    members = [e for e in entry[1]
+                               if isinstance(e, MemberRef) and not e.is_measure
+                               and len(e.parts) >= 3]
+                    # A parenthesised SET of hierarchy paths parses as a
+                    # tuple too. Those are separate selections of one
+                    # hierarchy, not a cross-hierarchy combination, and
+                    # dropping them (they are never 3 parts deep) is why
+                    # ticking boxes in a hierarchy dropdown filtered
+                    # nothing at all.
+                    refs = []
+                    for e in members:
+                        uh = self.user_hiers.get(
+                            (e.parts[0].upper(), e.parts[1].upper())
+                        )
+                        if uh is None:
+                            if len(e.parts) == 3:
+                                refs.append(e)
+                            continue
+                        path = tuple(e.parts[2:])[: len(uh["levels"])]
+                        if path:
+                            self.selected_paths.append((uh, path))
+                    fields = [f"{r.parts[0]}.{r.parts[1]}" for r in refs]
+                    # Only DISTINCT hierarchies form a combination; the
+                    # same hierarchy twice is a set of alternatives.
+                    if len(refs) >= 2 and len(set(fields)) == len(fields):
+                        combos.setdefault(tuple(fields), []).append(
                             [r.parts[2] for r in refs]
                         )
                         continue
@@ -142,8 +298,20 @@ class _Engine(MemberBuilders):
                 plain.append(entry)
             for key, rows in combos.items():
                 self.include_combos.append((list(key), rows))
-            for spec in _classify(plain, self.detail, user_hiers=self.user_hiers):
+            for spec in _classify(plain, self.detail, user_hiers=self.user_hiers,
+                                  path_sink=self.selected_paths):
                 if spec.kind == "measures":
+                    continue
+                if spec.kind == "userhier":
+                    # Boxes ticked in a hierarchy's filter dropdown: the
+                    # subselect names PATHS, which only mean anything as
+                    # whole combinations (see _apply_path_selections).
+                    for path in spec.member_paths:
+                        self.selected_paths.append((
+                            {"home": spec.table, "name": spec.hier_field,
+                             "levels": spec.levels},
+                            path,
+                        ))
                     continue
                 if spec.members:
                     self.filters.append({
@@ -152,6 +320,7 @@ class _Engine(MemberBuilders):
                         "op": "is",
                         "values": spec.members,
                     })
+        self._apply_path_selections()
 
         axis_measures = [m for specs in axis_specs
                          for s in specs if s.kind == "measures"

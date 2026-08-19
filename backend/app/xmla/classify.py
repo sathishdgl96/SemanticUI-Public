@@ -16,13 +16,34 @@ The reductions encode protocol facts learned on the wire:
 from app.xmla.mdx import HierSpec, MdxUnsupported, MemberRef
 
 
+def _is_all_ref(ref: MemberRef) -> bool:
+    """True for [T].[H].[All] -- the scoping member that means NO constraint.
+
+    Excel sends it as the second argument of Exists() whenever nothing is
+    selected. Treated as a value it filters on the literal string "All"
+    and empties the result, which is how a filter dropdown ends up blank.
+    A KEYED segment (`.&[All]`) is a real member whose caption is "All",
+    so the key flag is what separates the two.
+    """
+    if len(ref.parts) != 3:
+        return False
+    keyed = ref.keyed[2] if len(ref.keyed) > 2 else False
+    return not keyed and ref.parts[2].upper() in ("ALL", "(ALL)")
+
+
 def _classify(entries, detail, exists_filters: list | None = None,
-              user_hiers: dict | None = None) -> list[HierSpec]:
+              user_hiers: dict | None = None,
+              path_sink: list | None = None) -> list[HierSpec]:
     """Axis entries from the parser -> [measures spec?] + [field specs].
 
     `exists_filters`, when given, collects equality filters contributed by
     Exists(setA, setB): B's members constrain the whole query, which is
     exactly what scopes a dropdown's child level to the expanded member.
+
+    `path_sink` collects (hierarchy, path) selections from Exists over a
+    USER hierarchy. They cannot become per-field filters: two branches
+    would widen into their cartesian (EUROPE/FRANCE + ASIA/JAPAN would
+    also admit EUROPE/JAPAN), so the engine turns them into one tuple-IN.
     """
     measures: list[str] = []
     fields: dict[tuple[str, str], HierSpec] = {}
@@ -88,7 +109,11 @@ def _classify(entries, detail, exists_filters: list | None = None,
                 if drilled:
                     spec.drilled_paths.add(())
                 return
-            spec.member_paths.append(path)
+            # DrilldownMember's drill set re-walks members the base axis
+            # already carried; without the guard the member is emitted
+            # twice and the pivot grows duplicate rows.
+            if path not in spec.member_paths:
+                spec.member_paths.append(path)
             if drilled:
                 spec.drilled_paths.add(path)
             return
@@ -119,7 +144,10 @@ def _classify(entries, detail, exists_filters: list | None = None,
                 spec.children_of_all = True
             return
         if len(rest) == 1:
-            spec.members.append(rest[0])
+            # Same de-duplication as user-hierarchy paths above: a member
+            # named in both the base set and the drill set is ONE member.
+            if not any(m.upper() == rest[0].upper() for m in spec.members):
+                spec.members.append(rest[0])
             return
         raise MdxUnsupported(f"deep member path {ref.parts}")
 
@@ -145,13 +173,13 @@ def _classify(entries, detail, exists_filters: list | None = None,
                 if not (isinstance(e, MemberRef) and not e.is_measure
                         and len(e.parts) >= 3):
                     continue
+                if _is_all_ref(e):
+                    continue  # scoping to All constrains nothing
                 uh = (user_hiers or {}).get((e.parts[0].upper(), e.parts[1].upper()))
                 if uh is not None:
-                    for i, v in enumerate(e.parts[2:]):
-                        if i >= len(uh["levels"]):
-                            break
-                        t, n = uh["levels"][i]
-                        by_field.setdefault((t, n), []).append(v)
+                    path = tuple(e.parts[2:])[: len(uh["levels"])]
+                    if path and path_sink is not None:
+                        path_sink.append((uh, path))
                     continue
                 if len(e.parts) == 3:
                     by_field.setdefault((e.parts[0], e.parts[1]), []).append(e.parts[2])
