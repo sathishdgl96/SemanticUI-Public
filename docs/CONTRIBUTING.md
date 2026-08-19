@@ -43,6 +43,11 @@ them is part of any PR that changes a boundary they draw:
 - `docs/architecture/low-level.md` — package map, request flows, the
   XMLA protocol contract, DB schema.
 
+The decisions behind the shape of the system live in
+`docs/architecture/decisions/` — read the relevant ADR before proposing
+a change that touches one, and add an ADR in the same PR when your
+change makes a decision the next developer would otherwise reverse.
+
 House rules that are easy to trip over:
 
 1. **Every query runs on the caller's own Snowflake connection.** There
