@@ -19,6 +19,7 @@ Two deliberate oddities, both learned from the client rather than the spec:
 
 import base64
 import binascii
+import hashlib
 import logging
 import os
 
@@ -26,7 +27,8 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.db.base import get_db
-from app.errors import ApiError
+from app.errors import ApiError, AuthExpiredError
+from app.snowflake.provider import get_cache
 from app.xmla import discover
 from app.xmla.soap import envelope, fault, parse_request
 from app.xmla.state import acquire_entry, get_store
@@ -133,7 +135,11 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
             session_id, session = store.open(db, token)
             set_user(session.user_id)
         except ApiError as exc:
-            auth_window().register_failure(throttle_key)
+            # MSOLAP re-sends a rejected token in a burst; count each
+            # distinct bad token once so the retry storm cannot 429 the
+            # fresh token the user mints to recover.
+            digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            auth_window().register_failure_once(throttle_key, digest)
             logger.info("XMLA auth failed: %s", exc.message)
             return _unauthorized()
 
@@ -155,16 +161,29 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
         xmla_request.request_type or (xmla_request.statement or "")[:120],
         "yes" if xmla_request.session_id else ("new" if xmla_request.wants_session else "-"),
     )
-    try:
+    def attempt():
         entry = acquire_entry(db, session)
-        with entry.lock:
-            session.bind(entry, db)
-            if xmla_request.verb == "Discover":
-                inner = discover.handle(session, xmla_request)
-            else:
+        try:
+            with entry.lock:
+                session.bind(entry, db)
+                if xmla_request.verb == "Discover":
+                    return discover.handle(session, xmla_request)
                 from app.xmla.execute import handle_execute
 
-                inner = handle_execute(session, xmla_request)
+                return handle_execute(session, xmla_request)
+        except AuthExpiredError:
+            # The Snowflake session died server-side while the connection
+            # still reported open. Discard it so the retry below rebuilds
+            # (OAuth) or answers with the sign-in-again fault (dev) --
+            # never the same dead connection failing gesture after gesture.
+            get_cache().discard(session.db_session_id, entry)
+            raise
+
+    try:
+        try:
+            inner = attempt()
+        except AuthExpiredError:
+            inner = attempt()
     except ApiError as exc:
         out = fault(exc.code, exc.message)
         _trace("response", out)

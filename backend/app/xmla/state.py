@@ -230,3 +230,9 @@ def get_store() -> SessionStore:
     if _store is None:
         _store = SessionStore()
     return _store
+
+
+def reset_store() -> None:
+    """Test isolation: XMLA sessions must not leak between test apps."""
+    global _store
+    _store = None

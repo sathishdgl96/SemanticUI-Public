@@ -27,6 +27,8 @@ class SlidingWindow:
         self._window = window
         self._clock = clock
         self._hits: dict[str, deque] = {}
+        #: key -> {fingerprint: first-counted-at}, for register_failure_once.
+        self._seen: dict[str, dict[str, float]] = {}
         self._lock = threading.Lock()
 
     def _prune(self, key: str, now: float) -> deque:
@@ -51,6 +53,29 @@ class SlidingWindow:
             now = self._clock()
             self._prune(key, now).append(now)
 
+    def register_failure_once(self, key: str, fingerprint: str) -> None:
+        """Count a failure once per (key, fingerprint) per window.
+
+        MSOLAP re-sends one rejected connect token in a burst of retries;
+        counting every retry would burn the whole per-client budget on a
+        single stale credential and 429 the user's FRESH token too. Only
+        distinct bad credentials count, so a brute-force scan (many
+        fingerprints) still exhausts the budget at the same rate.
+        """
+        with self._lock:
+            now = self._clock()
+            seen = self._seen.setdefault(key, {})
+            for fp, counted_at in list(seen.items()):
+                if now - counted_at > self._window:
+                    del seen[fp]
+            if not seen:
+                self._seen.pop(key, None)
+                seen = self._seen.setdefault(key, {})
+            if fingerprint in seen:
+                return
+            seen[fingerprint] = now
+            self._prune(key, now).append(now)
+
     def retry_after(self, key: str) -> int:
         with self._lock:
             now = self._clock()
@@ -68,3 +93,9 @@ def auth_window() -> SlidingWindow:
     if _auth_window is None:
         _auth_window = SlidingWindow()
     return _auth_window
+
+
+def reset_window() -> None:
+    """Test isolation: one test's failures must not 429 the next."""
+    global _auth_window
+    _auth_window = None

@@ -180,6 +180,23 @@ class ConnectionCache:
         if entry is not None:
             _close_quietly(entry.conn)
 
+    def discard(self, session_id: str, entry: CacheEntry) -> None:
+        """Drop THIS entry because its connection proved dead mid-query.
+
+        `is_closed()` is a client-side flag; a connection killed server-side
+        (idle timeout, network change) still reports open, so `acquire`
+        keeps returning it and every request fails identically. When a query
+        raises a session-gone error, the caller hands the entry back here;
+        the next acquire then rebuilds (OAuth) or asks for a sign-in (dev)
+        instead of failing forever. The identity check keeps a slow caller
+        from evicting a successor a concurrent request already rebuilt.
+        """
+        with self._lock:
+            if self._entries.get(session_id) is not entry:
+                return
+            self._entries.pop(session_id, None)
+        _close_quietly(entry.conn)
+
     @staticmethod
     def _describe_key(database: str, schema: str, name: str) -> str:
         return f"{database}.{schema}.{name}"

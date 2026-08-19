@@ -44,6 +44,14 @@ def _session_parameters() -> dict:
     return {"STATEMENT_TIMEOUT_IN_SECONDS": get_settings().statement_timeout_seconds}
 
 
+# Connections live in the provider's cache far longer than Snowflake keeps an
+# idle session alive. Without keep-alive the server expires the session while
+# the client still reports the connection open, and the next query -- often an
+# Excel pivot gesture hours later -- fails with a session-gone error. The
+# connector's heartbeat costs nothing per query and removes the whole class.
+KEEP_ALIVE = {"client_session_keep_alive": True}
+
+
 def connect_oauth(token: str) -> Any:
     settings = get_settings()
     return snowflake.connector.connect(
@@ -52,6 +60,7 @@ def connect_oauth(token: str) -> Any:
         token=token,
         session_parameters=_session_parameters(),
         paramstyle=PARAMSTYLE,
+        **KEEP_ALIVE,
     )
 
 
@@ -85,6 +94,7 @@ def connect_keypair(*, account: str, user: str, private_key_der: bytes) -> Any:
         private_key=private_key_der,
         session_parameters=_session_parameters(),
         paramstyle=PARAMSTYLE,
+        **KEEP_ALIVE,
     )
 
 
@@ -111,6 +121,7 @@ def connect_dev(
         "user": user,
         "session_parameters": _session_parameters(),
         "paramstyle": PARAMSTYLE,
+        **KEEP_ALIVE,
     }
     if authenticator == "password":
         kwargs["password"] = password

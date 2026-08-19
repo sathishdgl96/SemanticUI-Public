@@ -24,10 +24,12 @@ def db(db_factory):
 
 from fastapi.testclient import TestClient
 
+from app.auth import throttle
 from app.config import get_settings
 from app.db.base import get_db
 from app.main import create_app
 from app.snowflake import provider
+from app.xmla import state as xmla_state
 
 
 @pytest.fixture
@@ -37,6 +39,8 @@ def make_client(db_factory, monkeypatch):
             monkeypatch.setenv(key, value)
         get_settings.cache_clear()
         provider.reset_cache()
+        throttle.reset_window()
+        xmla_state.reset_store()
         app = create_app()
 
         def override():
