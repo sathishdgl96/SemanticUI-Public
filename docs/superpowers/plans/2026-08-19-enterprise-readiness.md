@@ -142,25 +142,41 @@ Gaps this plan closes:
      therefore a P0 security control, not hygiene; tokens stay in SPA
      memory, never localStorage; third-party script surface stays zero.
 
-  **Excel: connect tokens as explicit delegated credentials,
-  admin-capped validity.** `SEMANTICUI_CONNECT_TOKEN_MAX_DAYS` (hard
-  ceiling 90, matching Snowflake's default max refresh validity); the
-  mint UI offers durations up to the cap. Because an unattended 7 a.m.
-  refresh has no browser token to lean on, each connect token binds to
-  a Snowflake REFRESH TOKEN stored server-side for its lifetime --
-  the ONLY credential the server ever persists, and only because the
-  user deliberately created it:
-  - stored envelope-encrypted (KMS/Vault transit key; Fernet fallback
-    in dev), token itself still sha256-only;
-  - per-token revocation in the UI + `ALTER USER ... REMOVE DELEGATED
-    AUTHORIZATIONS` in the runbook as the Snowflake-side kill switch;
-  - lifecycle fully audited (C1): mint, first use,
-    use-from-new-address, refresh failure, expiry, revocation;
-  - decoupled from browser sessions (a browser logout no longer kills
-    Excel; revocation is explicit, from the token list in the UI).
-  *Accept:* mint/refresh/revoke/expire covered by tests; a two-replica
-  Excel refresh works with no affinity; DB dump contains no usable
-  credential except the encrypted, capped, revocable Excel grants.
+  **Excel: connect tokens follow the PAT model (Databricks/GitHub),
+  paired with a Snowflake grant.** The PAT lifecycle applies in full;
+  the one structural difference from Databricks is stated openly: their
+  PAT suffices because they own the engine, ours pairs each token with
+  a per-user Snowflake delegated grant (envelope-encrypted refresh
+  token) because Snowflake is the engine and every query must run as
+  the user.
+
+  - **Multiple named tokens per user** ("Work laptop", "Finance
+    workbook"), each independently revocable. Schema: `connect_tokens`
+    table replaces the per-session columns -- `id, user_id, name,
+    token_hash, scope, created_at, expires_at, last_used_at,
+    revoked_at, grant_enc`.
+  - **Per-token expiry chosen at mint**, capped by
+    `SEMANTICUI_CONNECT_TOKEN_MAX_DAYS` (hard ceiling 90); UI nudges
+    short.
+  - **Scopes, GitHub fine-grained style**: all-my-workspaces or a
+    selected subset; inherently read-only (the token reaches only the
+    XMLA/feed read paths). Enforced in `require_access` composition.
+  - **Self-service token page** in the app: list (name, created,
+    expires, last used, scope), create-with-copy-once, revoke. Admin
+    policy: max lifetime, org-wide disable switch (the Databricks
+    workspace-conf equivalent).
+  - **Hygiene**: `xlt_` prefix registered for secret scanning,
+    sha256-only at rest, shown once, full lifecycle audited (C1):
+    mint, first use, use-from-new-address, refresh failure, expiry,
+    revocation; IdP deactivation revokes all of a user's tokens
+    (A2.1b.4).
+  - **Kill switches**: per-token revoke in UI; Snowflake-side
+    `ALTER USER ... REMOVE DELEGATED AUTHORIZATIONS` in the runbook.
+  *Accept:* mint/scope/refresh/revoke/expire covered by tests; two
+  tokens for one user revoke independently; a workspace-scoped token
+  404s outside its scope; a DB dump contains no usable credential
+  except the encrypted, capped, revocable grants users deliberately
+  created.
 
 - **A2.1b Industry-alignment additions** (from the comparables review:
   Power BI gateway credentials and Tableau saved credentials validate the
