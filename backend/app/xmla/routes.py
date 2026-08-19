@@ -119,13 +119,21 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
             set_user(session.user_id)
 
     if session is None:
+        from app.auth.throttle import auth_window
+
+        client = request.client.host if request.client else "?"
+        throttle_key = f"token:{client}"
         token = _token(request)
         if token is None:
             return _unauthorized()
+        if not auth_window().allowed(throttle_key):
+            return Response(status_code=429, headers=_NEGOTIATION,
+                            content="Too many failed attempts")
         try:
             session_id, session = store.open(db, token)
             set_user(session.user_id)
         except ApiError as exc:
+            auth_window().register_failure(throttle_key)
             logger.info("XMLA auth failed: %s", exc.message)
             return _unauthorized()
 

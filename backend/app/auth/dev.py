@@ -1,11 +1,12 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth.sessions import create_session, set_session_cookie
+from app.auth.throttle import auth_window
 from app.config import get_settings
 from app.db.base import get_db
 from app.errors import ApiError
@@ -25,8 +26,20 @@ class DevLoginRequest(BaseModel):
 
 
 @router.post("/auth/dev-login")
-def dev_login(req: DevLoginRequest, db: Session = Depends(get_db)) -> JSONResponse:
+def dev_login(
+    req: DevLoginRequest, request: Request, db: Session = Depends(get_db)
+) -> JSONResponse:
     settings = get_settings()
+    # Throttle by address AND claimed identity: a brute force burns its
+    # own budget, a typo does not lock out the whole office NAT.
+    client = request.client.host if request.client else "?"
+    throttle_key = f"login:{client}:{req.account}/{req.user}".lower()
+    window = auth_window()
+    if not window.allowed(throttle_key):
+        raise ApiError(
+            "RATE_LIMITED", 429,
+            "Too many sign-in attempts; wait a minute and try again.",
+        )
     if req.authenticator not in settings.direct_login_methods:
         raise ApiError(
             "AUTH_FAILED", 400, f"Login method '{req.authenticator}' is not enabled"
@@ -54,6 +67,7 @@ def dev_login(req: DevLoginRequest, db: Session = Depends(get_db)) -> JSONRespon
     except ApiError:
         raise
     except Exception as exc:
+        window.register_failure(throttle_key)
         detail = None if req.authenticator == "keypair" else str(exc)
         raise ApiError("AUTH_FAILED", 401, "Snowflake login failed", detail=detail)
     try:

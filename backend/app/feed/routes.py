@@ -75,8 +75,17 @@ def _feed(
     visual_id: str,
     limit: int | None,
 ) -> tuple[list[str], list[list], bool]:
+    from app.auth.throttle import auth_window
+
+    client = request.client.host if request.client else "?"
+    throttle_key = f"token:{client}"
+    if not auth_window().allowed(throttle_key):
+        raise ApiError(
+            "RATE_LIMITED", 429, "Too many failed attempts; wait a minute."
+        )
     dbsess = _app_session(request, db)
     if dbsess is None:
+        auth_window().register_failure(throttle_key)
         raise ApiError("AUTH_REQUIRED", 401, "connect token required")
     from app.logging import set_user
 

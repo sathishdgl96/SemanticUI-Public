@@ -95,6 +95,18 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"secret_key must be at least {MIN_SECRET_KEY_LENGTH} characters in production"
                 )
+            import os
+
+            if os.environ.get("SEMANTICUI_XMLA_TRACE"):
+                raise ValueError(
+                    "SEMANTICUI_XMLA_TRACE writes verbatim wire traffic and "
+                    "is a development diagnostic; unset it in production"
+                )
+            if "localhost" in self.database_url or "127.0.0.1" in self.database_url:
+                raise ValueError(
+                    "database_url still points at localhost; production "
+                    "needs its real database"
+                )
         return self
 
 

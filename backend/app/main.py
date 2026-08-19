@@ -52,6 +52,37 @@ def create_app() -> FastAPI:
     request_logger = logging.getLogger("app.request")
 
     @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        """Baseline browser protections plus the CSRF posture.
+
+        CSRF: the API is JSON-over-fetch with a SameSite=lax cookie and no
+        CORS middleware (cross-origin reads are already dead). The residual
+        risk is a cross-site FORM POST, which modern browsers label with
+        Sec-Fetch-Site: cross-site -- refused here for unsafe methods.
+        Token-authenticated paths (/xmla, /api/feed) carry no cookie and
+        need no refusal.
+        """
+        if (
+            request.method in ("POST", "PUT", "PATCH", "DELETE")
+            and request.headers.get("sec-fetch-site") == "cross-site"
+            and not request.url.path.startswith(("/xmla", "/api/feed"))
+        ):
+            from fastapi.responses import JSONResponse as _JSON
+
+            return _JSON({"error": "cross-site request refused"}, status_code=403)
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "same-origin")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        if request.url.path.startswith(("/api", "/auth")):
+            response.headers.setdefault("Cache-Control", "no-store")
+        if get_settings().environment == "production":
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+    @app.middleware("http")
     async def request_context(request: Request, call_next):
         """Correlation and the one summary line per request.
 
