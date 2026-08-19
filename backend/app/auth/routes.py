@@ -1,5 +1,6 @@
 """Sign-in, OAuth callback, logout, /api/me -- the session lifecycle."""
 
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -22,6 +23,8 @@ from app.db.models import DbSession
 from app.errors import ApiError, AuthExpiredError
 from app.snowflake import connect as sf_connect
 from app.snowflake.provider import get_cache
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -82,7 +85,23 @@ def oauth_callback(
         tok = oauth_mod.get_oauth_client().exchange_code(code, code_verifier=verifier)
     except OAuthRefreshError:
         return _reject_oauth_callback("OAuth code exchange failed")
-    conn = sf_connect.connect_oauth(tok.access_token)
+    try:
+        conn = sf_connect.connect_oauth(tok.access_token)
+    except Exception as exc:
+        # The IdP authenticated the user and issued a token, but Snowflake
+        # will not accept it -- the EXTERNAL_OAUTH security integration is
+        # missing or does not match (issuer, audience, or the claim mapped
+        # to LOGIN_NAME). Raising here reached the browser as a bare
+        # INTERNAL_ERROR, which says nothing about which of the three legs
+        # failed. The reason goes to the log; the browser gets the leg and
+        # the thing to configure, never the token.
+        logger.warning("Snowflake refused the IdP token: %s", exc)
+        return _reject_oauth_callback(
+            "Signed in with your identity provider, but Snowflake refused "
+            "the token. Check the EXTERNAL_OAUTH security integration: its "
+            "issuer and audience must match the IdP, and the mapped claim "
+            "must match the Snowflake user's LOGIN_NAME."
+        )
     try:
         account, user = sf_connect.probe_identity(conn)
         sess = create_session(
