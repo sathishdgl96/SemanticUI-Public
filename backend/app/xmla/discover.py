@@ -1080,8 +1080,10 @@ def _mdschema_members(session, request) -> str:
         out = []
         for index, value in enumerate(values, start=start):
             caption = "" if value is None else str(value)
+            # Discover and Execute must spell a member the same way, and
+            # both must survive the round trip: "]" doubles (MDX escape).
             out.append(row(
-                caption, f"{u}.&[{caption}]", caption,
+                caption, f"{u}.&[{_bracket(caption)}]", caption,
                 f"{u}.[{field}]", 1, 1, index, 0, f"{u}.[All]",
             ))
         return out
@@ -1104,7 +1106,7 @@ def _mdschema_members(session, request) -> str:
         elif is_leaf_member:
             if tree_op & _TREE_SELF:
                 caption = tail
-                rows.append(row(caption, f"{u}.&[{caption}]", caption,
+                rows.append(row(caption, f"{u}.&[{_bracket(caption)}]", caption,
                                 f"{u}.[{field}]", 1, 1, 1, 0, f"{u}.[All]"))
             if tree_op & _TREE_PARENT:
                 rows.append(all_row(0))

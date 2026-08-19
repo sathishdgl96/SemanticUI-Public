@@ -10,7 +10,7 @@ mddataset declares those properties in HierarchyInfo -- an undeclared
 property is a schema violation ADOMD rejects outright.
 """
 
-from app.xmla.discover import path_unique_name
+from app.xmla.discover import _bracket, path_unique_name
 from app.xmla.mdx import HierSpec
 
 #: All-member DisplayInfo: DRILLED_DOWN flag plus the child count.
@@ -62,7 +62,10 @@ class MemberBuilders:
         caption = "" if value is None else str(value)
         return {
             "hierarchy": u,
-            "uname": f"{u}.&[{caption}]",
+            # A "]" in the value must be doubled: the unique name we emit
+            # is the one Excel sends back on the next drill or filter, and
+            # our own tokenizer refuses an unescaped one.
+            "uname": f"{u}.&[{_bracket(caption)}]",
             "caption": caption,
             "lname": f"{u}.[{spec.hier_field}]",
             "lnum": 1,

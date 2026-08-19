@@ -22,7 +22,7 @@ from app.semantic.query import SemanticQueryRequest, build_semantic_sql
 from app.snowflake import gateway
 from app.xmla import dataset
 from app.xmla.classify import _classify
-from app.xmla.discover import path_unique_name, user_hierarchies
+from app.xmla.discover import _bracket, path_unique_name, user_hierarchies
 from app.xmla.mdx import HierSpec, MdxQuery, MemberRef
 from app.xmla.members import _DRILLED, MemberBuilders, canon_path
 
@@ -108,6 +108,16 @@ class _Engine(MemberBuilders):
         result = gateway.run_query(
             self.session.conn, sql, max_rows=limit, params=params
         )
+        if result.truncated:
+            # Answering from a truncated grouping means every subtotal and
+            # grand total Excel draws is computed from PART of the data,
+            # with nothing on the wire to say so. Wrong numbers that look
+            # right are worse than an error.
+            raise ApiError(
+                "XMLA_TOO_LARGE", 400,
+                "This view has too many rows at that level of detail. "
+                "Filter it, or drill into a narrower selection.",
+            )
         n = len(dims)
         table = {}
         for row in result.rows:
@@ -532,7 +542,7 @@ class _Engine(MemberBuilders):
         u = f"[{table}].[{name}]"
         self.slicer_members.append({
             "hierarchy": u,
-            "uname": f"{u}.&[{value}]",
+            "uname": f"{u}.&[{_bracket(value)}]",
             "caption": value,
             "lname": f"{u}.[{name}]",
             "lnum": 1,
