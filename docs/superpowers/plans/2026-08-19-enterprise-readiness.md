@@ -1,228 +1,297 @@
-# Enterprise Readiness Plan: Security, Logging, Traceability, Maintainability
+# Enterprise Readiness Plan: SSO, Security, Observability, Containers, Maintainability
 
 > Program-level roadmap. Each task names the files it touches and the
-> acceptance criterion that closes it. Ordered so that every phase leaves
-> the app deployable; nothing depends on a later phase to be safe.
+> acceptance criterion that closes it. Ordered so every phase leaves the
+> app deployable; nothing depends on a later phase to be safe.
+
+## 0. Direction decisions (set by the product owner)
+
+1. **SSO through a Snowflake security integration is THE auth path.**
+   Users sign in via OAuth against Snowflake (which fronts the corporate
+   IdP); the app never sees or stores a Snowflake password. The current
+   dev-login (password/key-pair) becomes a development-only mode, refused
+   in production. The codebase is already shaped for this: `auth_mode=
+   oauth`, `connect_oauth`, the refresh flow and Fernet-encrypted token
+   storage exist — what remains is making it primary, documented, and
+   operationally complete.
+2. **Containerized deployment for scalability.** One backend image, the
+   SPA built and served behind it (or a proxy), horizontal replicas.
+   OAuth makes this tractable: an OAuth session's Snowflake connection is
+   **rebuildable from its stored refresh token on any replica**, so
+   scaling out does not strand users the way dev-mode connections would.
+3. **Maintainability means a future developer ramps fast.** Modularity
+   with explicit boundaries AND a documentation program (onboarding,
+   per-package intent, ADRs, runbooks) are first-class deliverables, not
+   afterthoughts.
 
 ## 1. Where we stand (honest inventory)
 
-Strengths already in place — these are the foundation, not the gaps:
+Strengths already in place:
 
 | Area | What exists today |
 | --- | --- |
 | Data-plane auth | Every query runs on the caller's own Snowflake connection; no shared service account exists to leak |
-| Authorization | Workspace RBAC via `require_access` (404 non-member, 403 low role); `owner_user_id` is provenance only |
-| Injection | All filter/member values are bound parameters (`app/semantic/predicates.py`, tuple-IN combos included); identifiers quoted via `quote_ident`; enforced by tests that assert values never appear in SQL text |
-| Secrets | `SEMANTICUI_SECRET_KEY` refuses the published default and short keys in production (`config.py`); OAuth tokens Fernet-encrypted at rest; connect tokens stored as sha256 only, shown once, ≤24 h, die with the session |
-| Session | HttpOnly, SameSite=lax, Secure outside dev; DB-backed with TTL + background purge |
-| Export hygiene | No credentials or identity in any generated artifact; CSV formula-injection guard (`export/literals.py`, `feed/render.py`) |
-| Traceability seed | `QueryResult.sfqid` already captures Snowflake's query id on every statement |
+| OAuth plumbing | `auth/oauth.py` + `connect_oauth` + refresh-with-skew + Fernet-encrypted access/refresh tokens in `sessions`; the connection cache already rebuilds OAuth connections transparently |
+| Authorization | Workspace RBAC via `require_access` (404 non-member, 403 low role) |
+| Injection | All values are bound parameters (tuple-IN combos included); identifiers quoted; test-enforced |
+| Secrets | Production refuses the default `SECRET_KEY`; connect tokens stored as sha256 only, one-shot display, ≤24 h, die with the session |
+| Session | HttpOnly, SameSite=lax, Secure outside dev; DB-backed TTL + purge sweeper |
+| Export hygiene | No credentials/identity in any artifact; CSV formula-injection guards |
+| Traceability seed | `QueryResult.sfqid` captures Snowflake's query id on every statement |
 
 Gaps this plan closes:
 
 | Gap | Evidence |
 | --- | --- |
+| SSO not primary | Dev-login is the exercised path; the OAuth flow has no Snowflake-side setup doc, no group→workspace mapping, and little test traffic |
+| Not containerized | No Dockerfile/compose; `dev.py` is the only runner; scale-out semantics (per-process caches) undocumented |
 | No audit trail | Nothing records who read which report, exported what, or minted a token |
-| No request correlation | No request-ID middleware; logs (where they exist) cannot be tied to a user action |
-| Sparse, unstructured logging | 6 of ~40 backend modules log; plain-text format; no central config |
-| No security headers / CSP | No middleware adds `X-Content-Type-Options`, `Referrer-Policy`, CSP, HSTS |
-| No rate limiting or lockout | `POST /auth/dev-login` and the token/Basic paths accept unlimited attempts |
-| No CI, no lockfile, no scanning | `.github/workflows` absent; `pyproject.toml` uses floor pins; no dependency or secret scanning |
-| Dev credentials in `.env` | Real Snowflake credentials sit in a gitignored file on a developer machine; password was pasted in chat once (rotation still owed) |
-| CSRF posture undocumented | SameSite=lax is the only defense; state-changing POSTs have no token; needs an explicit decision |
-| XMLA wire trace risk | `SEMANTICUI_XMLA_TRACE` writes verbatim requests (Authorization redacted) — safe as designed but needs a production guard |
+| No request correlation | No request-ID middleware; logs can't be tied to a user action |
+| Sparse, unstructured logging | ~6 of ~40 backend modules log; plain text; ad-hoc handlers |
+| No security headers / throttling / CSRF decision | No middleware; unlimited auth attempts; SameSite-only CSRF posture |
+| No CI, lockfile, scanning | `.github/workflows` absent; floor pins; no CVE/secret scanning |
+| Oversized modules | `BuilderPage.tsx` ~1,300 lines; `xmla/execute.py`'s `_Engine.execute` does axis building AND cells |
+| Documentation partial | `docs/architecture/*` exists and is good; no onboarding guide, no ADRs, no per-package intent docs, no ops runbooks |
 
 ## 2. Guiding principles
 
-1. **Anchor to the one query path.** Security and audit instrumentation
-   goes into `build_semantic_sql` / `gateway.run_query` and the auth
-   resolvers — the funnels everything already passes through — never
-   per-endpoint sprinkles.
-2. **Logs are for operators; audits are for compliance.** Two streams,
-   two retention policies, one correlation id joining them.
-3. **Never log data.** Row values, filter values, member names and tokens
-   never enter a log line. Field REFERENCES and query ids are fine.
-4. **Every phase ships green.** 718 backend + 470 frontend tests stay the
+1. **Anchor to the funnels.** Instrumentation goes into
+   `build_semantic_sql`/`gateway.run_query` and the auth resolvers —
+   never per-endpoint sprinkles.
+2. **Logs for operators, audits for compliance** — two streams, one
+   request id joining them. **Never log data**: no row values, filter
+   values, member names or tokens in any log line.
+3. **Every phase ships green.** 718 backend + 470 frontend tests are the
    floor; each task adds its own.
+4. **Documentation ships with the code it describes** — same PR, or it
+   does not merge.
 
-## 3. Workstream A — Security hardening
+## 3. Workstream S — SSO via Snowflake security integration  (P0)
+
+- **S1 Snowflake-side setup, documented and scripted.** A runbook +
+  idempotent SQL: `CREATE SECURITY INTEGRATION` (type OAUTH /
+  external-OAuth variant when the IdP fronts Snowflake), redirect URIs,
+  refresh-token lifetime, blocked-roles review. Lives in
+  `docs/operations/snowflake-sso.md` with the exact grants the app needs.
+  *Accept:* a fresh Snowflake account can be wired up from the doc alone.
+- **S2 OAuth mode to first-class.** Exercise and harden
+  `auth/oauth.py`: state parameter entropy + expiry (verify), PKCE if the
+  integration supports it, error paths (denied consent, expired refresh)
+  land on friendly UI states. Integration tests behind the existing
+  env-gated marker; unit tests with a fake token endpoint. *Accept:*
+  full login→query→refresh→logout covered.
+- **S3 Dev-login demoted.** `config.py`: production refuses
+  `auth_mode=dev` (hard, no override flag); LoginPage hides the dev form
+  unless the branding endpoint says dev mode. *Accept:* config + UI
+  tests.
+- **S4 Excel on SSO sessions.** Connect tokens already ride the app
+  session — verify the full Excel matrix (XMLA, Power Query feed) on an
+  OAuth session, including refresh-during-long-pivot and
+  rebuild-after-restart (OAuth's rebuildable connections should REMOVE
+  today's "restart strands Excel" caveat — prove it and update docs).
+  *Accept:* live COM-driven Excel pass on an OAuth session.
+- **S5 Workspace membership from the IdP (P1).** Map IdP/Snowflake roles
+  or groups to workspace membership on login (configurable mapping
+  table); manual membership remains for exceptions. *Accept:* login
+  provisions membership per mapping; removal on next login when the
+  group is gone.
+
+## 4. Workstream A — Security hardening
 
 ### Phase A1 (P0)
 
-- **A1.1 Security-header middleware.** `app/main.py`: add middleware
-  setting `X-Content-Type-Options: nosniff`, `Referrer-Policy:
-  same-origin`, `X-Frame-Options: DENY`, `Cache-Control: no-store` on
-  `/api` + `/auth`, and (behind a settings flag, on when
-  `environment=production`) `Strict-Transport-Security`. CSP for the SPA:
-  `default-src 'self'` with the exceptions Vite's build actually needs,
-  delivered via the reverse-proxy doc AND a fallback header. *Accept:*
-  header assertions in a route test; SPA loads under the CSP.
-- **A1.2 Login throttling.** `app/auth/dev.py` + `connect_token.resolve`
-  + XMLA/feed 401 paths: per-IP+username sliding-window limiter
-  (in-process token bucket table; interface allows a Redis backend
-  later). Lockout responses are 429 with no user-existence signal.
-  *Accept:* tests for allow→throttle→recover; auth failures audit-logged
-  (A3.2).
-- **A1.3 CSRF decision, implemented.** Document and enforce: JSON-only
-  APIs + SameSite=lax + a custom-header requirement (`X-Requested-With`)
-  on state-changing routes, rejected when absent. Exempt: `/xmla` and
-  `/api/feed` (Basic-token, no cookies). *Accept:* forged-form test fails
-  cross-origin, normal SPA flows pass.
-- **A1.4 Production guardrails in `config.py`.** In
-  `environment=production`: refuse `auth_mode=dev` unless
-  `SEMANTICUI_ALLOW_DEV_AUTH=1`, refuse `SEMANTICUI_XMLA_TRACE`, require
-  `database_url` not to be the localhost default. *Accept:* config tests.
-- **A1.5 Credential hygiene closure.** Rotate the Snowflake dev password
-  (user action, still open); add `detect-secrets` baseline + pre-commit;
-  CI secret scan (D1.2). *Accept:* scan runs clean in CI.
+- **A1.1 Security-header middleware** (`app/main.py`): nosniff,
+  Referrer-Policy, X-Frame-Options DENY, no-store on `/api`+`/auth`,
+  HSTS in production; CSP for the SPA (`default-src 'self'` plus what the
+  Vite build needs). *Accept:* header assertions in tests; SPA runs
+  under the CSP.
+- **A1.2 Auth throttling.** Sliding-window limiter on `/auth/*`, connect
+  token resolution, and XMLA/feed 401 paths; 429s carry no
+  user-existence signal. *Accept:* allow→throttle→recover tests; audit
+  events on lockout.
+- **A1.3 CSRF decision, implemented.** JSON-only + SameSite=lax + a
+  required custom header on state-changing routes; `/xmla` and
+  `/api/feed` exempt (token auth, no cookies). *Accept:* forged-form
+  test fails, SPA flows pass.
+- **A1.4 Production guardrails** (`config.py`): refuse dev auth (S3),
+  refuse `SEMANTICUI_XMLA_TRACE`, refuse localhost DB default.
+- **A1.5 Credential hygiene.** Rotate the Snowflake dev password (owner
+  action, still open); `gitleaks` + `detect-secrets` baseline in CI.
 
 ### Phase A2 (P1)
 
-- **A2.1 Token & session hardening.** Connect-token: constant-time hash
-  compare (it is hash-lookup today — verify and test), optional IP-pin
-  setting; session cookie rotation on privilege-relevant changes; logout
-  invalidates connect token explicitly (today: implicit via session
-  delete — add a test that proves it).
-- **A2.2 Input ceilings.** Explicit request-size limits (FastAPI/uvicorn
-  `--limit-request-*`), max filter counts and value lengths in
-  `reports/schema.py` (some exist — sweep and close), XMLA statement
-  length cap in `soap.py`.
-- **A2.3 Dependency floor→lock.** See D1.3 (shared task).
-- **A2.4 Threat model doc.** STRIDE pass over the four client paths;
-  lives in `docs/architecture/threat-model.md`; reviewed each quarter.
-  The XMLA adapter gets its own section (it parses attacker-suppliable
-  XML: confirm `defusedxml`-equivalent posture for `ElementTree` use,
-  entity expansion off, statement caps).
+- **A2.1 Token/session hardening**: logout-kills-connect-token proven by
+  test; optional IP pinning; constant-time comparisons verified.
+- **A2.2 Input ceilings**: request size limits, filter count/length caps
+  swept in `reports/schema.py`, XMLA statement length cap in `soap.py`;
+  XML parsing posture reviewed (entity expansion off — the XMLA parser
+  reads attacker-suppliable XML).
+- **A2.3 Threat model** (`docs/architecture/threat-model.md`): STRIDE
+  over the four client paths; the XMLA adapter and the OAuth redirect
+  flow get their own sections; owner + quarterly review date.
 
-### Phase A3 (P2)
+## 5. Workstream B — Logging  (P0 core)
 
-- **A3.1 SSO for the enterprise.** OAuth mode exists; add OIDC discovery
-  + group-to-workspace mapping so workspace membership can be
-  IdP-driven. *Accept:* login via a test IdP; group sync job covered.
-- **A3.2 Anomaly hooks.** Emit audit events (B/C stream) for: N failed
-  logins, token minted, token used from a new IP, export larger than
-  configurable rows. Alerting is the deployment's SIEM's job — we emit,
-  they consume.
+- **B1 Central JSON logging** (`app/logging.py`): JSON lines to stdout
+  (container-native), fields `ts, level, logger, msg, request_id,
+  user_id, path, status, duration_ms`; uvicorn routed through it; the
+  ad-hoc handler in `xmla/routes.py` removed; no `print()` in `app/`.
+- **B2 Request-ID middleware**: honours proxy `X-Request-ID`, contextvar
+  propagation, one summary line per request; the id is also written into
+  XMLA wire-trace markers so traces join logs.
+- **B3 Query logging (P1)** in `gateway.run_query`: field refs, row
+  count, duration, `sfqid`, truncated — parameters never. `sfqid` is the
+  bridge to Snowflake `QUERY_HISTORY` forensics.
+- **B4 Log hygiene test (P1)**: captured logs from representative flows
+  are grepped for `xlt_` prefixes, passwords and bound values — the
+  "never log data" rule as a regression test.
 
-## 4. Workstream B — Logging
+## 6. Workstream C — Traceability & audit
 
-- **B1 (P0) Central logging config.** `app/logging.py`: JSON lines to
-  stdout (12-factor; collectors ship them), fields `ts, level, logger,
-  msg, request_id, user_id, session_id(hash), path, status,
-  duration_ms`. Uvicorn/access logs routed through it. Kill the ad-hoc
-  per-module handlers (e.g. `xmla/routes.py`'s own StreamHandler).
-  *Accept:* one log line per request in tests via caplog; no print()
-  anywhere in `app/`.
-- **B2 (P0) Request middleware.** Generates/propagates
-  `X-Request-ID` (honours inbound header from the proxy), stamps it into
-  a contextvar all loggers pick up, times the request, logs one summary
-  line. `/xmla` included — the request id also goes into the wire-trace
-  markers so a trace file and the log join.
-- **B3 (P1) Query logging.** In `gateway.run_query`: log field refs (not
-  values), row count, duration, `sfqid`, truncated flag at INFO;
-  parameters never logged. The Snowflake query id is the bridge into
-  Snowflake's own `QUERY_HISTORY` for full-fidelity forensics.
-- **B4 (P1) Log hygiene tests.** A test that greps captured logs for
-  token prefixes (`xlt_`), password fields and bound values in
-  representative flows — the "never log data" principle as a regression
-  test, not a convention.
+- **C1 (P0) `audit_events` table** (alembic 0006) + writer: `ts,
+  request_id, user_id, session_id, action, resource_type, resource_id,
+  outcome, detail(JSON, value-free)`. First tranche of actions:
+  `auth.login/logout/login_failed`, `token.mint`, `report.
+  create/update/delete/read`, `export.*`, `feed.read`,
+  `xmla.session_open`, `workspace.member_*`. Denied access records
+  `outcome=denied` without leaking resource names.
+- **C2 (P1) Audit API + retention**: admin-scoped `GET /api/audit`
+  (actor/action/time filters), CSV export through the formula guard,
+  retention sweeper on `SEMANTICUI_AUDIT_RETENTION_DAYS`.
+- **C3 (P1) Correlation runbook** (`docs/operations/observability.md`):
+  audit row → request id → log line → `sfqid` → QUERY_HISTORY, one
+  worked example.
+- **C4 (P2) Definition history**: report saves retain prior definitions
+  (history table or single-slot), so "who changed what" is diffable.
 
-## 5. Workstream C — Traceability & audit
+## 7. Workstream K — Containerization & scalability  (P0 core)
 
-- **C1 (P0) Audit events table + writer.** New `audit_events` table
-  (alembic 0006): `id, ts, request_id, user_id, session_id, action,
-  resource_type, resource_id, outcome, detail(JSON, value-free)`.
-  Synchronous insert in the same DB transaction where one exists;
-  best-effort with error logging where not. Actions, first tranche:
-  `auth.login`, `auth.logout`, `auth.login_failed`, `token.mint`,
-  `token.used_new_session`, `report.create/update/delete`,
-  `report.read`, `export.xlsx/odc`, `feed.read`, `xmla.session_open`,
-  `workspace.member_add/remove/role_change`.
-  *Accept:* per-action tests; a `report.read` by a non-member records
-  `outcome=denied` with no resource-name leakage.
-- **C2 (P1) Audit query API + retention.** `GET /api/audit`
-  (workspace-admin scoped, filterable by actor/action/time), retention
-  sweeper honouring `SEMANTICUI_AUDIT_RETENTION_DAYS`. Export as CSV for
-  auditors (through the existing formula-guard).
-- **C3 (P1) End-to-end correlation.** request_id → audit row →
-  log line → `sfqid` → Snowflake QUERY_HISTORY. Documented as a runbook
-  in `docs/architecture/observability.md` with one worked example.
-- **C4 (P2) Definition versioning.** Report saves keep the previous
-  definition (single-slot undo or full history table) so "who changed
-  what" has a diffable answer. Weigh storage; JSON diff in the audit
-  detail may be enough.
+- **K1 Images.** Multi-stage `Dockerfile`: build SPA → build backend →
+  slim runtime (non-root user, read-only FS where possible, healthcheck).
+  The backend serves the built SPA (or a compose'd nginx does). *Accept:*
+  `docker run` + env file yields a working app; image passes a trivy
+  scan without high CVEs.
+- **K2 Compose for dev/eval.** `docker-compose.yml`: app + Postgres,
+  volumes for the DB only, `.env`-driven. `dev.py` stays for
+  hot-reload development. *Accept:* `docker compose up` → login →
+  query works from the docs alone.
+- **K3 Health & readiness.** `/healthz` (process up) and `/readyz`
+  (DB reachable); used by the container healthcheck and any orchestrator.
+- **K4 Scale-out semantics, implemented and documented.** The two
+  in-process states get explicit multi-replica behavior:
+  - Connection cache: with SSO (S-workstream), any replica rebuilds a
+    user's connection from the DB-stored refresh token — verify with two
+    replicas behind a round-robin proxy in a test script.
+  - XMLA `SessionStore`: MSOLAP re-presents the connect token digest, so
+    a replica that never saw the BeginSession can re-open — verify, and
+    fall back to documented sticky-session guidance only if a gap
+    remains.
+  *Accept:* a two-replica compose profile passes the API tests and a
+  scripted Excel refresh.
+- **K5 (P1) Orchestrator artifacts.** Helm chart or plain k8s manifests
+  (Deployment, HPA notes, Secret/ConfigMap wiring, probes), plus a
+  production topology diagram in `docs/operations/deployment.md`.
 
-## 6. Workstream D — Maintainability & delivery
+## 8. Workstream D — Maintainability, modularity, documentation
 
-- **D1.1 (P0) CI pipeline.** `.github/workflows/ci.yml`: backend pytest,
-  frontend vitest + `tsc --noEmit`, ruff + eslint, on every push/PR.
-  *Accept:* red build blocks merge; badge in README.
-- **D1.2 (P0) Scanning in CI.** `pip-audit` + `npm audit
-  --omit=dev` (fail on high), `gitleaks` secret scan, weekly scheduled
-  run so new CVEs surface without a code change.
-- **D1.3 (P0) Lockfiles.** Backend: `uv lock` (or pip-tools) committed;
-  frontend already has `package-lock.json` — enforce `npm ci` in CI.
-  Upgrades become deliberate PRs.
-- **D2.1 (P1) Lint/format baseline.** ruff (rules: E,F,I,B,S — S is
-  bandit-in-ruff) + eslint strictening; format with ruff-format/prettier;
-  one cleanup commit, then CI-enforced.
-- **D2.2 (P1) Module health pass.** `BuilderPage.tsx` (~1300 lines) split
-  along its seams (page ops, drag routing, selection) — the seams already
-  exist as functions; `xmla/execute.py` `_Engine.execute` decomposed
-  (axis building and cell resolution as named methods). No behavior
-  change; the existing tests are the harness.
-- **D2.3 (P1) Error taxonomy.** One `ApiError` catalogue doc; verify no
-  handler leaks internals (`errors.py` already strips pydantic input —
-  add a test asserting 500s carry no stack traces to clients).
-- **D3 (P2) Release engineering.** Versioned container build (backend +
-  built SPA behind one server), SBOM generation (syft) attached to
-  releases, CHANGELOG discipline, staging smoke script (the COM-driven
-  Excel checks, packaged as an opt-in workflow).
+### D1 (P0) Delivery rails
 
-## 7. Compliance mapping (pragmatic)
+- **D1.1 CI**: pytest + vitest + `tsc --noEmit` + ruff + eslint on every
+  push/PR; red blocks merge.
+- **D1.2 Scanning**: `pip-audit`, `npm audit` (fail high), `gitleaks`;
+  weekly scheduled run; trivy on the image (K1).
+- **D1.3 Lockfiles**: backend lock committed (uv/pip-tools); `npm ci`
+  enforced.
+
+### D2 (P1) Modularity for the next developer
+
+Rule set, enforced in review and by lint where possible:
+
+- **One module, one responsibility; ~400-line soft ceiling** for new
+  code; existing violations get scheduled splits:
+  - `frontend/src/reports/BuilderPage.tsx` → extract `usePageOps`
+    (add/rename/duplicate/delete/sheet), `useDragRouting` (the dnd
+    onDragEnd table), `useSelection`; BuilderPage becomes composition.
+  - `backend/app/xmla/execute.py` → `_Engine` split into `AxisBuilder`
+    (member walks, per-spec lists) and `CellResolver` (ordinal grid);
+    same tests, no behavior change.
+- **Boundaries stay explicit**: frontends of a package are its
+  `routes.py`/exported functions; cross-package imports only through
+  those (a lightweight import-linter contract file encodes the allowed
+  edges: e.g. `xmla` may import `semantic`+`snowflake`+`auth`, never the
+  reverse).
+- **The two mirrored catalogs** (`reports/catalog.py` ↔
+  `reports/catalog.ts`) keep their shared-expectation tests as the drift
+  guard — documented as the pattern for any future mirror.
+
+### D3 (P0→P1) Documentation program
+
+- **D3.1 (P0) Onboarding guide** `docs/CONTRIBUTING.md`: clone → run →
+  test → first PR in under an hour; where things live (pointer to
+  `docs/architecture/*`); the wire-capture debugging workflow for XMLA
+  (trace flag, ADOMD harness) written down as the way to work on that
+  package.
+- **D3.2 (P0) Per-package intent.** Every `app/*` package and every
+  `frontend/src/*` area keeps its module docstring/header current — the
+  codebase already does this well (e.g. `xmla/soap.py`, `feed/service.py`);
+  make it a stated convention with a checklist item in PR review.
+- **D3.3 (P1) ADR log** `docs/adr/`: backfill the decisions already
+  made (own-connection model, connect tokens vs credentials in Excel,
+  Mondrian-shape XMLA rowsets, client-side pivoting for the matrix,
+  sheet-as-page), then one ADR per future structural decision.
+- **D3.4 (P1) Ops runbooks** `docs/operations/`: deploy, upgrade
+  (alembic), SSO setup (S1), observability/correlation (C3), incident
+  quick-cards (auth outage, Snowflake outage, stuck sweeper).
+- **D3.5 (P1) API reference**: FastAPI's OpenAPI already exists — pin
+  titles/descriptions per route, publish the schema artifact in CI.
+- **D3.6 Keep `docs/architecture/high-level.md` + `low-level.md` current**
+  — updating them is part of any task that changes a boundary they draw.
+
+## 9. Compliance mapping (pragmatic)
 
 | Control family | Covered by |
 | --- | --- |
-| Access control (ASVS V4) | Existing RBAC + A1.2/A2.1 + C1 audit of denials |
-| Authentication (V2) | Session/TTL today + A1.2 throttle + A3.1 SSO |
-| Session management (V3) | Existing cookie flags + A2.1 |
-| Input validation (V5) | Bound params today + A2.2 ceilings + B4 hygiene tests |
-| Cryptography at rest (V6) | Fernet for OAuth tokens; hashes for connect tokens; document key rotation for `SECRET_KEY` in the threat model |
-| Logging & monitoring (V7) | Workstreams B + C entirely |
-| Data protection (V8) | No-data-in-logs principle (B4), export guards, no result caching |
-| Communications (V9) | TLS at the proxy + HSTS (A1.1) + docs |
-| Supply chain | D1.2 scanning + D1.3 lockfiles + D3 SBOM |
+| Authentication (ASVS V2) | S-workstream SSO + A1.2 throttling |
+| Session management (V3) | Existing cookie posture + A2.1 |
+| Access control (V4) | Existing RBAC + C1 audit of denials + S5 IdP mapping |
+| Input validation (V5) | Bound params + A2.2 ceilings + B4 hygiene tests |
+| Cryptography (V6) | Fernet at rest, hashed tokens; key rotation documented in threat model |
+| Logging & monitoring (V7) | Workstreams B + C |
+| Data protection (V8) | Never-log-data rule (B4), export guards, no result caching |
+| Communications (V9) | TLS at the proxy + HSTS + deployment doc |
+| Supply chain | D1.2/D1.3 + trivy + SBOM (P2, with releases) |
 
-SOC 2 readiness note: C1/C2 (audit trail + retention) and D1 (change
-management via CI) are the two items auditors ask for first; both are P0/P1
-here on purpose.
+SOC 2 note: the audit trail with retention (C1/C2) and CI-enforced change
+management (D1) are what auditors ask for first; both are P0/P1 by design.
 
-## 8. Phasing and effort
+## 10. Phasing and effort
 
 | Phase | Contents | Effort (focused sessions) |
 | --- | --- | --- |
-| P0 | A1.1–A1.5, B1, B2, C1, D1.1–D1.3 | 3–4 |
-| P1 | A2.*, B3, B4, C2, C3, D2.* | 4–5 |
-| P2 | A3.*, C4, D3 | 3–4 |
+| P0 | D1.*, B1, B2, S1–S4, A1.*, C1, K1–K4, D3.1–D3.2 | 5–7 |
+| P1 | S5, A2.*, B3, B4, C2, C3, K5, D2.*, D3.3–D3.5 | 5–6 |
+| P2 | C4, SBOM/releases, remaining polish | 2–3 |
 
-Order within P0: D1.1 (CI) first — every later task lands with its tests
-enforced; then B1/B2 (logging+request-id) because C1 (audit) wants the
-request id; then A1.x in any order; C1 last in P0 so it lands on the
-correlation rails.
+Order within P0: **D1.1 (CI) first** — everything after lands enforced;
+then **B1/B2** (audit wants the request id); then **S1–S4** (the auth
+direction everything else assumes); **K1–K4** next (SSO makes scale-out
+semantics provable); **A1.x** and **C1** close the phase.
 
-## 9. Definition of "enterprise ready"
+## 11. Definition of "enterprise ready"
 
-The program is done when all of these are demonstrably true:
-
-1. A denied report access, a token mint and an Excel refresh can each be
-   traced from audit row → request id → log line → Snowflake query id,
-   following the runbook, in under five minutes.
-2. CI blocks merges on tests, lint, type-check, dependency CVEs (high+)
-   and leaked secrets; builds are reproducible from lockfiles.
-3. A fresh deployment with `environment=production` refuses to start
-   with any default secret, dev auth, or trace flags.
-4. Brute-forcing any auth surface trips a 429 and an audit event.
-5. No log line anywhere contains a token, password, or data value —
-   and a test proves it.
-6. The threat model exists, names the XMLA parser and the four client
-   paths, and has an owner and a review date.
+1. Sign-in is SSO through the Snowflake security integration; a
+   production deployment cannot start in dev-auth mode, with a default
+   secret, or with trace flags.
+2. `docker compose up` (or the k8s manifests) yields a working, healthy,
+   horizontally scalable deployment — proven by the two-replica test
+   including an Excel refresh.
+3. A denied access, a token mint and an Excel refresh are each traceable
+   audit row → request id → log line → `sfqid` in under five minutes via
+   the runbook.
+4. CI blocks merges on tests, lint, types, high CVEs and leaked secrets;
+   builds are reproducible from lockfiles; images scan clean.
+5. Brute-forcing any auth surface yields 429s and audit events; no log
+   line contains a token, password or data value — proven by a test.
+6. A new developer follows CONTRIBUTING.md to a first merged PR inside a
+   day; every package states its intent at the top of its files; ADRs
+   explain why the big decisions look the way they do.
