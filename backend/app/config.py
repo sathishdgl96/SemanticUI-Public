@@ -69,6 +69,21 @@ class Settings(BaseSettings):
     oauth_client_secret: str | None = None
     oauth_redirect_uri: str = "http://localhost:8000/auth/callback"
 
+    # --- corporate IdP (Entra ID, Okta) -------------------------------
+    # Setting these two switches sign-in from SNOWFLAKE OAuth (Snowflake
+    # hosts the login and issues the tokens) to EXTERNAL OAuth (the IdP
+    # does, and Snowflake validates them -- ADR 0004). They come as a
+    # pair, and the client id/secret then belong to the IdP's app
+    # registration rather than to a Snowflake security integration.
+    # Entra: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize
+    #        https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
+    oauth_authorize_url: str | None = None
+    oauth_token_url: str | None = None
+    #: Scopes the IdP must mint the token with -- the Snowflake role scope
+    #: plus offline_access, or no refresh token comes back. Entra:
+    #: "api://<app-id-uri>/session:role:<role> offline_access"
+    oauth_scope: str | None = None
+
     # Where /auth/callback sends the browser after a successful login. The
     # backend does not serve the SPA itself (see README "Serving the SPA
     # in production"), so this must point at wherever the frontend is
@@ -86,12 +101,32 @@ class Settings(BaseSettings):
     def _guard(self) -> "Settings":
         if self.auth_mode == "dev" and self.environment == "production":
             raise ValueError("AUTH_MODE=dev is not allowed in production")
-        if self.auth_mode == "oauth" and not (
-            self.snowflake_account and self.oauth_client_id and self.oauth_client_secret
-        ):
-            raise ValueError(
-                "oauth mode requires snowflake_account, oauth_client_id, oauth_client_secret"
-            )
+        if self.auth_mode == "oauth":
+            # The endpoints are a pair: half of them silently sends the
+            # browser to one issuer and the token request to another.
+            if self.oauth_authorize_url and not self.oauth_token_url:
+                raise ValueError(
+                    "oauth_authorize_url is set, so oauth_token_url is required too"
+                )
+            if self.oauth_token_url and not self.oauth_authorize_url:
+                raise ValueError(
+                    "oauth_token_url is set, so oauth_authorize_url is required too"
+                )
+            if not self.snowflake_account:
+                raise ValueError(
+                    "oauth mode requires snowflake_account (the account the "
+                    "token is spent against, whoever issued it)"
+                )
+            if not self.oauth_client_id:
+                raise ValueError("oauth mode requires oauth_client_id")
+            # An external IdP may register this app as a PUBLIC client (an
+            # Entra SPA registration cannot hold a secret); PKCE is what
+            # protects the code there. Snowflake OAuth has no such mode.
+            if not self.oauth_client_secret and not self.oauth_authorize_url:
+                raise ValueError(
+                    "oauth mode requires oauth_client_secret unless an "
+                    "external IdP (oauth_authorize_url) is configured"
+                )
         if self.environment == "production":
             disallowed = [m for m in self.direct_login_methods if m != "keypair"]
             if disallowed:

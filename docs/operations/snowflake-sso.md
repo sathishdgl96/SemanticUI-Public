@@ -70,15 +70,50 @@ ALTER SECURITY INTEGRATION semanticui_external_oauth
 
 ## 3. App configuration
 
+Setting `OAUTH_AUTHORIZE_URL` and `OAUTH_TOKEN_URL` is what switches
+sign-in from Snowflake-hosted OAuth to your IdP. Without them the app
+talks to `https://<account>.snowflakecomputing.com/oauth/...` and your
+IdP is never involved.
+
 ```bash
 SEMANTICUI_AUTH_MODE=oauth
 SEMANTICUI_ENVIRONMENT=production
+# The account queries run against, whoever issued the token:
 SEMANTICUI_SNOWFLAKE_ACCOUNT=<org-account>
-SEMANTICUI_OAUTH_CLIENT_ID=<idp-client-id>
-# For the current server-side callback flow. Removed when the SPA
-# public-client flow (plan S2) lands:
-SEMANTICUI_OAUTH_CLIENT_SECRET=<confidential-client-secret-if-used>
+SEMANTICUI_OAUTH_REDIRECT_URI=https://<app-host>/auth/callback
+
+# From the Entra app registration:
+SEMANTICUI_OAUTH_CLIENT_ID=<Application (client) ID>
+SEMANTICUI_OAUTH_CLIENT_SECRET=<the secret VALUE, not its Secret ID>
+SEMANTICUI_OAUTH_AUTHORIZE_URL=https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/authorize
+SEMANTICUI_OAUTH_TOKEN_URL=https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token
+SEMANTICUI_OAUTH_SCOPE=api://<app-id-uri>/session:role:analyst offline_access
 ```
+
+Where each value is in the Azure portal (App registrations → your app):
+
+| Setting | Where |
+|---|---|
+| `OAUTH_CLIENT_ID` | Overview → **Application (client) ID** |
+| tenant id in the URLs | Overview → **Directory (tenant) ID** |
+| `OAUTH_CLIENT_SECRET` | Certificates & secrets → New client secret → copy the **Value** immediately (it is never shown again) |
+| `OAUTH_REDIRECT_URI` | Authentication → Redirect URIs → add this exact URL, platform **Web** |
+| `OAUTH_SCOPE` | API permissions → the Snowflake scope you exposed; `offline_access` is required or no refresh token is issued |
+
+Both endpoint URLs are also listed under **Endpoints** at the top of the
+app registration's Overview page.
+
+Notes:
+
+- Platform must be **Web**, not Single-page application: this flow
+  completes on the server (`/auth/callback`), where the secret lives.
+  A SPA registration is for plan item S2 and holds no secret — the app
+  accepts a missing secret only when an IdP is configured, because PKCE
+  protects the code.
+- The redirect URI must match **character for character**, trailing
+  slash included.
+- Okta and other OIDC IdPs use the same three settings pointed at their
+  own authorize/token endpoints.
 
 Production startup refuses: dev auth mode, the default secret key, a
 localhost database, and the XMLA trace flag.

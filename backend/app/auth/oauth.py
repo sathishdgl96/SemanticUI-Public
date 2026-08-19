@@ -121,6 +121,17 @@ class SnowflakeOAuthClient:
     def base_url(self) -> str:
         return f"https://{self._settings.snowflake_account}.snowflakecomputing.com"
 
+    @property
+    def external_idp(self) -> bool:
+        """True when a corporate IdP issues the tokens (ADR 0004).
+
+        Snowflake OAuth and External OAuth differ on more than the host:
+        Snowflake authenticates the token request with HTTP Basic, while
+        Entra and Okta expect the credentials in the form body and want
+        the scope on every request.
+        """
+        return bool(self._settings.oauth_authorize_url)
+
     def authorize_url(self, state: str, code_challenge: str | None = None) -> str:
         params = {
             "client_id": self._settings.oauth_client_id,
@@ -128,18 +139,29 @@ class SnowflakeOAuthClient:
             "redirect_uri": self._settings.oauth_redirect_uri,
             "state": state,
         }
+        if self._settings.oauth_scope:
+            params["scope"] = self._settings.oauth_scope
         if code_challenge:
             params["code_challenge"] = code_challenge
             params["code_challenge_method"] = "S256"
-        return f"{self.base_url}/oauth/authorize?{urlencode(params)}"
+        endpoint = self._settings.oauth_authorize_url or f"{self.base_url}/oauth/authorize"
+        return f"{endpoint}?{urlencode(params)}"
 
     def _token_request(self, data: dict) -> TokenResponse:
+        settings = self._settings
+        if self.external_idp:
+            endpoint = settings.oauth_token_url
+            auth = None
+            data = dict(data, client_id=settings.oauth_client_id)
+            if settings.oauth_client_secret:
+                data["client_secret"] = settings.oauth_client_secret
+            if settings.oauth_scope:
+                data["scope"] = settings.oauth_scope
+        else:
+            endpoint = f"{self.base_url}/oauth/token-request"
+            auth = (settings.oauth_client_id, settings.oauth_client_secret)
         with httpx.Client(transport=self._transport, timeout=30) as client:
-            resp = client.post(
-                f"{self.base_url}/oauth/token-request",
-                data=data,
-                auth=(self._settings.oauth_client_id, self._settings.oauth_client_secret),
-            )
+            resp = client.post(endpoint, data=data, auth=auth)
         if resp.status_code >= 400:
             raise OAuthRefreshError(f"token endpoint returned {resp.status_code}")
         body = resp.json()
