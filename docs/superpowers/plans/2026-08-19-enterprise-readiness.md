@@ -120,8 +120,39 @@ Gaps this plan closes:
 
 ### Phase A2 (P1)
 
-- **A2.1 Token/session hardening**: logout-kills-connect-token proven by
-  test; optional IP pinning; constant-time comparisons verified.
+- **A2.1 Token security posture.** The two token types have opposite
+  designs, and the hardening differs accordingly:
+
+  *Connect tokens are never stored* -- only their sha256 lands in the DB,
+  the raw value is shown once. A stolen database yields nothing usable.
+  Remaining work: logout-kills-token proven by test, optional IP
+  pinning, and the client-side exposure documented honestly (Excel's
+  credential store holds the raw token for its TTL; TLS is mandatory).
+
+  *SSO refresh tokens must be stored* -- a confidential OAuth client
+  that rebuilds connections across replicas and serves Excel refreshes
+  cannot function without them; "store nothing" means re-login on every
+  access-token expiry and no scale-out. Harden HOW they are held:
+  1. **Persist only the refresh token.** The access token is
+     short-lived; keep it in the in-process connection cache and drop
+     `access_token_enc` from the sessions table (schema + code change,
+     small). Shrinks the at-rest surface to the one credential that
+     genuinely needs persistence.
+  2. **Envelope encryption with an external key.** Replace
+     derive-from-SECRET_KEY with a data-key wrapped by a KMS/Vault
+     transit key (pluggable `crypto.py` backend; Fernet stays as the
+     dev-mode fallback). An attacker with the DB alone gets ciphertext;
+     with the app server alone gets no historical dumps. Key rotation
+     becomes a re-wrap, not a re-login of every user.
+  3. **Tighten the Snowflake side**: `OAUTH_REFRESH_TOKEN_VALIDITY`
+     set deliberately (e.g. 7-30 days, not the 90-day default), blocked
+     high-privilege roles left blocked, and the per-user revocation
+     path (`ALTER USER ... REMOVE DELEGATED AUTHORIZATIONS`) written
+     into the ops runbook -- Snowflake-side revocation is the kill
+     switch that works even if the app is compromised.
+  4. **Audit token lifecycle** (with C1): mint, first-use,
+     use-from-new-address, refresh-failure -- so a stolen token's use is
+     visible, not silent.
 - **A2.2 Input ceilings**: request size limits, filter count/length caps
   swept in `reports/schema.py`, XMLA statement length cap in `soap.py`;
   XML parsing posture reviewed (entity expansion off — the XMLA parser
