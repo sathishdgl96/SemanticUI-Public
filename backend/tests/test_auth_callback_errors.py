@@ -100,3 +100,35 @@ class TestSnowflakeRefusesTheToken:
             client, monkeypatch, connect=lambda token, user=None: FakeConnection()
         )
         assert response.status_code == 303
+
+
+class TestDiagnosticsAreDevelopmentOnly:
+    """The reason is worth hours in development and worth nothing to an
+    unauthenticated stranger in production."""
+
+    def test_development_carries_snowflakes_own_words(
+        self, make_client, monkeypatch
+    ):
+        client = make_client(**OAUTH_ENV)
+
+        def refuse(token, user=None):
+            raise TOKEN_REJECTED
+
+        body = arrive_at_callback(client, monkeypatch, connect=refuse).json()
+        assert "390303" in (body["detail"] or "")
+
+    def test_production_says_nothing_extra(self, make_client, monkeypatch):
+        client = make_client(
+            **OAUTH_ENV,
+            SEMANTICUI_ENVIRONMENT="production",
+            SEMANTICUI_SECRET_KEY="x" * 40,
+            SEMANTICUI_DATABASE_URL="postgresql+psycopg://u:p@db.internal:5432/app",
+            SEMANTICUI_DIRECT_LOGIN_METHODS='["keypair"]',
+        )
+
+        def refuse(token, user=None):
+            raise TOKEN_REJECTED
+
+        body = arrive_at_callback(client, monkeypatch, connect=refuse).json()
+        assert body["detail"] is None
+        assert "390303" not in body["message"]

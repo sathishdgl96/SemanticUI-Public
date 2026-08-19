@@ -53,10 +53,20 @@ def oauth_login() -> RedirectResponse:
     return response
 
 
-def _reject_oauth_callback(message: str) -> JSONResponse:
+def _reject_oauth_callback(message: str, detail: str | None = None) -> JSONResponse:
+    """Refuse the callback, clearing the one-shot state cookie.
+
+    `detail` carries the identity provider's or Snowflake's own words --
+    the difference between "wrong audience" and "no such user", which is
+    hours of guessing. It reaches the browser in development only: in
+    production an unauthenticated caller learns nothing beyond the
+    refusal, and the reason is in the log instead.
+    """
+    if detail and get_settings().environment == "production":
+        detail = None
     response = JSONResponse(
         status_code=401,
-        content={"code": "AUTH_FAILED", "message": message, "detail": None},
+        content={"code": "AUTH_FAILED", "message": message, "detail": detail},
     )
     response.delete_cookie(oauth_mod.OAUTH_STATE_COOKIE)
     return response
@@ -100,12 +110,19 @@ def oauth_callback(
         # INTERNAL_ERROR, which says nothing about which of the three legs
         # failed. The reason goes to the log; the browser gets the leg and
         # the thing to configure, never the token.
-        logger.warning("Snowflake refused the IdP token: %s", exc)
+        # Claim NAMES, never values: the first question is always whether
+        # the mapped claim is even in the token (Snowflake's own verifier
+        # calls that EXTERNAL_OAUTH_USER_CLAIM_MISSING).
+        logger.warning(
+            "Snowflake refused the IdP token: %s (claims present: %s)",
+            exc, ",".join(oauth_mod.claim_names(tok.access_token)),
+        )
         return _reject_oauth_callback(
             "Signed in with your identity provider, but Snowflake refused "
             "the token. Check the EXTERNAL_OAUTH security integration: its "
             "issuer and audience must match the IdP, and the mapped claim "
-            "must match the Snowflake user's LOGIN_NAME."
+            "must match the Snowflake user's LOGIN_NAME.",
+            detail=str(exc),
         )
     try:
         account, user = sf_connect.probe_identity(conn)

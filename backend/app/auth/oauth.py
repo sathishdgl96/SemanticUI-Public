@@ -38,6 +38,35 @@ _states: dict[str, tuple[float, str]] = {}
 _IDENTITY_CLAIMS = ("upn", "preferred_username", "email", "sub")
 
 
+def claim_names(token: str) -> list[str]:
+    """The claim NAMES an access token carries -- never their values.
+
+    When Snowflake refuses a token, the first question is always "is the
+    mapped claim even in there?" (its own verifier answers
+    EXTERNAL_OAUTH_USER_CLAIM_MISSING). Names alone settle it without
+    putting identity in the log.
+    """
+    claims = _decode_claims(token)
+    return sorted(claims) if claims else []
+
+
+def _decode_claims(token: str) -> dict | None:
+    import base64
+    import json
+
+    parts = (token or "").split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    try:
+        # JWTs are base64url WITHOUT padding; b64decode demands it.
+        padded = payload + "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(padded))
+    except Exception:
+        return None
+    return claims if isinstance(claims, dict) else None
+
+
 def identity_from_token(token: str, claim: str | None = None) -> str | None:
     """The login name an OAuth access token claims to carry.
 
@@ -53,20 +82,8 @@ def identity_from_token(token: str, claim: str | None = None) -> str | None:
     present. Returns None for anything that is not a readable JWT, which
     leaves the connector's own error to speak.
     """
-    import base64
-    import json
-
-    parts = (token or "").split(".")
-    if len(parts) != 3:
-        return None
-    payload = parts[1]
-    try:
-        # JWTs are base64url WITHOUT padding; b64decode demands it.
-        padded = payload + "=" * (-len(payload) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(padded))
-    except Exception:
-        return None
-    if not isinstance(claims, dict):
+    claims = _decode_claims(token)
+    if claims is None:
         return None
     for name in ((claim,) if claim else _IDENTITY_CLAIMS):
         value = claims.get(name)
