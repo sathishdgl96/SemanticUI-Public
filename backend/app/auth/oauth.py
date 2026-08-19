@@ -21,7 +21,9 @@ _STATE_TTL_SECONDS = 600
 # entries on every insert and cap the total count, dropping the oldest
 # entries first once the cap is hit.
 _STATE_MAX_ENTRIES = 10_000
-_states: dict[str, float] = {}
+#: state -> (created, PKCE code_verifier). The verifier lives and dies
+#: with the state: single-use, short TTL, never leaves the server.
+_states: dict[str, tuple[float, str]] = {}
 
 
 @dataclass
@@ -35,9 +37,13 @@ class OAuthRefreshError(Exception):
     pass
 
 
+def _created(entry) -> float:
+    return entry[0]
+
+
 def _prune_expired_states() -> None:
     cutoff = time.monotonic() - _STATE_TTL_SECONDS
-    expired = [s for s, created in _states.items() if created < cutoff]
+    expired = [s for s, entry in _states.items() if _created(entry) < cutoff]
     for s in expired:
         _states.pop(s, None)
 
@@ -55,14 +61,36 @@ def _enforce_state_cap() -> None:
 def make_state() -> str:
     _prune_expired_states()
     state = secrets.token_urlsafe(16)
-    _states[state] = time.monotonic()
+    # PKCE (RFC 7636): even a stolen authorization code is useless
+    # without the verifier, which only this process ever holds.
+    verifier = secrets.token_urlsafe(48)
+    _states[state] = (time.monotonic(), verifier)
     _enforce_state_cap()
     return state
 
 
-def consume_state(state: str) -> bool:
-    created = _states.pop(state, None)
-    return created is not None and (time.monotonic() - created) < _STATE_TTL_SECONDS
+def challenge_for(state: str) -> str | None:
+    """The S256 code challenge for a live state, for the authorize URL."""
+    import base64
+    import hashlib
+
+    entry = _states.get(state)
+    if entry is None:
+        return None
+    digest = hashlib.sha256(entry[1].encode("ascii")).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def consume_state(state: str) -> str | None:
+    """Single use: returns the PKCE verifier while the state is live,
+    None otherwise. Truthiness keeps the old call-shape working."""
+    entry = _states.pop(state, None)
+    if entry is None:
+        return None
+    created, verifier = entry
+    if (time.monotonic() - created) >= _STATE_TTL_SECONDS:
+        return None
+    return verifier
 
 
 def set_state_cookie(response: Response, state: str) -> None:
@@ -86,16 +114,17 @@ class SnowflakeOAuthClient:
     def base_url(self) -> str:
         return f"https://{self._settings.snowflake_account}.snowflakecomputing.com"
 
-    def authorize_url(self, state: str) -> str:
-        query = urlencode(
-            {
-                "client_id": self._settings.oauth_client_id,
-                "response_type": "code",
-                "redirect_uri": self._settings.oauth_redirect_uri,
-                "state": state,
-            }
-        )
-        return f"{self.base_url}/oauth/authorize?{query}"
+    def authorize_url(self, state: str, code_challenge: str | None = None) -> str:
+        params = {
+            "client_id": self._settings.oauth_client_id,
+            "response_type": "code",
+            "redirect_uri": self._settings.oauth_redirect_uri,
+            "state": state,
+        }
+        if code_challenge:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
+        return f"{self.base_url}/oauth/authorize?{urlencode(params)}"
 
     def _token_request(self, data: dict) -> TokenResponse:
         with httpx.Client(transport=self._transport, timeout=30) as client:
@@ -113,14 +142,17 @@ class SnowflakeOAuthClient:
             expires_in=int(body.get("expires_in", 600)),
         )
 
-    def exchange_code(self, code: str) -> TokenResponse:
-        return self._token_request(
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": self._settings.oauth_redirect_uri,
-            }
-        )
+    def exchange_code(
+        self, code: str, code_verifier: str | None = None
+    ) -> TokenResponse:
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self._settings.oauth_redirect_uri,
+        }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+        return self._token_request(data)
 
     def refresh(self, refresh_token: str) -> TokenResponse:
         return self._token_request(

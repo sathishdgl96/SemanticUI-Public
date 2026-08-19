@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     #: "json" is the container-native stream collectors ingest; "plain" is
     #: for human terminals. Empty means: json in production, plain in dev.
     log_format: Literal["json", "plain", ""] = ""
+    #: Where the built SPA lives when this server serves it (the container
+    #: image sets this). Empty in development -- Vite serves the frontend.
+    static_dir: str = ""
     secret_key: str = DEFAULT_SECRET_KEY
     database_url: str = "postgresql+psycopg://semanticui:semanticui@localhost:5432/semanticui"
 

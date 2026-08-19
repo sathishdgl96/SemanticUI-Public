@@ -70,13 +70,15 @@ def test_oauth_callback_creates_session_and_caches_conn(make_client, db, monkeyp
     client = make_client(**OAUTH_ENV)
 
     class StubOAuth:
-        def exchange_code(self, code):
+        def exchange_code(self, code, code_verifier=None):
             assert code == "the-code"
+            # PKCE: the verifier consumed with the state rides along.
+            assert code_verifier == "verifier"
             return TokenResponse("at-1", "rt-1", 600)
 
     conn = FakeConnection()
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: s == "good-state")
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier" if s == "good-state" else None)
     monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: conn)
     monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
     # Simulate the browser having received the state cookie from a prior
@@ -111,11 +113,11 @@ def test_oauth_callback_redirects_to_configured_post_login_url(
     )
 
     class StubOAuth:
-        def exchange_code(self, code):
+        def exchange_code(self, code, code_verifier=None):
             return TokenResponse("at-1", "rt-1", 600)
 
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: s == "good-state")
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier" if s == "good-state" else None)
     monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: FakeConnection())
     monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
     client.cookies.set(OAUTH_STATE_COOKIE, "good-state")
@@ -131,7 +133,7 @@ def test_oauth_callback_redirects_to_configured_post_login_url(
 
 def test_oauth_callback_rejects_bad_state(make_client, monkeypatch):
     client = make_client(**OAUTH_ENV)
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: False)
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: None)
     client.cookies.set(OAUTH_STATE_COOKIE, "bad")
     r = client.get(
         "/auth/callback", params={"code": "c", "state": "bad"}, follow_redirects=False
@@ -150,7 +152,7 @@ def test_oauth_callback_rejects_missing_state_cookie(make_client, monkeypatch):
     client = make_client(**OAUTH_ENV)
     consumed = []
     monkeypatch.setattr(
-        oauth_mod, "consume_state", lambda s: consumed.append(s) or True
+        oauth_mod, "consume_state", lambda s: consumed.append(s) or "verifier"
     )
     r = client.get(
         "/auth/callback",
@@ -166,7 +168,7 @@ def test_oauth_callback_rejects_mismatched_state_cookie(make_client, monkeypatch
     client = make_client(**OAUTH_ENV)
     consumed = []
     monkeypatch.setattr(
-        oauth_mod, "consume_state", lambda s: consumed.append(s) or True
+        oauth_mod, "consume_state", lambda s: consumed.append(s) or "verifier"
     )
     client.cookies.set(OAUTH_STATE_COOKIE, "attackers-state")
     r = client.get(
@@ -181,7 +183,7 @@ def test_oauth_callback_rejects_mismatched_state_cookie(make_client, monkeypatch
 
 def test_oauth_callback_deletes_state_cookie_on_rejection(make_client, monkeypatch):
     client = make_client(**OAUTH_ENV)
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: True)
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
     client.cookies.set(OAUTH_STATE_COOKIE, "mismatched")
     r = client.get(
         "/auth/callback",
@@ -204,12 +206,12 @@ def test_oauth_callback_closes_connection_when_probe_identity_fails(
     client = make_client(**OAUTH_ENV)
 
     class StubOAuth:
-        def exchange_code(self, code):
+        def exchange_code(self, code, code_verifier=None):
             return TokenResponse("at-1", "rt-1", 600)
 
     conn = FakeConnection()
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: True)
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
     monkeypatch.setattr(sf_connect, "connect_oauth", lambda token: conn)
 
     def boom(c):

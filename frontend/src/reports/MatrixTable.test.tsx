@@ -22,13 +22,15 @@ function visual(overrides: Partial<Visual> = {}): Visual {
 }
 
 const nested: QueryResponse = {
-  columns: [{ name: "REGION" }, { name: "SEGMENT" }, { name: "REVENUE" }],
+  columns: [{ name: "REGION", type: "TEXT" }, { name: "SEGMENT", type: "TEXT" }, { name: "REVENUE", type: "TEXT" }],
   rows: [
     ["EAST", "RETAIL", 10],
     ["EAST", "WHOLESALE", 5],
     ["WEST", "RETAIL", 20],
   ],
   truncated: false,
+  sfqid: null,
+  sql: "",
 };
 
 describe("MatrixTable", () => {
@@ -58,13 +60,15 @@ describe("MatrixTable", () => {
       wells: { rows: ["C.REGION"], columns: ["O.YEAR"], values: ["O.REVENUE"] },
     });
     const result: QueryResponse = {
-      columns: [{ name: "REGION" }, { name: "YEAR" }, { name: "REVENUE" }],
+      columns: [{ name: "REGION", type: "TEXT" }, { name: "YEAR", type: "TEXT" }, { name: "REVENUE", type: "TEXT" }],
       rows: [
         ["EAST", "2024", 10],
         ["EAST", "2025", 5],
         ["WEST", "2024", 20],
       ],
       truncated: false,
+      sfqid: null,
+      sql: "",
     };
     render(<MatrixTable visual={withColumns} result={result} />);
     const east = screen.getByRole("row", { name: /EAST/ });

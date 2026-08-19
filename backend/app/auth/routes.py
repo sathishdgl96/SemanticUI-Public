@@ -41,7 +41,9 @@ def oauth_login() -> RedirectResponse:
         raise ApiError("AUTH_FAILED", 400, "OAuth login is not available in dev mode")
     client = oauth_mod.get_oauth_client()
     state = oauth_mod.make_state()
-    response = RedirectResponse(client.authorize_url(state))
+    response = RedirectResponse(
+        client.authorize_url(state, code_challenge=oauth_mod.challenge_for(state))
+    )
     oauth_mod.set_state_cookie(response, state)
     return response
 
@@ -71,10 +73,11 @@ def oauth_callback(
     if not cookie_state or not secrets.compare_digest(cookie_state, state):
         return _reject_oauth_callback("Invalid or expired OAuth state")
 
-    if not oauth_mod.consume_state(state):
+    verifier = oauth_mod.consume_state(state)
+    if not verifier:
         return _reject_oauth_callback("Invalid or expired OAuth state")
     try:
-        tok = oauth_mod.get_oauth_client().exchange_code(code)
+        tok = oauth_mod.get_oauth_client().exchange_code(code, code_verifier=verifier)
     except OAuthRefreshError:
         return _reject_oauth_callback("OAuth code exchange failed")
     conn = sf_connect.connect_oauth(tok.access_token)

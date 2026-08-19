@@ -72,6 +72,15 @@ def create_app() -> FastAPI:
             return _JSON({"error": "cross-site request refused"}, status_code=403)
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        if response.headers.get("content-type", "").startswith("text/html"):
+            # The SPA is fully self-hosted; the only reaches outward are an
+            # optional external logo (img https:) and nothing else.
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; img-src 'self' data: https:; "
+                "style-src 'self' 'unsafe-inline'; connect-src 'self'; "
+                "frame-ancestors 'none'",
+            )
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("X-Frame-Options", "DENY")
         if request.url.path.startswith(("/api", "/auth")):
@@ -165,6 +174,48 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict:
         return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz() -> dict:
+        """Readiness: the app database answers. Cheap deliberately --
+        orchestrators call this every few seconds."""
+        from sqlalchemy import text
+
+        db = new_session()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+        return {"status": "ok"}
+
+    if settings.static_dir:
+        import os
+
+        from fastapi.staticfiles import StaticFiles
+
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        class SpaStaticFiles(StaticFiles):
+            async def get_response(self, path: str, scope):
+                # A deep link like /reports/123 belongs to the SPA router,
+                # so the shell page answers. Starlette signals the miss as
+                # an exception OR a 404 response depending on the path
+                # shape -- catch both.
+                try:
+                    response = await super().get_response(path, scope)
+                except StarletteHTTPException as exc:
+                    if exc.status_code == 404:
+                        return await super().get_response("index.html", scope)
+                    raise
+                if response.status_code == 404:
+                    return await super().get_response("index.html", scope)
+                return response
+
+        if os.path.isdir(settings.static_dir):
+            app.mount(
+                "/", SpaStaticFiles(directory=settings.static_dir, html=True)
+            )
+
 
     return app
 
