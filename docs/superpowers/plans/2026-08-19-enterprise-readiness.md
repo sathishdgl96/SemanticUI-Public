@@ -129,30 +129,38 @@ Gaps this plan closes:
   pinning, and the client-side exposure documented honestly (Excel's
   credential store holds the raw token for its TTL; TLS is mandatory).
 
-  *SSO refresh tokens must be stored* -- a confidential OAuth client
-  that rebuilds connections across replicas and serves Excel refreshes
-  cannot function without them; "store nothing" means re-login on every
-  access-token expiry and no scale-out. Harden HOW they are held:
-  1. **Persist only the refresh token.** The access token is
-     short-lived; keep it in the in-process connection cache and drop
-     `access_token_enc` from the sessions table (schema + code change,
-     small). Shrinks the at-rest surface to the one credential that
-     genuinely needs persistence.
-  2. **Envelope encryption with an external key.** Replace
-     derive-from-SECRET_KEY with a data-key wrapped by a KMS/Vault
-     transit key (pluggable `crypto.py` backend; Fernet stays as the
-     dev-mode fallback). An attacker with the DB alone gets ciphertext;
-     with the app server alone gets no historical dumps. Key rotation
-     becomes a re-wrap, not a re-login of every user.
-  3. **Tighten the Snowflake side**: `OAUTH_REFRESH_TOKEN_VALIDITY`
-     set deliberately (e.g. 7-30 days, not the 90-day default), blocked
-     high-privilege roles left blocked, and the per-user revocation
-     path (`ALTER USER ... REMOVE DELEGATED AUTHORIZATIONS`) written
-     into the ops runbook -- Snowflake-side revocation is the kill
-     switch that works even if the app is compromised.
-  4. **Audit token lifecycle** (with C1): mint, first-use,
-     use-from-new-address, refresh-failure -- so a stolen token's use is
-     visible, not silent.
+  *SSO tokens: memory-only is the DEFAULT posture* (product owner
+  decision). `SEMANTICUI_TOKEN_PERSISTENCE=none|encrypted`:
+
+  - **`none` (default): session affinity with in-memory tokens.** The
+    sessions table stores identity only -- ZERO tokens at rest anywhere.
+    The authenticated Snowflake connection in the container's memory IS
+    the credential. Requirements this creates, all delivered together:
+    1. **Idle timeout ~1 h** (`SEMANTICUI_SESSION_IDLE_MINUTES=60`):
+       eviction of connection + session; the next browser request
+       bounces through the Snowflake security integration -- a SILENT
+       redirect when the IdP session is alive, so re-auth is invisible
+       most of the time.
+    2. **Routing affinity is mandatory**: LB cookie affinity for the
+       browser; consistent-hash on the Authorization header for /xmla
+       and /api/feed so Excel's token-bearing requests land on the
+       container holding the connection. Shipped as proxy config in the
+       deployment artifacts (K5) with a two-replica verification test.
+    3. **Stated trade-offs, documented where operators will read them**:
+       every deploy/restart logs that container's users out (a bounce);
+       unattended/scheduled Excel refresh past the idle hour cannot work
+       -- there is nothing server-side to rebuild from, by design.
+  - **`encrypted` (opt-in)**: for orgs that need unattended refresh --
+    persist ONLY the refresh token, envelope-encrypted with a KMS/Vault
+    transit key (Fernet fallback in dev), access token memory-only.
+  - **Snowflake-side controls apply to both profiles**:
+    `OAUTH_REFRESH_TOKEN_VALIDITY` set deliberately, high-privilege
+    roles blocked, per-user revocation
+    (`ALTER USER ... REMOVE DELEGATED AUTHORIZATIONS`) in the runbook as
+    the kill switch that works even if the app is compromised.
+  - **Audit token lifecycle** (with C1): mint, first-use,
+    use-from-new-address, refresh-failure.
+
 - **A2.2 Input ceilings**: request size limits, filter count/length caps
   swept in `reports/schema.py`, XMLA statement length cap in `soap.py`;
   XML parsing posture reviewed (entity expansion off — the XMLA parser
@@ -214,9 +222,13 @@ Gaps this plan closes:
     user's connection from the DB-stored refresh token — verify with two
     replicas behind a round-robin proxy in a test script.
   - XMLA `SessionStore`: MSOLAP re-presents the connect token digest, so
-    a replica that never saw the BeginSession can re-open — verify, and
-    fall back to documented sticky-session guidance only if a gap
-    remains.
+    a replica that never saw the BeginSession can re-open -- verify.
+  - Under the default `TOKEN_PERSISTENCE=none` profile (A2.1), affinity
+    is MANDATORY: LB cookie for browsers, Authorization-header
+    consistent hashing for /xmla and /api/feed. The two-replica test
+    runs in BOTH profiles: `none` proves affinity keeps a user working
+    on one node and re-auth is a clean bounce after eviction;
+    `encrypted` proves any node can rebuild.
   *Accept:* a two-replica compose profile passes the API tests and a
   scripted Excel refresh.
 - **K5 (P1) Orchestrator artifacts.** Helm chart or plain k8s manifests
