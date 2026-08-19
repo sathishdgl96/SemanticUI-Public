@@ -128,6 +128,57 @@ localhost database, and the XMLA trace flag.
    account).
 3. Idle an hour → next click bounces silently through the IdP.
 
+## 4b. Troubleshooting (every trap this actually hit)
+
+Sign-in has three legs, and only the last one involves Snowflake. The
+app's 401 detail (development only) and its log line name the leg.
+
+**Snowflake's own verifier is the fastest instrument.** It explains a
+refusal in one word instead of a guess:
+
+```sql
+SELECT SYSTEM$VERIFY_EXTERNAL_OAUTH_TOKEN('<an access token>');
+-- {"Validation Result":"Failed","Failure Reason":"EXTERNAL_OAUTH_USER_CLAIM_MISSING"}
+```
+
+An app-only token (client credentials) is enough to prove the issuer,
+audience and signature are right — it simply carries no user claim, so
+that one reason is expected and everything else passing is the signal.
+
+| Symptom | Cause |
+|---|---|
+| `390303 Invalid OAuth access token` | Issuer, audience or signature mismatch — or the token carries no user claim at all. |
+| `390100 Incorrect username or password` | The token VALIDATED; the mapped claim's value matches no Snowflake user. This is a mapping problem, never a password. |
+| `None:` in the middle of a Snowflake error | Not a username. It is `sfqid`, which the connector interpolates whenever the logger sits at INFO/DEBUG and which is absent during a failed login. Ignore it. |
+
+Three configuration traps, all of which produce the same 390100:
+
+1. **Mapping an opaque claim.** Entra's `sub` is a pairwise GUID, not a
+   name; nothing in Snowflake will ever equal it. Map `upn` (or `email`)
+   and confirm it appears in the ACCESS token — the ID token is not what
+   Snowflake sees. Optional claims are added under App registration →
+   Token configuration → **Access token**.
+2. **Mapping onto `LOGIN_NAME` when passwords are still in use.**
+   Changing `LOGIN_NAME` to an email address changes how that user signs
+   in everywhere, breaking password and key-pair logins that used the
+   old name. Prefer `EXTERNAL_OAUTH_SNOWFLAKE_USER_MAPPING_ATTRIBUTE =
+   'EMAIL_ADDRESS'` and set the user's `EMAIL`, which nothing else reads.
+3. **No usable role.** With `EXTERNAL_OAUTH_ANY_ROLE_MODE = DISABLE` the
+   token's `scp` must name a role that EXISTS and is GRANTED to the
+   user, and that role must not be on the blocked list. A brand-new
+   account typically grants its owner only ACCOUNTADMIN — which is
+   blocked, correctly — so SSO has nothing to run as until an ordinary
+   role is created:
+
+```sql
+CREATE ROLE IF NOT EXISTS ANALYST;               -- matches session:role:analyst
+GRANT ROLE ANALYST TO USER <user>;
+GRANT USAGE ON WAREHOUSE <wh> TO ROLE ANALYST;
+GRANT USAGE ON DATABASE <db> TO ROLE ANALYST;
+GRANT USAGE ON SCHEMA <db>.<schema> TO ROLE ANALYST;
+GRANT SELECT ON ALL SEMANTIC VIEWS IN SCHEMA <db>.<schema> TO ROLE ANALYST;
+```
+
 ## 5. Revocation (the kill switch)
 
 Per user, at the Snowflake side — works even if the app is compromised:
