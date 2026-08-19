@@ -48,6 +48,9 @@ def test_production_allows_only_keypair_direct_login():
         oauth_client_secret="c",
         direct_login_methods=["keypair"],
         secret_key="a" * 32,
+        # The localhost default now trips the production guardrail, as it
+        # should -- production fixtures name a real-looking database.
+        database_url="postgresql+psycopg://app:pw@db.internal:5432/semanticui",
     )
     assert s.direct_login_methods == ["keypair"]
 
@@ -73,6 +76,9 @@ def _prod_kwargs(**overrides):
         oauth_client_secret="c",
         direct_login_methods=["keypair"],
         secret_key="a" * 32,
+        # The localhost default now trips the production guardrail, as it
+        # should -- production fixtures name a real-looking database.
+        database_url="postgresql+psycopg://app:pw@db.internal:5432/semanticui",
     )
     kwargs.update(overrides)
     return kwargs

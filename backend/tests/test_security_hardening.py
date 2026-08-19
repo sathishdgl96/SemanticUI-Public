@@ -3,7 +3,6 @@
 import pytest
 
 from app.auth.throttle import SlidingWindow
-from app.config import get_settings
 
 
 class TestHeaders:
