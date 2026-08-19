@@ -90,6 +90,10 @@ def create_report(
     report = service.create_report(
         db, sess.user_id, body.definition, body.workspaceId
     )
+    from app.audit import record
+
+    record(db, "report.create", user_id=sess.user_id, session_id=sess.id,
+           resource_type="report", resource_id=report.id)
     workspace, role = _context(db, sess.user_id, report)
     return _detail(report, workspace=workspace, role=role)
 
@@ -101,6 +105,10 @@ def get_report(
     db: Session = Depends(get_db),
 ) -> dict:
     report = require_access(db, sess.user_id, report_id, need="viewer")
+    from app.audit import record
+
+    record(db, "report.read", user_id=sess.user_id, session_id=sess.id,
+           resource_type="report", resource_id=report.id)
     workspace, role = _context(db, sess.user_id, report)
     return _detail(report, workspace=workspace, role=role)
 
@@ -113,6 +121,10 @@ def update_report(
     db: Session = Depends(get_db),
 ) -> dict:
     report = service.update_report(db, sess.user_id, report_id, body.definition)
+    from app.audit import record
+
+    record(db, "report.update", user_id=sess.user_id, session_id=sess.id,
+           resource_type="report", resource_id=report.id)
     workspace, role = _context(db, sess.user_id, report)
     return _detail(report, workspace=workspace, role=role)
 
@@ -124,6 +136,10 @@ def delete_report(
     db: Session = Depends(get_db),
 ) -> Response:
     service.delete_report(db, sess.user_id, report_id)
+    from app.audit import record
+
+    record(db, "report.delete", user_id=sess.user_id, session_id=sess.id,
+           resource_type="report", resource_id=report_id)
     return Response(status_code=204)
 
 

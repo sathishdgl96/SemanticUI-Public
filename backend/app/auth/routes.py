@@ -106,8 +106,13 @@ def oauth_callback(
 def logout(request: Request, db: Session = Depends(get_db)) -> JSONResponse:
     sid = request.cookies.get(SESSION_COOKIE)
     if sid:
+        sess = get_active_session(db, sid)
         get_cache().evict(sid)
         delete_session(db, sid)
+        from app.audit import record
+
+        record(db, "auth.logout",
+               user_id=sess.user_id if sess else None, session_id=sid)
     response = JSONResponse({"ok": True})
     response.delete_cookie(SESSION_COOKIE)
     return response

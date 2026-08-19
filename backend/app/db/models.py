@@ -108,6 +108,29 @@ class Report(Base):
     )
 
 
+class AuditEvent(Base):
+    """One security-relevant act. Value-free by contract: names of the
+    acting user and the touched resource are IDs, `detail` holds only
+    shapes (counts, flags), never data values or resource names."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, index=True
+    )
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    #: sha256 prefix of the session id -- correlates events of one session
+    #: without the audit table becoming a cookie-theft target.
+    session_ref: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), default="ok")
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
 class SavedExplore(Base):
     """A saved query, not a saved canvas.
 

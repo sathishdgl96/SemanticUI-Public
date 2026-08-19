@@ -45,6 +45,10 @@ def create_connect_token(
     the previous token, which is also how a user revokes one deliberately.
     """
     token, expires = connect_token.mint(db, sess)
+    from app.audit import record
+
+    record(db, "token.mint", user_id=sess.user_id, session_id=sess.id,
+           detail={"expiresAt": expires.isoformat()})
     return {"token": token, "expiresAt": expires.isoformat()}
 
 

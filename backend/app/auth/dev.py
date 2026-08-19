@@ -68,6 +68,10 @@ def dev_login(
         raise
     except Exception as exc:
         window.register_failure(throttle_key)
+        from app.audit import record
+
+        record(db, "auth.login_failed", outcome="failed",
+               detail={"method": req.authenticator})
         detail = None if req.authenticator == "keypair" else str(exc)
         raise ApiError("AUTH_FAILED", 401, "Snowflake login failed", detail=detail)
     try:
@@ -79,6 +83,10 @@ def dev_login(
     # This connection is the only copy of the user's credential — there is no
     # stored token to rebuild it from, so it must survive the idle sweep.
     get_cache().put(sess.id, conn, rebuildable=False)
+    from app.audit import record
+
+    record(db, "auth.login", user_id=sess.user_id, session_id=sess.id,
+           detail={"method": req.authenticator})
     response = JSONResponse(
         {"snowflakeUser": user, "snowflakeAccount": account, "mode": "dev"}
     )

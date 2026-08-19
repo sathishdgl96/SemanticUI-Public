@@ -96,10 +96,16 @@ def _feed(
         for key, value in request.query_params.items()
         if key.startswith("f.") and len(key) > 2
     }
-    return service.run_feed(
+    columns, rows, truncated = service.run_feed(
         db, dbsess.user_id, entry, report_id, visual_id,
         extra_filters=extra, limit=limit,
     )
+    from app.audit import record
+
+    record(db, "feed.read", user_id=dbsess.user_id, session_id=dbsess.id,
+           resource_type="report", resource_id=report_id,
+           detail={"rows": len(rows), "truncated": truncated})
+    return columns, rows, truncated
 
 
 @router.get("/api/feed/reports/{report_id}/visuals/{visual_id}.csv")

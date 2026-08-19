@@ -79,6 +79,9 @@ def require_owned(
     exactly the same rule, and two copies of an authorization check is one
     copy too many -- the second is where the drift starts.
     """
+    from app.audit import record
+
+    resource = model.__tablename__
     key = as_uuid(entity_id)
     if key is None:
         raise _not_found()
@@ -87,8 +90,15 @@ def require_owned(
         raise _not_found()
     member = membership(db, user_id, row.workspace_id)
     if member is None:
+        # The one audit-worthy denial: a real resource, a real user, no
+        # membership. (A garbage id is noise, not signal.)
+        record(db, "access.denied", user_id=user_id, resource_type=resource,
+               resource_id=key, outcome="denied")
         raise _not_found()
     if not at_least(member.role, need):
+        record(db, "access.denied", user_id=user_id, resource_type=resource,
+               resource_id=key, outcome="forbidden",
+               detail={"need": need, "role": member.role})
         raise _forbidden(need, member.role)
     return row
 

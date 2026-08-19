@@ -161,6 +161,10 @@ class SessionStore:
                 "report's Connect panel.",
             )
         session = XmlaSession(db_session_id=dbsess.id, user_id=dbsess.user_id)
+        from app.audit import record
+
+        record(db, "xmla.session_open", user_id=dbsess.user_id,
+               session_id=dbsess.id)
         session_id = secrets.token_hex(16)
         with self._lock:
             self._by_id[session_id] = session
