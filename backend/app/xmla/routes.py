@@ -32,12 +32,6 @@ from app.xmla.soap import envelope, fault, parse_request
 from app.xmla.state import acquire_entry, get_store
 
 logger = logging.getLogger(__name__)
-if not logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("XMLA %(message)s"))
-    logger.addHandler(_handler)
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
 
 router = APIRouter()
 
@@ -104,7 +98,10 @@ def _trace(direction: str, payload, headers=None) -> None:
 @router.post("/xmla")
 async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
     body = await request.body()
-    _trace("request", body, headers=request.headers.items())
+    from app.logging import request_id_var, set_user
+
+    _trace(f"request {request_id_var.get() or ''}".rstrip(), body,
+           headers=request.headers.items())
     try:
         xmla_request = parse_request(body)
     except Exception:
@@ -118,6 +115,8 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
     session_id = xmla_request.session_id
     if session_id:
         session = store.get(session_id)
+        if session is not None:
+            set_user(session.user_id)
 
     if session is None:
         token = _token(request)
@@ -125,6 +124,7 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
             return _unauthorized()
         try:
             session_id, session = store.open(db, token)
+            set_user(session.user_id)
         except ApiError as exc:
             logger.info("XMLA auth failed: %s", exc.message)
             return _unauthorized()

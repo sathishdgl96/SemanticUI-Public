@@ -27,6 +27,9 @@ class Settings(BaseSettings):
 
     auth_mode: Literal["oauth", "dev"] = "dev"
     environment: Literal["development", "production"] = "development"
+    #: "json" is the container-native stream collectors ingest; "plain" is
+    #: for human terminals. Empty means: json in production, plain in dev.
+    log_format: Literal["json", "plain", ""] = ""
     secret_key: str = DEFAULT_SECRET_KEY
     database_url: str = "postgresql+psycopg://semanticui:semanticui@localhost:5432/semanticui"
 

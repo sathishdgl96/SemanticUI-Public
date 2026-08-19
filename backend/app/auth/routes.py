@@ -29,6 +29,9 @@ def current_session(request: Request, db: Session = Depends(get_db)) -> DbSessio
     sess = get_active_session(db, sid) if sid else None
     if sess is None:
         raise AuthExpiredError()
+    from app.logging import set_user
+
+    set_user(sess.user_id)
     return sess
 
 

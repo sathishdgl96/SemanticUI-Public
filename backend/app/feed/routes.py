@@ -78,6 +78,9 @@ def _feed(
     dbsess = _app_session(request, db)
     if dbsess is None:
         raise ApiError("AUTH_REQUIRED", 401, "connect token required")
+    from app.logging import set_user
+
+    set_user(dbsess.user_id)
     entry = get_cache().acquire(db, dbsess)
     extra = {
         key[2:]: value

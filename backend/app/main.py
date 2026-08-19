@@ -1,8 +1,9 @@
 import logging
+import secrets
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from app.auth.sessions import purge_expired_sessions
 from app.config import get_settings
@@ -40,8 +41,48 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    from app.logging import RequestTimer, request_id_var, setup_logging, user_id_var
+
+    setup_logging(
+        settings.log_format
+        or ("json" if settings.environment == "production" else "plain")
+    )
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     register_error_handlers(app)
+    request_logger = logging.getLogger("app.request")
+
+    @app.middleware("http")
+    async def request_context(request: Request, call_next):
+        """Correlation and the one summary line per request.
+
+        Honours an inbound X-Request-ID (the reverse proxy usually mints
+        one) so app logs join the proxy's; generates one otherwise. The
+        id goes back on the response so a user's bug report can name it.
+        """
+        rid = request.headers.get("X-Request-ID") or secrets.token_hex(8)
+        token_rid = request_id_var.set(rid)
+        token_uid = user_id_var.set(None)
+        timer = RequestTimer()
+        try:
+            response = await call_next(request)
+            request_logger.info(
+                "request",
+                extra={"method": request.method, "path": request.url.path,
+                       "status": response.status_code,
+                       "duration_ms": timer.duration_ms},
+            )
+            response.headers["X-Request-ID"] = rid
+            return response
+        except Exception:
+            request_logger.exception(
+                "unhandled",
+                extra={"method": request.method, "path": request.url.path,
+                       "status": 500, "duration_ms": timer.duration_ms},
+            )
+            raise
+        finally:
+            request_id_var.reset(token_rid)
+            user_id_var.reset(token_uid)
 
     @app.get("/api/branding")
     def branding() -> dict:
