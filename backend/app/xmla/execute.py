@@ -705,7 +705,6 @@ class _Engine:
                     rem //= n
                 assignment: dict = {}
                 measure_index = 0
-                skip = False
                 for axis_i, coord in enumerate(coords):
                     a, mi = resolvers[axis_i][coord]
                     if a:

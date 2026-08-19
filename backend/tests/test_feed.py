@@ -196,7 +196,7 @@ def feed_report(client, db):
     db.commit()
     from app.db.models import User, Workspace, WorkspaceMember
 
-    user = db.query(User).filter(User.id == sess.user_id).one()
+    db.query(User).filter(User.id == sess.user_id).one()
     workspace = (
         db.query(Workspace)
         .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)

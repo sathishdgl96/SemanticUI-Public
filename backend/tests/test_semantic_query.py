@@ -1,7 +1,7 @@
 import pytest
 
 from app.errors import ApiError
-from app.semantic.query import OrderBy, SemanticQueryRequest, build_semantic_sql
+from app.semantic.query import SemanticQueryRequest, build_semantic_sql
 
 DETAIL = {
     "tables": [{"name": "ORDERS"}, {"name": "CUSTOMERS"}],

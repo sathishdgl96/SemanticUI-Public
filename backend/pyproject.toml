@@ -18,7 +18,17 @@ dependencies = [
 [project.optional-dependencies]
 # openpyxl is a TEST dependency only: the export tests read the generated
 # workbook back with a different library than the one that wrote it.
-dev = ["pytest>=8", "pytest-mock>=3.14", "openpyxl>=3.1"]
+dev = ["pytest>=8", "pytest-mock>=3.14", "openpyxl>=3.1", "ruff>=0.6", "lxml>=5"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+#: The CI-enforced floor: syntax errors, undefined names, unused code.
+#: The stricter set (I, B, S) lands with the D2.1 cleanup pass -- widening
+#: the net is deliberate work, not a default.
+select = ["E9", "F"]
 
 [tool.pytest.ini_options]
 markers = ["integration: tests that need a real Snowflake account (env-gated)"]

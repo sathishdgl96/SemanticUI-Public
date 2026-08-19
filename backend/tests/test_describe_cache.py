@@ -1,5 +1,4 @@
 from app.auth.sessions import create_session
-from app.snowflake import connect as sf_connect
 from app.snowflake.provider import ConnectionCache
 from tests.fakes import FakeConnection
 

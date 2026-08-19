@@ -25,7 +25,6 @@ from sqlalchemy.orm import Session
 
 from app.auth import connect_token
 from app.auth.sessions import get_active_session
-from app.db.models import DbSession
 from app.errors import ApiError
 from app.semantic.discovery import list_semantic_views
 from app.snowflake.provider import get_cache

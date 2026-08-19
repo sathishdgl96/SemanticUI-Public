@@ -90,7 +90,7 @@ def test_endpoints_require_auth(client):
 
 
 def test_list_and_describe(client, db):
-    conn = login(client, db)
+    login(client, db)
     r = client.get("/api/semantic-views", params={"database": "ANALYTICS"})
     assert r.status_code == 200
     assert r.json()["views"][0]["name"] == "SALES"

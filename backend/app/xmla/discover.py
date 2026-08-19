@@ -837,7 +837,6 @@ def _level_rows(session, view: dict, fields: list, prefix: tuple = ()) -> list:
     tree is fetched. Capped: Excel's filter dropdown does not want a
     million rows, and HIERARCHY_CARDINALITY already promises no precision.
     """
-    from app.config import get_settings
     from app.semantic.query import SemanticQueryRequest, build_semantic_sql
     from app.snowflake import gateway
 

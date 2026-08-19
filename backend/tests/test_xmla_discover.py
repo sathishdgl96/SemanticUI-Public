@@ -84,7 +84,6 @@ class TestRowset:
             [{"A": "x", "N": 3, "B": True}, {"A": "y"}],
         )
         root = ElementTree.fromstring(envelope(xml))
-        ns = {"r": ROWSET_NS}
         rows = root.findall(f".//{{{ROWSET_NS}}}row")
         assert len(rows) == 2
         first = {el.tag.rsplit("}", 1)[-1]: el.text for el in rows[0]}

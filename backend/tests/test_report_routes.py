@@ -3,7 +3,7 @@ import json
 from sqlalchemy import select
 
 from app.auth.sessions import SESSION_COOKIE, create_session
-from app.db.models import Report, User, Workspace, WorkspaceMember
+from app.db.models import Report, Workspace, WorkspaceMember
 from app.reports.schema import MAX_DEFINITION_BYTES, MAX_REFS_PER_WELL, MAX_VISUALS
 
 
