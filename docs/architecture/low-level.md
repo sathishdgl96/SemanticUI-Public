@@ -16,7 +16,7 @@ request flows, the database schema, and the XMLA protocol contract.
 | `cortex` | Natural-language Q&A via Snowflake Cortex | `routes.py` |
 | `export` | Excel artifacts | `sheets.py`/`workbook.py` (snapshot .xlsx), `live.py` (live-connection workbook: OOXML query table + hidden definedName), `odc.py`, `literals.py` (CSV formula-injection guard), `service.py`, `routes.py` (also `POST /api/connect/token`, `GET /api/branding`… branding itself lives in `main.py`) |
 | `feed` | Power Query per-visual feed | `service.py` (`build_feed_request`, `run_feed`), `render.py` (`to_csv` RFC 4180 + formula guard, `to_json`), `routes.py` (Basic → connect token) |
-| `xmla` | Excel Analysis Services adapter | `soap.py`, `rowset.py`, `discover.py`, `mdx.py`, `execute.py`, `dataset.py`, `state.py`, `routes.py` — detailed below |
+| `xmla` | Excel Analysis Services adapter | `soap.py`, `rowset.py`, `discover.py`, `mdx.py`, `execute.py`, `classify.py`, `members.py`, `engine.py`, `dataset.py`, `state.py`, `routes.py` — detailed below |
 | `db` | SQLAlchemy models + engine | `models.py`, `base.py` (`get_db`) |
 
 `config.py` is pydantic-settings with prefix `SEMANTICUI_` reading `.env`
@@ -163,13 +163,20 @@ errors for the same protocol) are the debugging tools.
   complement `{-{m}}` (collapse); `WHERE` tuples; subselect `FROM (SELECT
   … )` filters; `CELL PROPERTIES`. Anything else raises `MdxUnsupported`
   with the construct named.
-- `execute.py` — the engine: classifies each axis into hierarchy specs
-  (measures / drills with optional per-parent constraints), runs one
-  aggregate query per distinct grouping the axes need (grand total,
-  per-parent subtotals, full cross), builds tuples in CrossJoin order with
-  NON EMPTY pruning, and resolves each cell ordinal (Axis0-fastest) from
-  the cached grouping tables. Member-list queries (no measure anywhere)
-  run dimension-only and answer no cells.
+- `execute.py` — the Execute facade: statement-less Execute → the
+  `urn:…:empty` root; real MDX → parse, resolve the cube, run the engine.
+  Re-exports `gateway` because tests patch `execute.gateway.run_query`.
+- `classify.py` — axis set expressions → one `HierSpec` per hierarchy
+  (measures / drills with optional per-parent constraints). The
+  leaf-`.Children`-is-empty, flat `Level.Members`, and
+  drill-before-early-return rules live here.
+- `members.py` — member wire rendering and the `DisplayInfo` drilled flag
+  (0x10000) that drives Excel's collapse bookkeeping.
+- `engine.py` — runs one aggregate query per distinct grouping the axes
+  need (grand total, per-parent subtotals, full cross), builds tuples in
+  CrossJoin order with NON EMPTY pruning, and resolves each cell ordinal
+  (Axis0-fastest) from the cached grouping tables. Member-list queries
+  (no measure anywhere) run dimension-only and answer no cells.
 - `dataset.py` — the mddataset response. The embedded XSD is byte-for-byte
   the schema Mondrian serves Excel (their integration fixtures are the one
   Excel-accepted reference). Member properties must be declared in the
@@ -178,7 +185,10 @@ errors for the same protocol) are the debugging tools.
 - `routes.py` — `POST /xmla`: Basic (token) or Session header; the
   `X-Transport-Caps-Negotiation-Flags` header goes on **every** response
   (faults and 401s included); `X-AS-SessionID` accompanies in-session
-  responses; the wire tap writes verbatim request/response pairs.
+  responses; the wire tap writes verbatim request/response pairs. A query
+  that fails session-gone discards the cached connection and retries once
+  (OAuth rebuilds silently; dev faults with sign-in-again) — see
+  `docs/operations/xmla-reliability.md`.
 
 ### Protocol rules that are load-bearing
 
