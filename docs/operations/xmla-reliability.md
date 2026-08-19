@@ -43,6 +43,38 @@ reports open, gets handed out again, and fails the query.
 | Reverse proxy hides client IPs | All users share one throttle bucket; 8 distinct bad tokens per minute across *everyone* lock the bucket | Run uvicorn with `--proxy-headers` (and set `FORWARDED_ALLOW_IPS`) so the real client IP reaches the app. |
 | Multiple replicas without session affinity | XMLA re-auth works (token on every request), but each replica opens its own Snowflake connection per session | Supported shape today is single replica or affinity (ADR 0008); K4 is the verification item for anything else. |
 | Long queries (> Excel's timeout) | MSOLAP gives up; requests behind the same session's lock queue | Set `SEMANTICUI_STATEMENT_TIMEOUT_SECONDS` below Excel's patience; investigate the query with the request id → query id chain. |
+| Grouping past the row cap | Fault: "too many rows at that level of detail" | Deliberate. The alternative is subtotals computed from part of the data with nothing to say so. Filter the pivot, or raise `SEMANTICUI_EXPORT_ROW_CAP` if the machine can hold it. |
+
+## Filtering and multi-level hierarchies
+
+Symptoms that were fixed rather than configured (regression suite:
+`backend/tests/test_xmla_hierarchy_fixes.py`) — if any reappear, that
+suite is where to start:
+
+- **A numeric or date level behaved unlike a text one** (expanding a
+  year showed nothing; its collapse state was forgotten). MDX paths are
+  strings, the data is not; every comparison is canonical now.
+- **A hierarchy dropdown went blank** when nothing was selected —
+  `Exists(set, {[H].[All]})` was filtering on the literal value "All".
+- **Ticking boxes in a hierarchy dropdown filtered nothing.** The
+  selection arrives as a set of PATHS; a length test that only ever
+  matched flat attribute members dropped them silently.
+- **Selections bled across branches** (EUROPE/FRANCE + ASIA/JAPAN also
+  admitting EUROPE/JAPAN). Paths now reach Snowflake as one tuple-IN,
+  and a whole branch ticked beside a deeper leaf expands to full paths
+  first so a single predicate carries both.
+- **Duplicate rows** on explicitly-filtered pivots: `DrilldownMember`'s
+  drill set re-walked members the base axis already carried.
+
+## Is the response streamed?
+
+No. Each response is built in memory and returned whole, and each
+Snowflake read is a bounded `fetchmany` — nothing unbounded is ever
+buffered, but nothing is incremental either. This is deliberate: a
+malformed or partial XMLA response does not error in Excel, it HANGS
+it, so the server must know a response is complete and well-formed
+before the first byte goes out. The row cap plus the fault above is
+what bounds memory; streaming would trade a clean fault for a hang.
 
 ## Diagnosing a report of "Excel broke"
 
