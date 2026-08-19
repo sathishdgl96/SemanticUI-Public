@@ -162,6 +162,24 @@ Gaps this plan closes:
   Excel refresh works with no affinity; DB dump contains no usable
   credential except the encrypted, capped, revocable Excel grants.
 
+- **A2.1b Industry-alignment additions** (from the comparables review:
+  Power BI gateway credentials and Tableau saved credentials validate the
+  boxed-grant design; GitHub PATs validate the hash+prefix+cap design):
+  1. Refresh-token **rotation with reuse detection** on the browser path
+     -- a replayed old token kills the chain and audits the event.
+  2. Register the `xlt_` prefix with secret-scanning (GitHub program +
+     gitleaks rule) so a pasted token gets caught automatically.
+  3. `last_used_at` + coarse origin per connect token, shown in the
+     UI token list.
+  4. IdP-lifecycle revocation: user deactivation (SCIM event or
+     login-time check) revokes every grant -- the leaver gap, closed.
+  5. Snowflake **network policy** on the security integration so grants
+     only work from the app's egress addresses.
+  6. Documented BFF trade-off in the threat model (reviewers will ask):
+     browser-held + strict CSP chosen over BFF for zero server
+     persistence and stateless scale-out; DPoP adopted when the IdP
+     supports it.
+
 - **A2.2 Input ceilings**: request size limits, filter count/length caps
   swept in `reports/schema.py`, XMLA statement length cap in `soap.py`;
   XML parsing posture reviewed (entity expansion off — the XMLA parser
