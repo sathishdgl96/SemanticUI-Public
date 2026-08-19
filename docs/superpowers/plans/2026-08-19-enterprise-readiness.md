@@ -120,46 +120,47 @@ Gaps this plan closes:
 
 ### Phase A2 (P1)
 
-- **A2.1 Token security posture.** The two token types have opposite
-  designs, and the hardening differs accordingly:
+- **A2.1 Token architecture (product owner decision, final).** Two
+  paths, two designs, no general token store:
 
-  *Connect tokens are never stored* -- only their sha256 lands in the DB,
-  the raw value is shown once. A stolen database yields nothing usable.
-  Remaining work: logout-kills-token proven by test, optional IP
-  pinning, and the client-side exposure documented honestly (Excel's
-  credential store holds the raw token for its TTL; TLS is mandatory).
+  **Browser: tokens live in the BROWSER, never at rest on the server.**
+  Authorization-code + PKCE as a public client of the corporate IdP,
+  with Snowflake configured for External OAuth to accept those tokens
+  (Snowflake-native OAuth's confidential client does not fit a browser
+  holder). Short-lived access token in SPA memory, rotating refresh /
+  silent renewal against the IdP session -- "auto refresh while in use".
+  Every API request carries the bearer; the backend opens the user's
+  Snowflake connection from it and caches the CONNECTION only, evicted
+  after `SEMANTICUI_SESSION_IDLE_MINUTES` (default 60) -- after which
+  the next use re-presents or silently renews.
+  Consequences, engineered deliberately:
+  1. **No routing affinity needed**: any replica rebuilds from the
+     presented bearer. Deploys and scale events do not log users out.
+  2. **CSRF disappears for API routes** (no auth cookie); A1.3 reduces
+     to the /auth redirect endpoints.
+  3. **XSS becomes the primary browser risk**: the CSP task (A1.1) is
+     therefore a P0 security control, not hygiene; tokens stay in SPA
+     memory, never localStorage; third-party script surface stays zero.
 
-  *SSO tokens: memory-only is the DEFAULT posture* (product owner
-  decision). `SEMANTICUI_TOKEN_PERSISTENCE=none|encrypted`:
-
-  - **`none` (default): session affinity with in-memory tokens.** The
-    sessions table stores identity only -- ZERO tokens at rest anywhere.
-    The authenticated Snowflake connection in the container's memory IS
-    the credential. Requirements this creates, all delivered together:
-    1. **Idle timeout ~1 h** (`SEMANTICUI_SESSION_IDLE_MINUTES=60`):
-       eviction of connection + session; the next browser request
-       bounces through the Snowflake security integration -- a SILENT
-       redirect when the IdP session is alive, so re-auth is invisible
-       most of the time.
-    2. **Routing affinity is mandatory**: LB cookie affinity for the
-       browser; consistent-hash on the Authorization header for /xmla
-       and /api/feed so Excel's token-bearing requests land on the
-       container holding the connection. Shipped as proxy config in the
-       deployment artifacts (K5) with a two-replica verification test.
-    3. **Stated trade-offs, documented where operators will read them**:
-       every deploy/restart logs that container's users out (a bounce);
-       unattended/scheduled Excel refresh past the idle hour cannot work
-       -- there is nothing server-side to rebuild from, by design.
-  - **`encrypted` (opt-in)**: for orgs that need unattended refresh --
-    persist ONLY the refresh token, envelope-encrypted with a KMS/Vault
-    transit key (Fernet fallback in dev), access token memory-only.
-  - **Snowflake-side controls apply to both profiles**:
-    `OAUTH_REFRESH_TOKEN_VALIDITY` set deliberately, high-privilege
-    roles blocked, per-user revocation
-    (`ALTER USER ... REMOVE DELEGATED AUTHORIZATIONS`) in the runbook as
-    the kill switch that works even if the app is compromised.
-  - **Audit token lifecycle** (with C1): mint, first-use,
-    use-from-new-address, refresh-failure.
+  **Excel: connect tokens as explicit delegated credentials,
+  admin-capped validity.** `SEMANTICUI_CONNECT_TOKEN_MAX_DAYS` (hard
+  ceiling 90, matching Snowflake's default max refresh validity); the
+  mint UI offers durations up to the cap. Because an unattended 7 a.m.
+  refresh has no browser token to lean on, each connect token binds to
+  a Snowflake REFRESH TOKEN stored server-side for its lifetime --
+  the ONLY credential the server ever persists, and only because the
+  user deliberately created it:
+  - stored envelope-encrypted (KMS/Vault transit key; Fernet fallback
+    in dev), token itself still sha256-only;
+  - per-token revocation in the UI + `ALTER USER ... REMOVE DELEGATED
+    AUTHORIZATIONS` in the runbook as the Snowflake-side kill switch;
+  - lifecycle fully audited (C1): mint, first use,
+    use-from-new-address, refresh failure, expiry, revocation;
+  - decoupled from browser sessions (a browser logout no longer kills
+    Excel; revocation is explicit, from the token list in the UI).
+  *Accept:* mint/refresh/revoke/expire covered by tests; a two-replica
+  Excel refresh works with no affinity; DB dump contains no usable
+  credential except the encrypted, capped, revocable Excel grants.
 
 - **A2.2 Input ceilings**: request size limits, filter count/length caps
   swept in `reports/schema.py`, XMLA statement length cap in `soap.py`;
@@ -223,12 +224,10 @@ Gaps this plan closes:
     replicas behind a round-robin proxy in a test script.
   - XMLA `SessionStore`: MSOLAP re-presents the connect token digest, so
     a replica that never saw the BeginSession can re-open -- verify.
-  - Under the default `TOKEN_PERSISTENCE=none` profile (A2.1), affinity
-    is MANDATORY: LB cookie for browsers, Authorization-header
-    consistent hashing for /xmla and /api/feed. The two-replica test
-    runs in BOTH profiles: `none` proves affinity keeps a user working
-    on one node and re-auth is a clean bounce after eviction;
-    `encrypted` proves any node can rebuild.
+  - With browser-held bearers (A2.1) NO affinity is required: any
+    replica rebuilds the connection from the token each request carries;
+    Excel replicas rebuild from the connect token's stored grant. The
+    two-replica test proves both paths behind a round-robin proxy.
   *Accept:* a two-replica compose profile passes the API tests and a
   scripted Excel refresh.
 - **K5 (P1) Orchestrator artifacts.** Helm chart or plain k8s manifests
