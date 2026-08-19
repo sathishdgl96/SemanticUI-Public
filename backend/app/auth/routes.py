@@ -101,6 +101,7 @@ def oauth_callback(
             user=oauth_mod.identity_from_token(
                 tok.access_token, claim=get_settings().oauth_user_claim
             ),
+            role=oauth_mod.role_from_token(tok.access_token),
         )
     except Exception as exc:
         # The IdP authenticated the user and issued a token, but Snowflake

@@ -57,7 +57,7 @@ class TestSnowflakeRefusesTheToken:
     ):
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token, user=None):
+        def refuse(token, user=None, role=None):
             raise TOKEN_REJECTED
 
         response = arrive_at_callback(client, monkeypatch, connect=refuse)
@@ -73,7 +73,7 @@ class TestSnowflakeRefusesTheToken:
     def test_the_token_never_reaches_the_browser(self, make_client, monkeypatch):
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token, user=None):
+        def refuse(token, user=None, role=None):
             raise TOKEN_REJECTED
 
         response = arrive_at_callback(client, monkeypatch, connect=refuse)
@@ -84,7 +84,7 @@ class TestSnowflakeRefusesTheToken:
         # the next request to reuse.
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token, user=None):
+        def refuse(token, user=None, role=None):
             raise TOKEN_REJECTED
 
         response = arrive_at_callback(client, monkeypatch, connect=refuse)
@@ -97,7 +97,7 @@ class TestSnowflakeRefusesTheToken:
         monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
 
         response = arrive_at_callback(
-            client, monkeypatch, connect=lambda token, user=None: FakeConnection()
+            client, monkeypatch, connect=lambda token, user=None, role=None: FakeConnection()
         )
         assert response.status_code == 303
 
@@ -111,7 +111,7 @@ class TestDiagnosticsAreDevelopmentOnly:
     ):
         client = make_client(**OAUTH_ENV)
 
-        def refuse(token, user=None):
+        def refuse(token, user=None, role=None):
             raise TOKEN_REJECTED
 
         body = arrive_at_callback(client, monkeypatch, connect=refuse).json()
@@ -126,7 +126,7 @@ class TestDiagnosticsAreDevelopmentOnly:
             SEMANTICUI_DIRECT_LOGIN_METHODS='["keypair"]',
         )
 
-        def refuse(token, user=None):
+        def refuse(token, user=None, role=None):
             raise TOKEN_REJECTED
 
         body = arrive_at_callback(client, monkeypatch, connect=refuse).json()

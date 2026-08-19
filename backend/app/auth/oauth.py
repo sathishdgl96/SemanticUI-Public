@@ -38,6 +38,41 @@ _states: dict[str, tuple[float, str]] = {}
 _IDENTITY_CLAIMS = ("upn", "preferred_username", "email", "sub")
 
 
+#: How a Snowflake role travels in an OAuth scope.
+_ROLE_PREFIX = "session:role:"
+#: The scope that authorizes every role the user holds.
+_ROLE_ANY = "session:role-any"
+
+
+def role_from_token(token: str) -> str | None:
+    """The Snowflake role an access token authorizes, if it names one.
+
+    With EXTERNAL_OAUTH_ANY_ROLE_MODE = DISABLE the token's scopes are
+    the only roles it may use. A connection that requests none falls
+    back to the user's DEFAULT_ROLE, and Snowflake refuses when that is
+    not among them (390317) -- which is what happens to anyone whose
+    default is an admin role the integration sensibly blocks. Asking for
+    the role the token actually carries sidesteps the default entirely.
+
+    Returns None for `session:role-any` (every role is allowed, so
+    narrowing to one would be arbitrary) and when no role is named.
+    """
+    claims = _decode_claims(token)
+    if not claims:
+        return None
+    raw = claims.get("scp") or claims.get("scope") or ""
+    scopes = raw if isinstance(raw, list) else str(raw).replace(",", " ").split()
+    for scope in scopes:
+        text = str(scope).strip()
+        if text.lower() == _ROLE_ANY:
+            return None
+        if text.lower().startswith(_ROLE_PREFIX):
+            role = text[len(_ROLE_PREFIX):].strip()
+            if role:
+                return role
+    return None
+
+
 def claim_names(token: str) -> list[str]:
     """The claim NAMES an access token carries -- never their values.
 

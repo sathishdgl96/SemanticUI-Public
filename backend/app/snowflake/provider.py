@@ -190,9 +190,13 @@ class ConnectionCache:
                 sess.refresh_token_enc = encrypt_token(tok.refresh_token)
             sess.access_expires_at = now + timedelta(seconds=tok.expires_in)
             db.commit()
-        # The rebuilt connection must present the same login name the
-        # original did, or it fails the way a nameless one does (390100).
-        return sf_connect.connect_oauth(token, user=self._login_name(db, sess))
+        # A rebuild must present the same identity and ask for the same
+        # role the original did, or it fails where the original passed.
+        return sf_connect.connect_oauth(
+            token,
+            user=self._login_name(db, sess),
+            role=oauth_mod.role_from_token(token),
+        )
 
     def evict(self, session_id: str) -> None:
         with self._lock:

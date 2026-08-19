@@ -58,13 +58,19 @@ def _session_parameters() -> dict:
 KEEP_ALIVE = {"client_session_keep_alive": True}
 
 
-def connect_oauth(token: str, user: str | None = None) -> Any:
+def connect_oauth(
+    token: str, user: str | None = None, role: str | None = None
+) -> Any:
     """Open a connection with an OAuth access token.
 
-    `user` is required by Snowflake in practice: without it the connector
-    sends an empty login name and Snowflake answers 390100 "Incorrect
-    username or password" with a literal "None:" where the name belongs.
-    It is passed only when known, so the key is absent rather than empty.
+    `role` must be one the token authorizes: under
+    EXTERNAL_OAUTH_ANY_ROLE_MODE = DISABLE, a connection that requests
+    none falls back to the user's DEFAULT_ROLE, and Snowflake refuses
+    (390317) whenever that is not in the token -- the normal case for a
+    user whose default is an admin role the integration blocks.
+
+    Both are passed only when known, so the keys are absent rather than
+    empty.
     """
     settings = get_settings()
     kwargs: dict[str, Any] = {
@@ -77,6 +83,8 @@ def connect_oauth(token: str, user: str | None = None) -> Any:
     }
     if user:
         kwargs["user"] = user
+    if role:
+        kwargs["role"] = role
     return snowflake.connector.connect(**kwargs)
 
 

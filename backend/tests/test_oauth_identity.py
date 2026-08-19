@@ -116,7 +116,7 @@ class TestCallbackUsesTheTokenIdentity:
 
         seen = {}
 
-        def fake_connect(tok, user=None):
+        def fake_connect(tok, user=None, role=None):
             seen["token"], seen["user"] = tok, user
             return FakeConnection()
 
@@ -153,7 +153,7 @@ class TestRebuildKeepsTheUser:
         )
         seen = {}
 
-        def fake_connect(tok, user=None):
+        def fake_connect(tok, user=None, role=None):
             seen["user"] = user
             return FakeConnection()
 
