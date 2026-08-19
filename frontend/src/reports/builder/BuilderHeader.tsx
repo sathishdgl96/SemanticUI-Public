@@ -1,0 +1,125 @@
+import { UNBOUND_HINT } from "./viewBinding";
+import type { PanelKind } from "./useBuilderInteraction";
+
+/** The command bar: report name, Save/Move, and the panel toggles. Pure
+ *  presentation — every decision (dirtiness, roles, which panel is open)
+ *  arrives as a prop. */
+export default function BuilderHeader({
+  name,
+  onRename,
+  canEdit,
+  dirty,
+  saving,
+  onSave,
+  moving,
+  onToggleMove,
+  panel,
+  onTogglePanel,
+  viewName,
+  exporting,
+  onExportExcel,
+}: {
+  name: string;
+  onRename: (name: string) => void;
+  canEdit: boolean;
+  dirty: boolean;
+  saving: boolean;
+  onSave: () => void;
+  moving: boolean;
+  onToggleMove: () => void;
+  panel: PanelKind;
+  onTogglePanel: (panel: Exclude<PanelKind, null>) => void;
+  viewName: string;
+  exporting: boolean;
+  onExportExcel: () => void;
+}) {
+  return (
+    <header className="builder-head command-bar">
+      <input
+        className="report-title"
+        aria-label="Report name"
+        value={name}
+        onChange={(e) => onRename(e.target.value)}
+      />
+      <div className="builder-actions">
+        <button onClick={onSave} disabled={!canEdit || !dirty || saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {canEdit && (
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={moving}
+            onClick={onToggleMove}
+          >
+            Move
+          </button>
+        )}
+        <span className="cmd-sep" aria-hidden="true" />
+        {/* All three need a semantic view to work against, and the server
+            refuses without one. Disabling with the reason attached beats
+            opening a panel whose only content is "there is nothing to ask
+            about" -- the report is unbound, and the fix is to bind it. */}
+        <button
+          type="button"
+          className="secondary chat-open"
+          aria-pressed={panel === "ask"}
+          disabled={!viewName}
+          title={viewName ? "Chat about this data" : UNBOUND_HINT}
+          onClick={() => onTogglePanel("ask")}
+        >
+          <span aria-hidden="true">💬</span> Chat
+        </button>
+        {/* One button, because it is one thing now: the workbook carries the
+            numbers AND a connection that refreshes them. "Connect live" was
+            a second button for the half this one was missing. The caret
+            keeps the fallbacks -- a .odc, the raw SQL -- one click away
+            without making them look like a separate feature. */}
+        <span className="split-button">
+          <button
+            type="button"
+            className="secondary"
+            disabled={exporting || !viewName}
+            title={viewName ? "Download the workbook, live-connected" : UNBOUND_HINT}
+            onClick={onExportExcel}
+          >
+            {exporting ? "Exporting…" : "Excel"}
+          </button>
+          <button
+            type="button"
+            className="secondary split-more"
+            aria-label="Other ways to connect from Excel"
+            aria-pressed={panel === "connect"}
+            disabled={!viewName}
+            title={viewName ? "Other ways to connect" : UNBOUND_HINT}
+            onClick={() => onTogglePanel("connect")}
+          >
+            <span aria-hidden="true">▾</span>
+          </button>
+        </span>
+        <span className="cmd-sep" aria-hidden="true" />
+        <button
+          type="button"
+          className="secondary"
+          aria-pressed={panel === "export"}
+          onClick={() => onTogglePanel("export")}
+        >
+          Export
+        </button>
+        {/* Import CREATES a report, so a viewer has nowhere to put one.
+            Export stays available to everyone -- reading is what they can
+            already do. */}
+        {canEdit && (
+          <button
+            type="button"
+            className="secondary"
+            aria-pressed={panel === "import"}
+            onClick={() => onTogglePanel("import")}
+          >
+            Import
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}

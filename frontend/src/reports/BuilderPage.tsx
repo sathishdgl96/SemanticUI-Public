@@ -1,435 +1,70 @@
-import { DndContext, useDraggable, type DragEndEvent } from "@dnd-kit/core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { DndContext, type DragEndEvent } from "@dnd-kit/core";
+import { useMutation } from "@tanstack/react-query";
+import { useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { apiFetch, ApiError } from "../api/client";
-import { getReport, updateReport } from "../api/reports";
-import { atLeast, moveReport } from "../api/workspaces";
-import ChatPanel from "../ask/ChatPanel";
-import ColorField from "./ColorField";
-import ConnectPanel from "../export/ConnectPanel";
-import Pane from "../shell/Pane";
-import DataPane from "./DataPane";
+import { ApiError } from "../api/client";
 import { downloadXlsx } from "../api/exports";
-import { useWorkspaces } from "../workspaces/useWorkspaces";
+import { atLeast } from "../api/workspaces";
 import type {
   AskSpec,
-  FieldInfo,
-  SheetRequest,
   Filter,
-  Hierarchy,
   Page,
-  ReportDefinition,
   ReportDetail,
-  SemanticViewDetail,
-  SemanticViewSummary,
-  ViewRef,
+  SheetRequest,
   Visual,
   VisualLayout,
 } from "../api/types";
 import { useFieldSensors } from "../explorer/dndSensors";
-import ViewTree from "../explorer/ViewTree";
 import { visualTitle } from "../query/renderers";
+import Pane from "../shell/Pane";
+import BindViewPanel from "./builder/BindViewPanel";
+import BuilderCanvasColumn from "./builder/BuilderCanvasColumn";
+import BuilderDataPane from "./builder/BuilderDataPane";
+import BuilderHeader from "./builder/BuilderHeader";
+import BuilderOverlays from "./builder/BuilderOverlays";
+import MovePanel from "./builder/MovePanel";
+import VisualizationsPane from "./builder/VisualizationsPane";
+import { resolveDrop } from "./builder/dragDrop";
+import type { PageOpResult } from "./builder/pageOps";
+import { useBuilderInteraction } from "./builder/useBuilderInteraction";
+import { useReportDocument } from "./builder/useReportDocument";
+import { useViewFields } from "./builder/useViewFields";
+import { viewMissingReason } from "./builder/viewBinding";
 import {
-  CATALOG,
-  MAX_PAGES,
-  MAX_VISUALS,
-  defaultWellFor,
-  emptyWellsFor,
-  wellsToQuery,
-  type FieldKind,
-  type VisualType,
-} from "./catalog";
-import CanvasGrid from "./CanvasGrid";
-import SheetView from "./SheetView";
-import ExportPanel from "./ExportPanel";
-import FilterPane, { PAGE_DROP_ID, REPORT_DROP_ID, VISUAL_DROP_ID } from "./FilterPane";
-import FormatPane from "./FormatPane";
-import PageBar from "./PageBar";
-import {
-  HIERARCHY_PREFIX,
-  newFilterId,
-  sheetRequestsFor,
-  type CrossFilter,
-  type DrillState,
-} from "./filters";
-import HierarchyPane from "./HierarchyPane";
-import ImportPanel from "./ImportPanel";
-import { normalizeDefinition } from "./normalize";
-import VisualPicker, { changeVisualType } from "./VisualPicker";
-import { moveWellRef } from "./wellOrder";
-import VisualWells from "./VisualWells";
-
-/** `apiFetch` only ever throws real `ApiError` instances, so `instanceof`
- *  is sound here — no need to duck-type `status`/`code` off an `unknown`. */
-function isMissingView(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false;
-  return error.status === 404 || error.code === "SNOWFLAKE_FORBIDDEN" || error.code === "QUERY_ERROR";
-}
-
-function viewMissingReason(view: ViewRef): string {
-  return (
-    `Could not open ${view.database}.${view.schema}.${view.name}. It may have been ` +
-    "renamed or dropped, or your Snowflake role may no longer have access to it."
-  );
-}
-
-function describeUrl(view: ViewRef, refresh = false): string {
-  const base = `/api/semantic-views/${encodeURIComponent(view.database)}/${encodeURIComponent(
-    view.schema,
-  )}/${encodeURIComponent(view.name)}`;
-  return refresh ? `${base}?refresh=true` : base;
-}
-
-/** Shared by both "no view bound yet" (fresh report) and "the bound view no
- *  longer resolves" (deleted/forbidden) — both cases hand the user the same
- *  view tree so binding to a replacement view is one consistent flow. */
-function BindViewPanel({
-  reason,
-  onBind,
-  canEdit,
-  binding,
-  bindError,
-}: {
-  reason: string | null;
-  onBind: (view: SemanticViewSummary) => void;
-  canEdit: boolean;
-  binding: boolean;
-  bindError: string | null;
-}) {
-  const [open, setOpen] = useState(reason === null);
-  const views = useQuery({
-    queryKey: ["semantic-views"],
-    queryFn: () => apiFetch<{ views: SemanticViewSummary[] }>("/api/semantic-views"),
-    enabled: open && canEdit,
-  });
-
-  // A viewer cannot write to the report, so offering the picker would only
-  // produce a 403 at the end of a hopeful click.
-  if (!canEdit) {
-    return (
-      <div className="builder-bind">
-        <p role="alert">
-          {reason ??
-            "This report has no semantic view yet, and only an editor can choose one."}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="builder-bind">
-      {reason ? (
-        <>
-          <p role="alert">{reason}</p>
-          {!open && (
-            <button type="button" onClick={() => setOpen(true)}>
-              Choose another view
-            </button>
-          )}
-        </>
-      ) : (
-        // Says that choosing SAVES, because it does -- and because the state
-        // this replaces was one where the report looked bound and the server
-        // disagreed.
-        <p>Pick a semantic view to start this report. Choosing one saves it.</p>
-      )}
-      {bindError && <p role="alert">{bindError}</p>}
-      {binding && <p className="tile-hint">Saving the view to this report…</p>}
-      {open && (
-        <>
-          {views.isLoading && <p>Loading views…</p>}
-          {views.isError && <p role="alert">Could not load semantic views.</p>}
-          {views.data && <ViewTree views={views.data.views} selected={null} onSelect={onBind} />}
-        </>
-      )}
-    </div>
-  );
-}
-
-function refOf(field: FieldInfo): string {
-  return `${field.table}.${field.name}`;
-}
-
-function BuilderFieldRow({
-  field,
-  kind,
-  onAdd,
-}: {
-  field: FieldInfo;
-  kind: FieldKind;
-  onAdd: (ref: string, kind: FieldKind) => void;
-}) {
-  const ref = refOf(field);
-  const { attributes, listeners, setNodeRef } = useDraggable({ id: ref, data: { ref, kind } });
-  return (
-    <button
-      type="button"
-      ref={setNodeRef}
-      className="field-row"
-      onClick={() => onAdd(ref, kind)}
-      {...listeners}
-      {...attributes}
-    >
-      <span className="field-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
-      {/* Just the field name: the Data pane already groups by table, so the
-          prefix is redundant and it truncated every row. The full ref stays
-          available as the tooltip and in the checkbox's accessible name. */}
-      <span className="field-ref" title={ref}>
-        {field.name}
-      </span>
-      {field.dataType && <small>{field.dataType}</small>}
-    </button>
-  );
-}
-
-
-/** Hierarchies are placed exactly like dimensions -- click or drag -- but
- *  carry a "hierarchy:<id>" reference instead of a field name. Without this
- *  row there is no way to put one on an axis at all. */
-function BuilderHierarchyRow({
-  hierarchy,
-  onAdd,
-}: {
-  hierarchy: Hierarchy;
-  onAdd: (ref: string, kind: FieldKind) => void;
-}) {
-  const ref = `${HIERARCHY_PREFIX}${hierarchy.id}`;
-  const { attributes, listeners, setNodeRef } = useDraggable({
-    id: ref,
-    data: { ref, kind: "dimension" as FieldKind },
-  });
-  return (
-    <button
-      type="button"
-      ref={setNodeRef}
-      className="field-row"
-      // Explicit, so the decorative glyph stays out of the accessible name
-      // and the level count is announced as a phrase rather than a fragment.
-      aria-label={`${hierarchy.name} hierarchy, ${hierarchy.levels.length} levels`}
-      onClick={() => onAdd(ref, "dimension")}
-      {...listeners}
-      {...attributes}
-    >
-      <span className="field-glyph">⛭</span>
-      <span className="field-ref">{hierarchy.name}</span>
-      <small>{hierarchy.levels.length} levels</small>
-    </button>
-  );
-}
-
-/** Why Chat, Excel and Connect are unavailable on a fresh report. Named once
- *  so the three of them cannot drift into three different explanations. */
-const UNBOUND_HINT =
-  "Pick a semantic view for this report first — there is no data to work with yet.";
-
-/** Only workspaces the caller can write to are offered. Moving needs editor
- *  on BOTH ends, so listing a read-only workspace would only produce a 403. */
-function MovePanel({ reportId, onDone }: { reportId: string; onDone: () => void }) {
-  const workspaces = useWorkspaces();
-  const queryClient = useQueryClient();
-  const [target, setTarget] = useState("");
-
-  const move = useMutation({
-    mutationFn: () => moveReport(reportId, target),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-      queryClient.invalidateQueries({ queryKey: ["report", reportId] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      onDone();
-    },
-  });
-
-  const writable = (workspaces.data?.workspaces ?? []).filter((w) =>
-    atLeast(w.myRole, "editor"),
-  );
-
-  return (
-    <form
-      className="move-panel"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (target) move.mutate();
-      }}
-    >
-      <label>
-        Move to
-        <select value={target} onChange={(e) => setTarget(e.target.value)}>
-          <option value="">Choose a workspace…</option>
-          {writable.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="submit" disabled={!target || move.isPending}>
-        {move.isPending ? "Moving…" : "Move report"}
-      </button>
-      <button type="button" className="link" onClick={onDone}>
-        Cancel
-      </button>
-      {move.isError && (
-        <p role="alert">
-          {move.error instanceof ApiError
-            ? move.error.message
-            : "Could not move this report."}
-        </p>
-      )}
-    </form>
-  );
-}
+  addField,
+  mintVisual,
+  removeFieldEverywhere,
+  visualFromSpec,
+  wellsWithField,
+} from "./builder/visualOps";
+import { CATALOG, wellsToQuery, type FieldKind, type VisualType } from "./catalog";
+import FilterPane from "./FilterPane";
+import { newFilterId, sheetRequestsFor } from "./filters";
+import { changeVisualType } from "./VisualPicker";
 
 export default function BuilderPage() {
   const { id } = useParams<{ id: string }>();
   const reportId = id ?? "";
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const sensors = useFieldSensors();
 
-  const report = useQuery({
-    queryKey: ["report", reportId],
-    queryFn: () => getReport(reportId),
-    enabled: Boolean(reportId),
-  });
+  const doc = useReportDocument(reportId);
+  const { definition, setDefinition } = doc;
+  const ui = useBuilderInteraction(reportId);
+  const view = definition?.view ?? { database: "", schema: "", name: "" };
+  const fields = useViewFields(reportId, view, definition?.hierarchies);
+  const { dimensions, metrics, factRefs, hierarchies } = fields;
 
-  const [definition, setDefinition] = useState<ReportDefinition | null>(null);
-  const [savedJson, setSavedJson] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedType, setSelectedType] = useState<VisualType>("bar");
-  const [notice, setNotice] = useState<string | null>(null);
-  const [panel, setPanel] = useState<
-    "export" | "import" | "ask" | "connect" | null
-  >(null);
-  // Ephemeral by design: never written to the definition, so a saved report
-  // always opens at the top level with nothing selected, and can never point
-  // at a value that has since disappeared from the view.
   //: Filled in below, once `definition` is known to be non-null. The export
   //: mutation is declared before that point and would otherwise close over a
   //: variable in its temporal dead zone.
   const exportSheetsRef = useRef<() => SheetRequest[]>(() => []);
-  const [drill, setDrill] = useState<Record<string, DrillState>>({});
-  const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
-  // Slicer ticks, keyed by field ref. Ephemeral like drill and cross-filter:
-  // never written to the definition, so a viewer who cannot save can still
-  // slice a shared report.
-  const [slicerSelections, setSlicerSelections] = useState<Record<string, string[]>>({});
-  const [moving, setMoving] = useState(false);
-  // Which page tab is open. Ephemeral like the selection: a saved report
-  // always opens on its first page.
-  const [activePageId, setActivePageId] = useState<string | null>(null);
-  // PowerBI's Build / Format toggle on the Visualizations pane.
-  const [paneTab, setPaneTab] = useState<"build" | "format">("build");
-  // On narrower desktops PowerBI shows two panes open; Filters starts tucked
-  // away. Guarded: jsdom has no matchMedia.
-  const [startFiltersCollapsed] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(max-width: 1279px)").matches,
-  );
-
-  // The route element isn't keyed in App.tsx, so navigating from one report
-  // to another (e.g. BuilderPage's own Import flow, which navigates to the
-  // freshly-imported report's id) reuses this same component instance
-  // rather than remounting it. Without this reset, the populate effect below
-  // (guarded by `definition === null`) would never fire again once
-  // `definition` already holds the PREVIOUS report's data — leaving the old
-  // definition on screen, editable, with Save posting it to the new id.
-  // Everything else scoped to "the report currently being edited" is reset
-  // here too: a stale `notice` (e.g. a dropped-wells message) from the old
-  // report would otherwise keep rendering under the new one; an open
-  // Export/Import `panel` should not silently carry over rather than being
-  // cleared defensively (it happened to work before only because
-  // `onImported` itself called `setPanel(null)`); and `save`/`refreshFields`
-  // are `useMutation` objects that keep their `isError`/`error` until the
-  // next `.mutate()` or an explicit `.reset()` — without resetting them
-  // here, failing a Save on report A and then navigating to report B would
-  // show report A's failure alert attributed to a report the user never
-  // touched.
-  useEffect(() => {
-    setDefinition(null);
-    setSavedJson(null);
-    setSelectedId(null);
-    setActivePageId(null);
-    setNotice(null);
-    setPanel(null);
-    setDrill({});
-    setCrossFilter(null);
-    setSlicerSelections({});
-    setMoving(false);
-    save.reset();
-    refreshFields.reset();
-    // `save`/`refreshFields` deliberately left out of the dependency array:
-    // react-query hands back a new mutation result object on every render
-    // (its `isPending`/`isError`/etc. all live on that object), so listing
-    // them here would re-run this effect — and re-clear `definition` — on
-    // every render, not just when `reportId` actually changes. This effect
-    // only needs to run on a report-identity change; the `.reset` calls
-    // above always see the current render's mutation objects regardless of
-    // whether those objects are declared as dependencies.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportId]);
-
-  useEffect(() => {
-    if (report.data && definition === null) {
-      // Normalised on the way in, so a document from an older server (or an
-      // older cached response) cannot reach the render tree without `pages`
-      // and blank the whole builder.
-      const normalized = normalizeDefinition(report.data.definition);
-      setDefinition(normalized);
-      // The baseline is the NORMALISED document, not the raw one: comparing
-      // against the raw shape would mark an untouched report dirty the
-      // moment it loaded.
-      setSavedJson(JSON.stringify(normalized));
-    }
-  }, [report.data, definition]);
-
-  const view = definition?.view ?? { database: "", schema: "", name: "" };
-
-  const viewDetail = useQuery({
-    queryKey: ["report-view-detail", view.database, view.schema, view.name],
-    queryFn: () => apiFetch<SemanticViewDetail>(describeUrl(view)),
-    enabled: Boolean(view.name),
-  });
-
-  const refreshFields = useMutation({
-    mutationFn: () => apiFetch<SemanticViewDetail>(describeUrl(view, true)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["report-view-detail"] });
-      queryClient.invalidateQueries({ queryKey: ["visual-query"] });
-    },
-  });
-
-  const save = useMutation({
-    mutationFn: () => {
-      if (!definition) return Promise.reject(new Error("Report not loaded"));
-      return updateReport(reportId, definition);
-    },
-    onSuccess: (saved) => {
-      setSavedJson(JSON.stringify(saved.definition));
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-    },
-  });
-
-  //: Its own mutation rather than reusing `save`, which takes no argument and
-  //: would race the `setDefinition` that precedes it -- the whole point here
-  //: is that the view reaches the server, not that it reaches React state.
-  const bind = useMutation({
-    mutationFn: (next: ReportDefinition) => updateReport(reportId, next),
-    onSuccess: (saved) => {
-      setDefinition(saved.definition);
-      setSavedJson(JSON.stringify(saved.definition));
-      queryClient.invalidateQueries({ queryKey: ["reports"] });
-    },
-  });
-
   const exportExcel = useMutation({
     mutationFn: () =>
       downloadXlsx(
         reportId,
         exportSheetsRef.current(),
-        `${(report.data?.name ?? "report").slice(0, 120)}.xlsx`,
+        `${(doc.report.data?.name ?? "report").slice(0, 120)}.xlsx`,
       ),
   });
 
@@ -437,33 +72,34 @@ export default function BuilderPage() {
   // `report.data` arrives, so on a failed fetch it stays `null` forever —
   // if the loading guard ran first, a failed load would trap every render
   // in "Loading report…" rather than ever reaching this branch.
-  if (report.isError) {
+  if (doc.report.isError) {
     return (
       <p role="alert">
-        {report.error instanceof ApiError ? report.error.message : "Could not load this report."}
+        {doc.report.error instanceof ApiError
+          ? doc.report.error.message
+          : "Could not load this report."}
       </p>
     );
   }
-  if (report.isLoading || definition === null) {
+  if (doc.report.isLoading || definition === null) {
     return <p>Loading report…</p>;
   }
 
   // The caller's role in this report's workspace. Absent on an older
   // response shape, in which case the safe reading is "cannot edit".
-  const myRole = report.data?.myRole ?? "viewer";
+  const myRole = doc.report.data?.myRole ?? "viewer";
   const canEdit = atLeast(myRole, "editor");
 
-  const dirty = JSON.stringify(definition) !== savedJson;
   // A stale or absent id degrades to the first page rather than crashing:
   // pages can be deleted out from under the selection.
-  const activePage = definition.pages.find((p) => p.id === activePageId) ?? definition.pages[0];
+  const activePage =
+    definition.pages.find((p) => p.id === ui.activePageId) ?? definition.pages[0];
   // A sheet page pins selection to its single pivot: the Data pane and the
   // wells behave like Excel's field list rather than needing a click first.
   const selected =
     activePage.kind === "sheet"
       ? activePage.visuals[0] ?? null
-      : activePage.visuals.find((v) => v.id === selectedId) ?? null;
-  const needsBind = !view.name || (viewDetail.isError && isMissingView(viewDetail.error));
+      : activePage.visuals.find((v) => v.id === ui.selectedId) ?? null;
 
   // Declared as `const ... = (...) => {}` (function expressions), not hoisted
   // `function` declarations, and placed after the `definition === null` guard
@@ -486,134 +122,18 @@ export default function BuilderPage() {
     });
   };
 
-  /** Selection and cross-filter are page-local, as they are in PowerBI: a
-   *  selection on one page must not keep constraining another. */
-  const focusPage = (id: string) => {
-    setActivePageId(id);
-    setSelectedId(null);
-    setCrossFilter(null);
-    // Slicers live on a page too, so their ticks leave with it.
-    setSlicerSelections({});
+  const switchPage = (pageId: string) => {
+    if (pageId !== activePage.id) ui.focusPage(pageId);
   };
 
-  const switchPage = (id: string) => {
-    if (id !== activePage.id) focusPage(id);
-  };
-
-  const addPage = () => {
-    if (definition.pages.length >= MAX_PAGES) {
-      setNotice(`A report can hold at most ${MAX_PAGES} pages.`);
+  const applyPageOp = (result: PageOpResult) => {
+    if (result.notice) {
+      ui.setNotice(result.notice);
       return;
     }
-    const used = new Set(definition.pages.map((p) => p.name));
-    let n = definition.pages.length + 1;
-    while (used.has(`Page ${n}`)) n++;
-    const page: Page = {
-      id: `p${crypto.randomUUID().slice(0, 8)}`,
-      name: `Page ${n}`,
-      visuals: [],
-      filters: [],
-    };
-    setDefinition({ ...definition, pages: [...definition.pages, page] });
-    focusPage(page.id);
-  };
-
-  const addSheet = () => {
-    if (definition.pages.length >= MAX_PAGES) {
-      setNotice(`A report can hold at most ${MAX_PAGES} pages.`);
-      return;
-    }
-    const total = definition.pages.reduce((sum, p) => sum + p.visuals.length, 0);
-    if (total + 1 > MAX_VISUALS) {
-      setNotice(`A report can hold at most ${MAX_VISUALS} visuals.`);
-      return;
-    }
-    const used = new Set(definition.pages.map((p) => p.name));
-    let n = 1;
-    while (used.has(`Sheet ${n}`)) n++;
-    // The sheet's pivot exists from the first moment, so the field list has
-    // something to drive -- exactly how Excel inserts an empty PivotTable.
-    const pivot: Visual = {
-      id: `v${crypto.randomUUID().slice(0, 8)}`,
-      type: "matrix",
-      title: "",
-      layout: { x: 0, y: 0, w: 12, h: 24 },
-      wells: { rows: [], columns: [], values: [] },
-      options: { subtotals: true },
-      filters: [],
-    };
-    const page: Page = {
-      id: `p${crypto.randomUUID().slice(0, 8)}`,
-      name: `Sheet ${n}`,
-      kind: "sheet",
-      visuals: [pivot],
-      filters: [],
-    };
-    setDefinition({ ...definition, pages: [...definition.pages, page] });
-    focusPage(page.id);
-    setSelectedId(pivot.id);
-  };
-
-  const renamePage = (id: string, name: string) => {
-    setDefinition({
-      ...definition,
-      pages: definition.pages.map((p) => (p.id === id ? { ...p, name } : p)),
-    });
-  };
-
-  const duplicatePage = (id: string) => {
-    const source = definition.pages.find((p) => p.id === id);
-    if (!source) return;
-    if (definition.pages.length >= MAX_PAGES) {
-      setNotice(`A report can hold at most ${MAX_PAGES} pages.`);
-      return;
-    }
-    const total = definition.pages.reduce((sum, p) => sum + p.visuals.length, 0);
-    if (total + source.visuals.length > MAX_VISUALS) {
-      setNotice(
-        `Duplicating this page would exceed ${MAX_VISUALS} visuals per report.`,
-      );
-      return;
-    }
-    const used = new Set(definition.pages.map((p) => p.name));
-    let name = `Duplicate of ${source.name}`.slice(0, 100);
-    for (let n = 2; used.has(name); n++) {
-      name = `Duplicate of ${source.name} ${n}`.slice(0, 100);
-    }
-    const copy: Page = {
-      id: `p${crypto.randomUUID().slice(0, 8)}`,
-      name,
-      kind: source.kind,
-      // Visual ids must be unique across the WHOLE report, so a copy mints
-      // fresh ones. Filter ids only have to be unique within their scope.
-      visuals: source.visuals.map((v) => ({
-        ...structuredClone(v),
-        id: `v${crypto.randomUUID().slice(0, 8)}`,
-      })),
-      filters: source.filters.map((f) => ({ ...f })),
-    };
-    const at = definition.pages.findIndex((p) => p.id === id) + 1;
-    const pages = [...definition.pages];
-    pages.splice(at, 0, copy);
-    setDefinition({ ...definition, pages });
-    focusPage(copy.id);
-  };
-
-  const deletePage = (id: string) => {
-    if (definition.pages.length <= 1) return;
-    const remaining = definition.pages.filter((p) => p.id !== id);
-    setDefinition({ ...definition, pages: remaining });
-    if (activePage.id === id) focusPage(remaining[0].id);
-  };
-
-  const movePage = (id: string, direction: -1 | 1) => {
-    const from = definition.pages.findIndex((p) => p.id === id);
-    const to = from + direction;
-    if (from < 0 || to < 0 || to >= definition.pages.length) return;
-    const pages = [...definition.pages];
-    const [page] = pages.splice(from, 1);
-    pages.splice(to, 0, page);
-    setDefinition({ ...definition, pages });
+    if (result.definition) setDefinition(result.definition);
+    if (result.focusId) ui.focusPage(result.focusId);
+    if (result.selectId) ui.setSelectedId(result.selectId);
   };
 
   const addFilterAt = (scope: "report" | "page" | "visual", ref: string) => {
@@ -639,28 +159,25 @@ export default function BuilderPage() {
   const selectVisual = (visualId: string) => {
     // "" means the canvas itself was clicked: nothing is selected, and the
     // rail shows the page's own formatting instead of a visual's.
-    setSelectedId(visualId || null);
+    ui.setSelectedId(visualId || null);
     const visual = activePage.visuals.find((v) => v.id === visualId);
-    if (visual) setSelectedType(visual.type as VisualType);
+    if (visual) ui.setSelectedType(visual.type as VisualType);
   };
 
   const addVisual = (type: VisualType) => {
-    const nextY = activePage.visuals.reduce(
-      (max, v) => Math.max(max, v.layout.y + v.layout.h),
-      0,
-    );
-    const visual: Visual = {
-      id: `v${crypto.randomUUID().slice(0, 8)}`,
-      type,
-      title: "",
-      layout: { x: 0, y: nextY, w: 6, h: 6 },
-      wells: emptyWellsFor(type),
-      options: {},
-      filters: [],
-    };
+    const visual = mintVisual(activePage, type);
     replacePage({ ...activePage, visuals: [...activePage.visuals, visual] });
-    setSelectedId(visual.id);
-    setSelectedType(type);
+    ui.setSelectedId(visual.id);
+    ui.setSelectedType(type);
+  };
+
+  const addFieldToSelected = (ref: string, kind: FieldKind) => {
+    const visual = activePage.visuals.find((v) => v.id === ui.selectedId);
+    if (!visual) return;
+    const result = addField(visual, ref, kind);
+    if (!result) return;
+    if ("notice" in result) ui.setNotice(result.notice);
+    else replaceVisual(result.visual);
   };
 
   /** PBI checkbox semantics for the Data pane. Checking with no visual
@@ -671,86 +188,24 @@ export default function BuilderPage() {
     if (!canEdit) return;
     if (!nextChecked) {
       if (!selected) return;
-      replaceVisual({
-        ...selected,
-        wells: Object.fromEntries(
-          Object.entries(selected.wells).map(([key, refs]) => [
-            key,
-            refs.filter((r) => r !== ref),
-          ]),
-        ),
-      });
+      replaceVisual(removeFieldEverywhere(selected, ref));
       return;
     }
     if (selected) {
       addFieldToSelected(ref, kind);
       return;
     }
-    const type = selectedType;
-    const wells = emptyWellsFor(type);
-    const wellKey = defaultWellFor(type, kind, wells);
-    if (wellKey) wells[wellKey] = [ref];
-    const nextY = activePage.visuals.reduce(
-      (max, v) => Math.max(max, v.layout.y + v.layout.h),
-      0,
-    );
-    const visual: Visual = {
-      id: `v${crypto.randomUUID().slice(0, 8)}`,
-      type,
-      title: "",
-      layout: { x: 0, y: nextY, w: 6, h: 6 },
-      wells,
-      options: {},
-      filters: [],
-    };
+    const type = ui.selectedType;
+    const visual = mintVisual(activePage, type, { wells: wellsWithField(type, kind, ref) });
     replacePage({ ...activePage, visuals: [...activePage.visuals, visual] });
-    setSelectedId(visual.id);
+    ui.setSelectedId(visual.id);
   };
 
-  const addFieldToSelected = (ref: string, kind: FieldKind) => {
-    const visual = activePage.visuals.find((v) => v.id === selectedId);
-    if (!visual) return;
-    // Same cross-well dedupe `onDragEnd` applies: a ref already sitting in
-    // ANY well of this visual is a no-op, not another append — otherwise
-    // clicking the same field row repeatedly kept stacking duplicates into
-    // an unbounded well (e.g. Values).
-    if (Object.values(visual.wells).some((refs) => refs.includes(ref))) return;
-    const wellKey = defaultWellFor(visual.type as VisualType, kind, visual.wells);
-    if (!wellKey) {
-      setNotice(`Every ${kind} well on this visual is full.`);
-      return;
-    }
-    replaceVisual({
-      ...visual,
-      wells: { ...visual.wells, [wellKey]: [...(visual.wells[wellKey] ?? []), ref] },
-    });
-  };
-
-  /** Pin an answer onto the canvas. The spec already speaks the well
-   *  vocabulary, so this is a re-shaping rather than a translation. */
   const addVisualFromSpec = (spec: AskSpec) => {
-    const nextY = activePage.visuals.reduce(
-      (max, v) => Math.max(max, v.layout.y + v.layout.h),
-      0,
-    );
-    const visual: Visual = {
-      id: `v${crypto.randomUUID().slice(0, 8)}`,
-      type: "bar",
-      title: spec.explanation.slice(0, 200),
-      layout: { x: 0, y: nextY, w: 6, h: 6 },
-      wells: {
-        ...emptyWellsFor("bar"),
-        axis: spec.dimensions.slice(0, 1),
-        values: spec.metrics,
-      },
-      options: {},
-      // The answer's filters travel with it, or the pinned tile would show a
-      // different number from the one that was just on screen.
-      filters: spec.filters,
-    };
+    const visual = visualFromSpec(activePage, spec);
     replacePage({ ...activePage, visuals: [...activePage.visuals, visual] });
-    setSelectedId(visual.id);
-    setPanel(null);
+    ui.setSelectedId(visual.id);
+    ui.setPanel(null);
   };
 
   /** Exactly what each tile is showing right now, drill and cross-filter
@@ -761,8 +216,8 @@ export default function BuilderPage() {
       pages: definition.pages,
       reportFilters: definition.filters ?? [],
       hierarchies,
-      drill,
-      crossFilter,
+      drill: ui.drill,
+      crossFilter: ui.crossFilter,
       titleOf: (v, wells) => visualTitle({ ...v, wells }),
       wellsToQuery: (type, wells) => wellsToQuery(type as VisualType, wells),
     });
@@ -772,54 +227,10 @@ export default function BuilderPage() {
   const onDragEnd = (event: DragEndEvent) => {
     // `selected`, not a fresh lookup: on a sheet page the pivot is pinned
     // and drops must land in it without a click-to-select first.
-    const visual = selected;
-    const overId = String(event.over?.id ?? "");
-    const data = event.active.data.current as
-      | { ref: string; kind: FieldKind; fromWell?: string; chip?: boolean }
-      | undefined;
-
-    // A chip drag rearranges: within its well (nesting order is meaning,
-    // not cosmetics -- in a matrix it IS the drill order), or into another
-    // well of the same kind. Chips never create filters or duplicates, so
-    // this branch owns them entirely.
-    if (data?.chip && data.fromWell && visual) {
-      if (overId.startsWith("chipdrop:")) {
-        const rest = overId.slice("chipdrop:".length);
-        const [toWell, beforeRef] = [
-          rest.slice(0, rest.indexOf(":")),
-          rest.slice(rest.indexOf(":") + 1),
-        ];
-        replaceVisual(moveWellRef(visual, data.fromWell, data.ref, toWell, beforeRef));
-      } else if (overId.startsWith("well:")) {
-        replaceVisual(
-          moveWellRef(visual, data.fromWell, data.ref, overId.slice("well:".length)),
-        );
-      }
-      return;
-    }
-    // Filter scopes first: the well branch below returns early for any id it
-    // does not recognise, so it would swallow these.
-    const scope =
-      overId === REPORT_DROP_ID
-        ? "report"
-        : overId === PAGE_DROP_ID
-          ? "page"
-          : overId === VISUAL_DROP_ID
-            ? "visual"
-            : null;
-    if (data && scope) {
-      addFilterAt(scope, data.ref);
-      return;
-    }
-    if (!visual || !data || !overId.startsWith("well:")) return;
-    const key = overId.slice("well:".length);
-    const spec = CATALOG[visual.type as VisualType].wells.find((w) => w.key === key);
-    if (!spec || spec.kind !== data.kind) return; // wrong kind: refuse
-    const current = visual.wells[key] ?? [];
-    if (current.includes(data.ref)) return; // already there
-    if (Object.values(visual.wells).some((refs) => refs.includes(data.ref))) return; // another well
-    const next = spec.max === 1 ? [data.ref] : [...current, data.ref];
-    replaceVisual({ ...visual, wells: { ...visual.wells, [key]: next } });
+    const outcome = resolveDrop(event, selected);
+    if (!outcome) return;
+    if (outcome.kind === "addFilter") addFilterAt(outcome.scope, outcome.ref);
+    else replaceVisual(outcome.visual);
   };
 
   const onLayoutChange = (next: Record<string, VisualLayout>) => {
@@ -832,260 +243,108 @@ export default function BuilderPage() {
   };
 
   const onTypeChange = (nextType: VisualType) => {
-    setSelectedType(nextType);
+    ui.setSelectedType(nextType);
     const visual =
       activePage.kind === "sheet"
         ? activePage.visuals[0]
-        : activePage.visuals.find((v) => v.id === selectedId);
+        : activePage.visuals.find((v) => v.id === ui.selectedId);
     if (!visual) return;
     const { visual: updated, dropped } = changeVisualType(visual, nextType);
     replaceVisual(updated);
     // Fields now follow the visual across types, so this only fires when the
     // new type genuinely has no well of that kind with room left.
-    setNotice(
+    ui.setNotice(
       dropped.length
         ? `${CATALOG[nextType].label} has no room for ${dropped.join(", ")}.`
         : null,
     );
   };
 
-  /** Binding a view SAVES. It is not an edit to sit on.
-   *
-   *  It used to change local state only, and everything server-side reads the
-   *  report's stored view: Chat, Excel and Connect all answered "this report
-   *  is not bound to a semantic view yet" for a report that plainly showed one
-   *  on screen. The only way through was to press Save first, which nothing
-   *  said. Picking the view is the act that makes a report a report, so it is
-   *  written down at the moment it happens.
-   */
-  const bindView = (picked: SemanticViewSummary) => {
-    bind.mutate({
-      ...definition,
-      view: { database: picked.database, schema: picked.schema, name: picked.name },
-    });
-  };
-
   // Import always creates a *new* report (see `POST /api/reports/import`),
   // so landing here mid-edit hands off to that new report's own builder
   // route rather than trying to merge it into the one currently open.
   const onImported = (imported: ReportDetail) => {
-    setPanel(null);
+    ui.setPanel(null);
     navigate(`/reports/${imported.id}`);
   };
 
-  const dimensions = viewDetail.data?.dimensions ?? [];
-  const viewMetrics = viewDetail.data?.metrics ?? [];
-  // Raw FACT columns are measure-like too: a PowerBI author expects to drop
-  // any numeric field into Values and pick Sum or Average. They are offered
-  // alongside the view's own metrics and carry an aggregation choice.
-  const facts = viewDetail.data?.facts ?? [];
-  const metrics = [...viewMetrics, ...facts];
-  const factRefs = facts.map((f) => `${f.table}.${f.name}`);
-  // Model-declared hierarchies (none on today's accounts -- see
-  // detect_hierarchies) plus the report's own. Ids are namespaced, so the two
-  // sources can never collide.
-  const hierarchies: Hierarchy[] = [
-    ...(viewDetail.data?.modelHierarchies ?? []),
-    ...(definition.hierarchies ?? []),
-  ];
-
-
   return (
     <div className="builder">
-      <header className="builder-head command-bar">
-        <input
-          className="report-title"
-          aria-label="Report name"
-          value={definition.name}
-          onChange={(e) => setDefinition({ ...definition, name: e.target.value })}
-        />
-        <div className="builder-actions">
-          <button
-            onClick={() => save.mutate()}
-            disabled={!canEdit || !dirty || save.isPending}
-          >
-            {save.isPending ? "Saving…" : "Save"}
-          </button>
-          {canEdit && (
-            <button
-              type="button"
-              className="secondary"
-              aria-pressed={moving}
-              onClick={() => setMoving((open) => !open)}
-            >
-              Move
-            </button>
-          )}
-          <span className="cmd-sep" aria-hidden="true" />
-          {/* All three need a semantic view to work against, and the server
-              refuses without one. Disabling with the reason attached beats
-              opening a panel whose only content is "there is nothing to ask
-              about" -- the report is unbound, and the fix is to bind it. */}
-          <button
-            type="button"
-            className="secondary chat-open"
-            aria-pressed={panel === "ask"}
-            disabled={!view.name}
-            title={view.name ? "Chat about this data" : UNBOUND_HINT}
-            onClick={() => setPanel(panel === "ask" ? null : "ask")}
-          >
-            <span aria-hidden="true">💬</span> Chat
-          </button>
-          {/* One button, because it is one thing now: the workbook carries the
-              numbers AND a connection that refreshes them. "Connect live" was
-              a second button for the half this one was missing. The caret
-              keeps the fallbacks -- a .odc, the raw SQL -- one click away
-              without making them look like a separate feature. */}
-          <span className="split-button">
-            <button
-              type="button"
-              className="secondary"
-              disabled={exportExcel.isPending || !view.name}
-              title={view.name ? "Download the workbook, live-connected" : UNBOUND_HINT}
-              onClick={() => exportExcel.mutate()}
-            >
-              {exportExcel.isPending ? "Exporting…" : "Excel"}
-            </button>
-            <button
-              type="button"
-              className="secondary split-more"
-              aria-label="Other ways to connect from Excel"
-              aria-pressed={panel === "connect"}
-              disabled={!view.name}
-              title={view.name ? "Other ways to connect" : UNBOUND_HINT}
-              onClick={() => setPanel(panel === "connect" ? null : "connect")}
-            >
-              <span aria-hidden="true">▾</span>
-            </button>
-          </span>
-          <span className="cmd-sep" aria-hidden="true" />
-          <button
-            type="button"
-            className="secondary"
-            aria-pressed={panel === "export"}
-            onClick={() => setPanel(panel === "export" ? null : "export")}
-          >
-            Export
-          </button>
-          {/* Import CREATES a report, so a viewer has nowhere to put one.
-              Export stays available to everyone -- reading is what they can
-              already do. */}
-          {canEdit && (
-            <button
-              type="button"
-              className="secondary"
-              aria-pressed={panel === "import"}
-              onClick={() => setPanel(panel === "import" ? null : "import")}
-            >
-              Import
-            </button>
-          )}
-        </div>
-      </header>
+      <BuilderHeader
+        name={definition.name}
+        onRename={(name) => setDefinition({ ...definition, name })}
+        canEdit={canEdit}
+        dirty={doc.dirty}
+        saving={doc.save.isPending}
+        onSave={() => doc.save.mutate()}
+        moving={ui.moving}
+        onToggleMove={() => ui.setMoving((open) => !open)}
+        panel={ui.panel}
+        onTogglePanel={(kind) => ui.setPanel(ui.panel === kind ? null : kind)}
+        viewName={view.name}
+        exporting={exportExcel.isPending}
+        onExportExcel={() => exportExcel.mutate()}
+      />
       {!canEdit && (
         <p className="tile-hint">
-          You have the {myRole} role in {report.data?.workspaceName || "this workspace"},
+          You have the {myRole} role in {doc.report.data?.workspaceName || "this workspace"},
           so this report is read-only for you. Its data still runs on your own
           Snowflake credentials.
         </p>
       )}
-      {moving && canEdit && <MovePanel reportId={reportId} onDone={() => setMoving(false)} />}
-      {save.isError && (
+      {ui.moving && canEdit && (
+        <MovePanel reportId={reportId} onDone={() => ui.setMoving(false)} />
+      )}
+      {doc.save.isError && (
         <p role="alert">
-          {save.error instanceof ApiError ? save.error.message : "Could not save this report."}
+          {doc.save.error instanceof ApiError
+            ? doc.save.error.message
+            : "Could not save this report."}
         </p>
       )}
-      {notice && <p className="notice">{notice}</p>}
-      {needsBind ? (
+      {ui.notice && <p className="notice">{ui.notice}</p>}
+      {fields.needsBind ? (
         <BindViewPanel
           reason={view.name ? viewMissingReason(view) : null}
-          onBind={bindView}
+          onBind={doc.bindView}
           canEdit={canEdit}
-          binding={bind.isPending}
+          binding={doc.bind.isPending}
           bindError={
-            bind.isError
-              ? bind.error instanceof ApiError
-                ? bind.error.message
+            doc.bind.isError
+              ? doc.bind.error instanceof ApiError
+                ? doc.bind.error.message
                 : "Could not save that view to this report."
               : null
           }
         />
       ) : (
         <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          {crossFilter && (
+          {ui.crossFilter && (
             // role="status" rather than a bare div: a filter applied by
             // clicking somewhere else has to be announced, not just drawn.
             <p className="cross-filter-chip" role="status">
-              Filtered by {crossFilter.field} = {crossFilter.value}
-              <button type="button" className="link" onClick={() => setCrossFilter(null)}>
+              Filtered by {ui.crossFilter.field} = {ui.crossFilter.value}
+              <button type="button" className="link" onClick={() => ui.setCrossFilter(null)}>
                 Clear cross-filter
               </button>
             </p>
           )}
           <div className="builder-body">
-            <div className="canvas-column">
-              {activePage.kind === "sheet" ? (
-                <SheetView
-                  visual={activePage.visuals[0] ?? null}
-                  view={view}
-                  reportFilters={definition.filters ?? []}
-                  pageFilters={activePage.filters ?? []}
-                  hierarchies={hierarchies}
-                  factRefs={factRefs}
-                />
-              ) : (
-              <CanvasGrid
-              visuals={activePage.visuals}
-              canvas={definition.canvas}
+            <BuilderCanvasColumn
+              definition={definition}
+              activePage={activePage}
               view={view}
-              selectedId={selectedId}
+              hierarchies={hierarchies}
+              factRefs={factRefs}
+              canEdit={canEdit}
+              ui={ui}
               onSelect={selectVisual}
               onLayoutChange={onLayoutChange}
-              reportFilters={definition.filters ?? []}
-              pageFilters={activePage.filters ?? []}
-              hierarchies={hierarchies}
-              drill={drill}
-              onDrill={(visualId, next) =>
-                setDrill((current) => {
-                  if (!next) {
-                    const { [visualId]: _dropped, ...rest } = current;
-                    return rest;
-                  }
-                  return { ...current, [visualId]: next };
-                })
-              }
-              crossFilter={crossFilter}
-              onCrossFilter={setCrossFilter}
-              factRefs={factRefs}
-              slicerSelections={slicerSelections}
-              onSlicerChange={(field, values) =>
-                setSlicerSelections((current) => {
-                  // An emptied slicer drops its key rather than keeping an
-                  // empty array, so "is anything sliced?" stays one check.
-                  if (values.length === 0) {
-                    const { [field]: _cleared, ...rest } = current;
-                    return rest;
-                  }
-                  return { ...current, [field]: values };
-                })
-              }
+              onSwitchPage={switchPage}
+              onPageOp={applyPageOp}
             />
-              )}
-              <PageBar
-                pages={definition.pages}
-                activeId={activePage.id}
-                canEdit={canEdit}
-                onSelect={switchPage}
-                onAdd={addPage}
-                onAddSheet={addSheet}
-                onRename={renamePage}
-                onDuplicate={duplicatePage}
-                onDelete={deletePage}
-                onMove={movePage}
-              />
-            </div>
             <aside className="builder-rail">
-              <Pane title="Filters" defaultCollapsed={startFiltersCollapsed}>
+              <Pane title="Filters" defaultCollapsed={ui.startFiltersCollapsed}>
                 <FilterPane
                   view={view}
                   fields={[...dimensions, ...metrics]}
@@ -1100,212 +359,64 @@ export default function BuilderPage() {
                   }}
                 />
               </Pane>
-              <Pane title="Visualizations">
-                {activePage.kind === "sheet" ? (
-                  <div className="pane-tabs" role="tablist" aria-label="Pivot style">
-                    {(["matrix", "table"] as const).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        role="tab"
-                        aria-selected={selected?.type === t}
-                        className={selected?.type === t ? "pane-tab active" : "pane-tab"}
-                        onClick={() => onTypeChange(t)}
-                      >
-                        {CATALOG[t].label}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    <VisualPicker value={selectedType} onChange={onTypeChange} />
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => addVisual(selectedType)}
-                    >
-                      Add visual
-                    </button>
-                  </>
-                )}
-                {selected ? (
-                  <>
-                    {/* Build is what the visual SHOWS, Format is how it
-                        LOOKS -- PowerBI's split, and the reason the two do
-                        not compete for the same strip of pane. */}
-                    <div className="pane-tabs" role="tablist" aria-label="Visual settings">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={paneTab === "build"}
-                        className={paneTab === "build" ? "pane-tab active" : "pane-tab"}
-                        onClick={() => setPaneTab("build")}
-                      >
-                        Build
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={paneTab === "format"}
-                        className={paneTab === "format" ? "pane-tab active" : "pane-tab"}
-                        onClick={() => setPaneTab("format")}
-                      >
-                        Format
-                      </button>
-                    </div>
-                    {paneTab === "build" ? (
-                      <VisualWells
-                        visual={selected}
-                        onChange={replaceVisual}
-                        factRefs={factRefs}
-                      />
-                    ) : (
-                      <FormatPane
-                        visual={selected}
-                        onChange={replaceVisual}
-                        fields={[...dimensions, ...metrics]}
-                      />
-                    )}
-                  </>
-                ) : (
-                  // PowerBI's behaviour: nothing selected means you are
-                  // formatting the PAGE. The canvas colour is the only
-                  // report-level thing to set today, and it needs somewhere
-                  // to live that is not a per-visual pane.
-                  <section className="format-section">
-                    <h4>Canvas</h4>
-                    <ColorField
-                      label="Background"
-                      value={definition.canvas.background ?? ""}
-                      fallback="#f5f5f5"
-                      onChange={(hex) =>
-                        setDefinition({
-                          ...definition,
-                          canvas: { ...definition.canvas, background: hex ?? null },
-                        })
-                      }
-                    />
-                    <p className="tile-hint">
-                      Select a visual on the canvas to edit its fields and its own
-                      formatting.
-                    </p>
-                  </section>
-                )}
-              </Pane>
-              <Pane title="Data">
-                <DataPane
-                  dimensions={dimensions}
-                  metrics={metrics}
-                  selected={selected}
-                  canEdit={canEdit}
-                  onToggleField={toggleField}
-                  renderRow={(field, kind) => (
-                    <BuilderFieldRow field={field} kind={kind} onAdd={addFieldToSelected} />
-                  )}
-                  headerExtra={
-                    <>
-                      <button
-                        type="button"
-                        className="link"
-                        onClick={() => refreshFields.mutate()}
-                        disabled={refreshFields.isPending || !view.name}
-                      >
-                        {refreshFields.isPending ? "Refreshing…" : "Refresh fields"}
-                      </button>
-                      {refreshFields.isError && (
-                        <p role="alert">
-                          {refreshFields.error instanceof ApiError
-                            ? refreshFields.error.message
-                            : "Could not refresh fields."}
-                        </p>
-                      )}
-                      {viewDetail.isError && !isMissingView(viewDetail.error) && (
-                        <p role="alert">
-                          {viewDetail.error instanceof ApiError
-                            ? viewDetail.error.message
-                            : "Could not describe this view."}
-                        </p>
-                      )}
-                    </>
-                  }
-                  hierarchyRows={
-                    hierarchies.length > 0 ? (
-                      <section className="field-group">
-                        <h4 className="field-group-title">Hierarchies</h4>
-                        {hierarchies.map((h) => (
-                          <BuilderHierarchyRow
-                            key={h.id}
-                            hierarchy={h}
-                            onAdd={addFieldToSelected}
-                          />
-                        ))}
-                      </section>
-                    ) : null
-                  }
-                  footer={
-                    <HierarchyPane
-                      hierarchies={hierarchies}
-                      dimensions={dimensions}
-                      onChange={(next) =>
-                        setDefinition({
-                          ...definition,
-                          // Model-declared hierarchies are not the report's to store.
-                          hierarchies: next.filter((h) => !h.id.startsWith("model:")),
-                        })
-                      }
-                    />
-                  }
-                />
-              </Pane>
+              <VisualizationsPane
+                isSheet={activePage.kind === "sheet"}
+                selected={selected}
+                selectedType={ui.selectedType}
+                onTypeChange={onTypeChange}
+                onAddVisual={() => addVisual(ui.selectedType)}
+                paneTab={ui.paneTab}
+                onPaneTab={ui.setPaneTab}
+                onChangeVisual={replaceVisual}
+                factRefs={factRefs}
+                fields={[...dimensions, ...metrics]}
+                canvasBackground={definition.canvas.background}
+                onCanvasBackground={(background) =>
+                  setDefinition({
+                    ...definition,
+                    canvas: { ...definition.canvas, background },
+                  })
+                }
+              />
+              <BuilderDataPane
+                fields={fields}
+                viewName={view.name}
+                selected={selected}
+                canEdit={canEdit}
+                onToggleField={toggleField}
+                onAddField={addFieldToSelected}
+                onHierarchiesChange={(next) =>
+                  setDefinition({
+                    ...definition,
+                    // Model-declared hierarchies are not the report's to store.
+                    hierarchies: next.filter((h) => !h.id.startsWith("model:")),
+                  })
+                }
+              />
             </aside>
           </div>
         </DndContext>
       )}
-      {panel === "export" && (
-        <div className="panel-overlay">
-          <ExportPanel reportId={reportId} onClose={() => setPanel(null)} />
-        </div>
-      )}
-      {panel === "import" && (
-        <div className="panel-overlay">
-          <ImportPanel onImported={onImported} onClose={() => setPanel(null)} />
-        </div>
-      )}
-      {exportExcel.isPending && (
-        <p className="tile-hint">Running each visual's query on your connection…</p>
-      )}
-      {exportExcel.isError && (
-        <p role="alert">
-          {exportExcel.error instanceof ApiError
-            ? exportExcel.error.message
-            : "Could not export this report."}
-        </p>
-      )}
-      {panel === "connect" && (
-        <div className="panel-overlay">
-          <ConnectPanel
-            reportId={reportId}
-            sheets={exportSheets()}
-            feedVisuals={activePage.visuals
-              .filter((v) => v.type !== "slicer")
-              .map((v) => ({ id: v.id, title: visualTitle(v) }))}
-            onClose={() => setPanel(null)}
-          />
-        </div>
-      )}
-      {/* NOT in a panel-overlay: a chat you consult while reading a report
-          cannot be a modal that hides the report. It floats in the corner,
-          the way a support chat does, and can be resized because the useful
-          size for "what was the answer" and for "show me the table" are not
-          the same size. */}
-      {panel === "ask" && (
-        <ChatPanel
-          reportId={reportId}
-          canEdit={canEdit}
-          onAddVisual={addVisualFromSpec}
-          onClose={() => setPanel(null)}
-        />
-      )}
+      <BuilderOverlays
+        panel={ui.panel}
+        onClose={() => ui.setPanel(null)}
+        reportId={reportId}
+        onImported={onImported}
+        exportPending={exportExcel.isPending}
+        exportError={
+          exportExcel.isError
+            ? exportExcel.error instanceof ApiError
+              ? exportExcel.error.message
+              : "Could not export this report."
+            : null
+        }
+        connectSheets={exportSheets}
+        feedVisuals={activePage.visuals
+          .filter((v) => v.type !== "slicer")
+          .map((v) => ({ id: v.id, title: visualTitle(v) }))}
+        canEdit={canEdit}
+        onAddVisual={addVisualFromSpec}
+      />
     </div>
   );
 }
