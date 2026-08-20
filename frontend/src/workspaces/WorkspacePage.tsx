@@ -337,11 +337,19 @@ export default function WorkspacePage() {
       },
       {
         id: "explore",
+        disabledReason: blocked,
         // An explore is SAVED from the explorer rather than created empty:
-        // there is nothing to open until a query exists.
+        // there is nothing to open until a query exists. The workspace
+        // travels with it, so the thing you build lands where you asked
+        // for it rather than in your personal one.
         label: "Explore",
         icon: "compass",
-        onSelect: () => navigate("/explore"),
+        onSelect: () =>
+          navigate(
+            selectedId
+              ? `/explore?workspace=${encodeURIComponent(selectedId)}`
+              : "/explore",
+          ),
       },
       {
         id: "import",

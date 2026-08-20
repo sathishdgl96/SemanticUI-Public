@@ -1,10 +1,11 @@
 import { DndContext, type Announcements, type DragEndEvent } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import { createExplore, updateExplore } from "../api/explores";
 import { createReport } from "../api/reports";
+import { useWorkspaces } from "../workspaces/useWorkspaces";
 import type {
   ExploreDefinition,
   ExploreDetail,
@@ -246,6 +247,14 @@ export default function ExplorerPage() {
 
   const queryClient = useQueryClient();
 
+  // Where a new explore lands. It arrives in the URL from the workspace
+  // you clicked Create in; an explore saved from the rail, with no
+  // workspace named, goes to your personal one as it always did.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const workspaces = useWorkspaces();
+  const workspaceRows = workspaces.data?.workspaces ?? [];
+  const targetWorkspace = searchParams.get("workspace") ?? "";
+
   const save = useMutation({
     mutationFn: (name: string) => {
       const definition = currentDefinition(name);
@@ -254,7 +263,7 @@ export default function ExplorerPage() {
       // every time is how a list becomes unusable.
       return openExplore
         ? updateExplore(openExplore.id, definition)
-        : createExplore(definition);
+        : createExplore(definition, targetWorkspace || undefined);
     },
     onSuccess: (saved) => {
       setOpenExplore(saved);
@@ -310,6 +319,33 @@ export default function ExplorerPage() {
             onChange={(e) => setExploreName(e.target.value)}
             disabled={!selectedView}
           />
+          {/* Which workspace it lands in, said before you press Save
+              rather than discovered afterwards in a list. Absent once an
+              explore is open: saving that one updates it where it already
+              lives, and offering to move it here would be a different
+              act wearing the same button. */}
+          {!openExplore && workspaceRows.length > 1 && (
+            <label className="explore-target">
+              <span className="sr-only">Save into</span>
+              <select
+                value={targetWorkspace}
+                disabled={!selectedView}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setSearchParams(next ? { workspace: next } : {});
+                }}
+              >
+                <option value="">My reports</option>
+                {workspaceRows
+                  .filter((workspace) => workspace.kind !== "personal")
+                  .map((workspace) => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             onClick={() => save.mutate(exploreName.trim())}

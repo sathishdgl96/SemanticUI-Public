@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,12 +57,15 @@ function mockRoutes(detailResult: () => Promise<unknown>) {
   });
 }
 
-function renderPage(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderPage(
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  path = "/",
+) {
   return {
     qc,
     ...render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/"]}>
+        <MemoryRouter initialEntries={[path]}>
           <Routes>
             <Route path="/" element={<ExplorerPage />} />
             <Route path="/login" element={<p>Login page</p>} />
@@ -300,6 +303,14 @@ describe("ExplorerPage saved explores", () => {
       const path = String(args[0]);
       const init = args[1] as { method?: string } | undefined;
       if (path === "/api/me") return Promise.resolve(ME);
+      if (path === "/api/workspaces") {
+        return Promise.resolve({
+          workspaces: [
+            { id: "w0", name: "My reports", kind: "personal", myRole: "admin", memberCount: 1, reportCount: 0 },
+            { id: "w1", name: "Team", kind: "shared", myRole: "editor", memberCount: 3, reportCount: 2 },
+          ],
+        });
+      }
       if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
       if (path.startsWith("/api/semantic-views/")) return detailResult();
       if (path === "/api/explores" && init?.method === "POST") {
@@ -420,4 +431,62 @@ describe("ExplorerPage saved explores", () => {
     await userEvent.click(screen.getByRole("button", { name: "My View" }));
     await waitFor(() => expect(screen.queryByText(/T.REGION is EAST/)).toBeNull());
   });
+
+  describe("saving into a workspace", () => {
+    it("sends the workspace the URL names", async () => {
+      // Which is where the workspace's own Create menu sends you: an
+      // explore built there must land there rather than in your personal
+      // workspace.
+      const posted: unknown[] = [];
+      apiFetchMock.mockImplementation((...args: unknown[]) => {
+        const path = String(args[0]);
+        const init = args[1] as { method?: string; body?: string } | undefined;
+        if (path === "/api/me") return Promise.resolve(ME);
+        if (path === "/api/workspaces") {
+          return Promise.resolve({
+            workspaces: [
+              { id: "w0", name: "My reports", kind: "personal", myRole: "admin", memberCount: 1, reportCount: 0 },
+              { id: "w1", name: "Team", kind: "shared", myRole: "editor", memberCount: 3, reportCount: 2 },
+            ],
+          });
+        }
+        if (path === "/api/semantic-views") return Promise.resolve({ views: [VIEW] });
+        if (path.startsWith("/api/semantic-views/")) return Promise.resolve(DETAIL);
+        if (path === "/api/explores" && init?.method === "POST") {
+          posted.push(JSON.parse(init.body ?? "{}"));
+          return Promise.resolve(SAVED);
+        }
+        if (path === "/api/explores") return Promise.resolve({ explores: [] });
+        if (path === "/api/query/semantic") {
+          return Promise.resolve({
+            columns: [{ name: "REGION", type: "TEXT" }],
+            rows: [["EAST"]],
+            truncated: false,
+            sfqid: null,
+            sql: "",
+          });
+        }
+        return Promise.reject(new Error(`unexpected path: ${path}`));
+      });
+
+      renderPage(undefined, "/?workspace=w1");
+      // The fields only exist once a view is chosen.
+      await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+      await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+      await userEvent.type(screen.getByLabelText(/explore name/i), "Regions");
+      await userEvent.click(screen.getByRole("button", { name: /save as explore/i }));
+
+      await waitFor(() => expect(posted).toHaveLength(1));
+      expect((posted[0] as { workspaceId?: string }).workspaceId).toBe("w1");
+    });
+
+    it("offers the workspaces you can save into", async () => {
+      mockWithExplores([]);
+      renderPage(undefined, "/?workspace=w1");
+      const picker = await screen.findByRole("combobox", { name: /save into/i });
+      expect(picker).toHaveValue("w1");
+      expect(within(picker).getByRole("option", { name: "Team" })).toBeInTheDocument();
+    });
+  });
 });
+

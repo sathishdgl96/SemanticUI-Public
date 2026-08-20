@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { QueryResponse, Visual } from "../api/types";
 import { type SortDirection } from "../query/sortRows";
 import { sortTree } from "./matrixSort";
@@ -60,6 +60,30 @@ interface RowNode {
  *  over the same fields can never disagree about the numbers. */
 export default function MatrixTable({ visual, result }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  //: Both header rows are sticky, and the second has to sit under the
+  //: first rather than on top of it. The first row's height is not
+  //: knowable from CSS -- it holds the column grouping, whose text wraps
+  //: and whose font scales with the tile -- so it is measured and handed
+  //: to the stylesheet.
+  const groupRow = useRef<HTMLTableRowElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const row = groupRow.current;
+    const box = scroller.current;
+    if (!box) return;
+    const measure = () => {
+      box.style.setProperty(
+        "--matrix-head-offset",
+        `${row ? Math.round(row.getBoundingClientRect().height) : 0}px`,
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined" || !row) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    return () => observer.disconnect();
+  });
   const [sort, setSort] = useState<MatrixSort | null>(null);
 
   /** Ascending, descending, then back to the query's own order -- which is
@@ -219,7 +243,7 @@ export default function MatrixTable({ visual, result }: Props) {
   const allExpanded = collapsed.size === 0;
 
   return (
-    <div className="matrix-scroll">
+    <div className="matrix-scroll" ref={scroller}>
       {groupKeys.length > 0 && (
         <div className="matrix-toolbar" role="toolbar" aria-label="Matrix hierarchy">
           <button
@@ -245,7 +269,7 @@ export default function MatrixTable({ visual, result }: Props) {
       <table className="matrix">
         <thead>
           {colIdx >= 0 && (
-            <tr>
+            <tr className="matrix-head-groups" ref={groupRow}>
               <th scope="col" rowSpan={2}>
                 {rowRefs.map(fieldName).join(" / ")}
               </th>
@@ -261,7 +285,7 @@ export default function MatrixTable({ visual, result }: Props) {
               )}
             </tr>
           )}
-          <tr>
+          <tr className="matrix-head-labels">
             {colIdx < 0 && (
               <th scope="col" aria-sort={ariaSort(LABEL_KEY)}>
                 <button

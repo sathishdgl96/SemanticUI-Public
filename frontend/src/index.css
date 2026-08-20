@@ -1704,28 +1704,64 @@ button.secondary:hover,
   overflow: auto;
 }
 .matrix {
-  border-collapse: collapse;
+  /* `separate`, not `collapse`: a collapsed border belongs to the TABLE
+     rather than to the cell, so a sticky header leaves its borders
+     behind and the rows scroll through the gap. The borders are drawn
+     per cell below instead. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: clamp(9px, 3.2cqi, 13px);
   width: 100%;
 }
 .matrix th,
 .matrix td {
-  border: 1px solid var(--border);
+  /* Right and bottom only, with the table drawing the outer two, so
+     adjacent cells do not double up now that borders no longer collapse. */
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   padding: 4px 8px;
   text-align: left;
   white-space: nowrap;
 }
+.matrix tr > :first-child { border-left: 1px solid var(--border); }
+.matrix thead tr:first-child > * { border-top: 1px solid var(--border); }
+
 .matrix thead th {
   background: var(--chrome);
   color: var(--ink);
   font-weight: 600;
   position: sticky;
-  top: 0;
-  z-index: 1;
+  z-index: 2;
 }
-.matrix tbody th {
+
+/* The column-grouping row, when there is one. */
+.matrix thead .matrix-head-groups th { top: 0; }
+
+/* And the labels underneath it. `--matrix-head-offset` is the measured
+   height of the row above -- zero when there is no grouping -- because
+   two sticky rows both pinned at 0 stack on top of each other, which is
+   what made the header look like it was duplicating on scroll. */
+.matrix thead .matrix-head-labels th {
+  top: var(--matrix-head-offset, 0px);
+}
+
+/* A row header stays put horizontally for the same reason a column header
+   stays put vertically: scrolled away from it, every number in the row is
+   unlabelled. */
+.matrix tbody th,
+.matrix tfoot th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
   font-weight: 400;
   color: var(--ink);
+}
+
+/* Where the two sticky axes cross, the corner has to sit above both. */
+.matrix thead th:first-child {
+  left: 0;
+  z-index: 3;
 }
 .matrix .numeric {
   text-align: right;
@@ -1736,6 +1772,16 @@ button.secondary:hover,
   background: var(--chrome);
   font-weight: 600;
 }
+
+/* The totals row stays at the bottom of the box, so a long matrix does
+   not make you scroll to the end to read its total. */
+.matrix tfoot th,
+.matrix tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+.matrix tfoot th { z-index: 3; }
 
 /* The stepped matrix: group rows read as headers, the +/- toggles sit
    inline, and the Total column is set off from the value columns. */
@@ -4874,6 +4920,16 @@ body {
   gap: 8px;
   margin-top: 12px;
 }
+/* Where a new explore will land, said before Save is pressed rather than
+   discovered afterwards in a list. */
+.explore-target select {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
 .explore-save {
   display: inline-flex;
   align-items: center;
