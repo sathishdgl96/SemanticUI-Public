@@ -7,7 +7,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type SortKey = "name" | "kind" | "detail" | "role" | "updated" | "recent";
+export type SortKey =
+  | "name"
+  | "kind"
+  | "detail"
+  | "workspace"
+  | "creator"
+  | "role"
+  | "updated"
+  | "recent";
 export type SortDirection = "asc" | "desc";
 
 export interface SortState {
@@ -21,6 +29,8 @@ export interface SortableRow {
   name: string;
   kind: string;
   detail: string;
+  workspaceName: string;
+  createdBy: string;
   myRole: string;
   updatedAt: string;
   lastViewedAt: string | null;
@@ -33,6 +43,8 @@ const NATURAL: Record<SortKey, SortDirection> = {
   name: "asc",
   kind: "asc",
   detail: "asc",
+  workspace: "asc",
+  creator: "asc",
   role: "asc",
   updated: "desc",
   recent: "desc",
@@ -51,6 +63,10 @@ function valueOf(row: SortableRow, key: SortKey): string {
       return row.kind;
     case "detail":
       return row.detail;
+    case "workspace":
+      return row.workspaceName;
+    case "creator":
+      return row.createdBy;
     case "role":
       return row.myRole;
     case "updated":

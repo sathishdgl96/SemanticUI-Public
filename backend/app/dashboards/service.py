@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.dashboards.schema import MAX_TILES, blank, parse_definition
 from app.db.models import Dashboard, Report, User, Workspace
 from app.errors import ApiError
-from app.library import state
+from app.library import provenance, state
 from app.reports.migrate import migrate_definition
 from app.reports.service import personal_workspace_id
 from app.workspaces.access import as_uuid, membership, require_owned, require_workspace
@@ -33,7 +33,9 @@ from app.workspaces.access import as_uuid, membership, require_owned, require_wo
 DEFAULT_TILE = {"w": 4, "h": 5}
 
 
-def _summary(dashboard: Dashboard, *, workspace: Workspace | None, role: str) -> dict:
+def _summary(
+    dashboard: Dashboard, *, workspace: Workspace | None, role: str, creator: str = ""
+) -> dict:
     definition = dashboard.definition or {}
     return {
         "id": str(dashboard.id),
@@ -43,6 +45,8 @@ def _summary(dashboard: Dashboard, *, workspace: Workspace | None, role: str) ->
         "myRole": role,
         "tileCount": len(definition.get("tiles") or []),
         "updatedAt": dashboard.updated_at.isoformat() if dashboard.updated_at else None,
+        #: Who made it. Provenance, never permission (ADR 0009).
+        "createdBy": creator,
     }
 
 
@@ -75,10 +79,13 @@ def list_dashboards(db: Session, user_id: uuid.UUID, workspace_id: str | None) -
     # so one browse list can hold all three kinds and sort them together.
     favorites = state.favorite_ids(db, user_id, "dashboard")
     recents = state.recent_order(db, user_id, "dashboard")
+    creators = provenance.creator_names(db, [row.owner_user_id for row in rows])
     out = []
     for row in rows:
         workspace, role = _context(db, user_id, row)
-        summary = _summary(row, workspace=workspace, role=role)
+        summary = _summary(
+            row, workspace=workspace, role=role, creator=creators.get(row.owner_user_id, "")
+        )
         summary["favorite"] = row.id in favorites
         seen = recents.get(row.id)
         summary["lastViewedAt"] = seen.isoformat() if seen else None
@@ -310,8 +317,14 @@ def resolve(db: Session, user_id: uuid.UUID, dashboard: Dashboard, tile: dict) -
 def detail(db: Session, user_id: uuid.UUID, dashboard: Dashboard) -> dict:
     workspace, role = _context(db, user_id, dashboard)
     definition = dashboard.definition or {}
+    creators = provenance.creator_names(db, [dashboard.owner_user_id])
     return {
-        **_summary(dashboard, workspace=workspace, role=role),
+        **_summary(
+            dashboard,
+            workspace=workspace,
+            role=role,
+            creator=creators.get(dashboard.owner_user_id, ""),
+        ),
         "tiles": [
             resolve(db, user_id, dashboard, tile)
             for tile in (definition.get("tiles") or [])

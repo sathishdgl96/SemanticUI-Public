@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession, SavedExplore, Workspace
-from app.library import state
+from app.library import provenance, state
 from app.library.search import LibraryQuery
 from app.explores import service
 from app.explores.schema import parse_definition, to_export_document
@@ -23,7 +23,9 @@ class DefinitionBody(BaseModel):
     workspaceId: str | None = None
 
 
-def _summary(explore: SavedExplore, *, workspace: Workspace | None, role: str) -> dict:
+def _summary(
+    explore: SavedExplore, *, workspace: Workspace | None, role: str, creator: str = ""
+) -> dict:
     return {
         "id": str(explore.id),
         "name": explore.name,
@@ -38,6 +40,8 @@ def _summary(explore: SavedExplore, *, workspace: Workspace | None, role: str) -
         #: The caller's role here, so the UI can disable an action with a
         #: stated reason rather than letting them discover it on a 403.
         "myRole": role,
+        #: Who made it. Provenance, never permission (ADR 0009).
+        "createdBy": creator,
     }
 
 
@@ -67,10 +71,17 @@ def list_explores(
     params = LibraryQuery(q=q, favorite=favorite, role=role, sort=sort)
     favorites = state.favorite_ids(db, sess.user_id, "explore")
     recents = state.recent_order(db, sess.user_id, "explore")
+    rows = service.list_explores(db, sess.user_id, workspace, params)
+    creators = provenance.creator_names(db, [e.owner_user_id for e in rows])
     out = []
-    for explore in service.list_explores(db, sess.user_id, workspace, params):
+    for explore in rows:
         workspace_row, member_role = _context(db, sess.user_id, explore)
-        summary = _summary(explore, workspace=workspace_row, role=member_role)
+        summary = _summary(
+            explore,
+            workspace=workspace_row,
+            role=member_role,
+            creator=creators.get(explore.owner_user_id, ""),
+        )
         summary["favorite"] = explore.id in favorites
         seen = recents.get(explore.id)
         summary["lastViewedAt"] = seen.isoformat() if seen else None

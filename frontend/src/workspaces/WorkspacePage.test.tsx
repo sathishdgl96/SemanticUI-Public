@@ -87,15 +87,14 @@ function renderPageAt(path: string) {
   );
 }
 
+/** Inside one workspace, which is where the flyout drops you. */
 function renderPage() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <WorkspacePage />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return renderPageAt("/reports?workspace=w0");
+}
+
+/** Browse with no workspace named: everything, everywhere. */
+function renderBrowse() {
+  return renderPageAt("/reports");
 }
 
 beforeEach(() => {
@@ -114,7 +113,9 @@ beforeEach(() => {
 /** Open the Create menu and choose a kind. One button offers all four, so
  *  making anything takes two clicks -- and a test has to make both. */
 async function createA(kind: RegExp) {
-  await userEvent.click(screen.getByRole("button", { name: /^create/i }));
+  // The exact name: /^create/i also matches the "Created by" column
+  // header, which is a button because that column sorts.
+  await userEvent.click(screen.getByRole("button", { name: "Create" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: kind }));
 }
 
@@ -127,20 +128,58 @@ function names(): string[] {
 }
 
 describe("WorkspacePage", () => {
-  it("does not ask again which workspace this is", async () => {
-    // You chose one to get here, from the rail's flyout. A switcher in the
-    // header is the same decision asked twice.
+  it("browses every workspace when the URL names none", async () => {
+    // Browse answers "where is that thing I remember", which is not a
+    // question about one workspace. The rail's flyout names one; the
+    // rail's Browse does not.
     listMock.mockResolvedValue({ reports: [summary()] });
-    renderPage();
+    renderBrowse();
     await screen.findByText("Sales overview");
-    expect(screen.queryByRole("combobox", { name: /workspace/i })).toBeNull();
+    expect(listMock).toHaveBeenCalledWith(undefined, expect.anything());
+    expect(await screen.findByText(/across \d+ workspace/i)).toBeInTheDocument();
+  });
+
+  it("narrows to one workspace from the same bar as everything else", async () => {
+    listMock.mockResolvedValue({ reports: [summary()] });
+    renderBrowse();
+    await screen.findByText("Sales overview");
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /workspace/i }),
+      "w0",
+    );
+    await waitFor(() =>
+      expect(listMock).toHaveBeenLastCalledWith("w0", expect.anything()),
+    );
+  });
+
+  it("says which workspace and who made each item", async () => {
+    // Across every workspace, "whose is this and where does it live" is
+    // the pair of questions a name alone cannot answer.
+    listMock.mockResolvedValue({
+      reports: [summary({ createdBy: "A_SMITH" })],
+    });
+    renderBrowse();
+    await screen.findByText("Sales overview");
+    expect(screen.getByText("A_SMITH")).toBeInTheDocument();
+    expect(screen.getAllByText("My reports").length).toBeGreaterThan(0);
+  });
+
+  it("will not create until a workspace is chosen, and says so", async () => {
+    listMock.mockResolvedValue({ reports: [summary()] });
+    renderBrowse();
+    await screen.findByText("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    const item = await screen.findByRole("menuitem", { name: /^report$/i });
+    expect(item).toBeDisabled();
+    expect(item).toHaveAttribute("title", expect.stringMatching(/pick a workspace/i));
   });
 
   it("offers every kind behind one Create button", async () => {
     listMock.mockResolvedValue({ reports: [summary()] });
     renderPage();
     await screen.findByText("Sales overview");
-    await userEvent.click(screen.getByRole("button", { name: /^create/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
 
     for (const kind of [/^report$/i, /^dashboard$/i, /^explore$/i, /import a report/i]) {
       expect(await screen.findByRole("menuitem", { name: kind })).toBeInTheDocument();

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession, Report, Workspace
-from app.library import state
+from app.library import provenance, state
 from app.library.search import LibraryQuery
 from app.reports import service
 from app.workspaces.access import membership, require_access
@@ -32,7 +32,9 @@ class MoveBody(BaseModel):
     workspaceId: str
 
 
-def _summary(report: Report, *, workspace: Workspace | None, role: str) -> dict:
+def _summary(
+    report: Report, *, workspace: Workspace | None, role: str, creator: str = ""
+) -> dict:
     return {
         "id": str(report.id),
         "name": report.name,
@@ -47,6 +49,9 @@ def _summary(report: Report, *, workspace: Workspace | None, role: str) -> dict:
         #: The caller's role here, so the UI can disable Save with a stated
         #: reason rather than letting them discover it on a 403.
         "myRole": role,
+        #: Who made it. Provenance, never permission -- membership alone
+        #: decides who may read it (ADR 0009).
+        "createdBy": creator,
     }
 
 
@@ -89,10 +94,16 @@ def list_reports(
     reports = service.list_reports(db, sess.user_id, workspace, params)
     favorites = state.favorite_ids(db, sess.user_id, "report")
     recents = state.recent_order(db, sess.user_id, "report")
+    creators = provenance.creator_names(db, [r.owner_user_id for r in reports])
     out = []
     for report in reports:
         workspace_row, member_role = _context(db, sess.user_id, report)
-        summary = _summary(report, workspace=workspace_row, role=member_role)
+        summary = _summary(
+            report,
+            workspace=workspace_row,
+            role=member_role,
+            creator=creators.get(report.owner_user_id, ""),
+        )
         summary["favorite"] = report.id in favorites
         seen = recents.get(report.id)
         summary["lastViewedAt"] = seen.isoformat() if seen else None

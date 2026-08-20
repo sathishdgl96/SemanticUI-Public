@@ -15,6 +15,8 @@ function row(over: Partial<SortableRow> = {}): SortableRow {
     name: "Sales",
     kind: "report",
     detail: "ANALYTICS.PUBLIC.SALES",
+    workspaceName: "Team",
+    createdBy: "ALICE",
     myRole: "editor",
     updatedAt: "2026-08-19T10:00:00Z",
     lastViewedAt: "2026-08-19T12:00:00Z",

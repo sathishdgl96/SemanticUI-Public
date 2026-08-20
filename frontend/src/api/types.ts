@@ -274,6 +274,9 @@ export interface ReportSummary {
   favorite: boolean;
   /** When this caller last opened it, or null if they never have. */
   lastViewedAt: string | null;
+  /** Who created it. Provenance, never permission (ADR 0009). Empty when
+   *  that account no longer exists. */
+  createdBy?: string;
 }
 
 export type ReportDetail = ReportSummary & { definition: ReportDefinition };
@@ -301,6 +304,9 @@ export interface ExploreSummary {
   myRole: Role;
   favorite: boolean;
   lastViewedAt: string | null;
+  /** Who created it. Provenance, never permission (ADR 0009). Empty when
+   *  that account no longer exists. */
+  createdBy?: string;
 }
 
 export type ExploreDetail = ExploreSummary & { definition: ExploreDefinition };

@@ -48,6 +48,8 @@ interface Item {
   /** The semantic view it reads, or the tile count for a dashboard. */
   detail: string;
   myRole: string;
+  workspaceName: string;
+  createdBy: string;
   favorite: boolean;
   lastViewedAt: string | null;
   updatedAt: string;
@@ -80,6 +82,8 @@ const COLUMNS: {
   { key: "name", label: "Name", sort: "name", resizable: true },
   { key: "kind", label: "Type", sort: "kind", resizable: true },
   { key: "detail", label: "Semantic view", sort: "detail", resizable: true },
+  { key: "workspace", label: "Workspace", sort: "workspace", resizable: true },
+  { key: "creator", label: "Created by", sort: "creator", resizable: true },
   { key: "role", label: "Your role", sort: "role", resizable: true },
   { key: "updated", label: "Modified", sort: "updated", resizable: true },
   { key: "actions", label: "Actions", quiet: true },
@@ -107,21 +111,22 @@ export default function WorkspacePage() {
   const [pendingDelete, setPendingDelete] = useState<Item | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  // Selection lives in the URL and is set from the rail's workspaces
-  // flyout. There is no switcher on this page: you chose a workspace to
-  // get here, and a second control to choose again is the same decision
-  // asked twice.
-  const [searchParams] = useSearchParams();
+  // Browse spans EVERY workspace unless the URL names one. The rail's
+  // flyout names one; the rail's Browse does not -- which is the
+  // difference between "what is in this workspace" and "where is that
+  // thing I remember".
+  const [searchParams, setSearchParams] = useSearchParams();
   const workspaceId = searchParams.get("workspace");
   const [showMembers, setShowMembers] = useState(false);
 
   const workspaces = useWorkspaces();
   const rows = workspaces.data?.workspaces ?? [];
-  // Default to the personal workspace once the list arrives, so the page is
-  // never showing "all workspaces" with a switcher that claims otherwise.
-  const selectedId = workspaceId ?? rows.find((w) => w.kind === "personal")?.id ?? "";
+  const selectedId = workspaceId ?? "";
   const selected = rows.find((w) => w.id === selectedId);
+  //: Across all workspaces there is no single one to create in, so the
+  //: Create menu asks you to pick one first rather than guessing.
   const canCreateHere = selected ? atLeast(selected.myRole, "editor") : false;
+  const scope = selectedId || undefined;
 
   const browse = useLibraryQuery();
   // Ordering is done here rather than by the server: three lists are being
@@ -130,25 +135,28 @@ export default function WorkspacePage() {
   const [sort, setSort] = useState<SortState>({ key: "recent", direction: "desc" });
   const columns = useTableColumns("semanticui.workspace.columns");
   const wants = (kind: ItemType) => browse.kind === "all" || browse.kind === kind;
-  const enabled = Boolean(selectedId);
+  // Enabled once the workspace list has answered -- not once one is
+  // CHOSEN. Waiting for a choice is what used to make Browse blank until
+  // a personal workspace was found for it.
+  const enabled = !workspaces.isLoading;
 
   const reports = useQuery({
     queryKey: ["reports", selectedId, browse.params],
-    queryFn: () => listReports(selectedId, browse.params),
+    queryFn: () => listReports(scope, browse.params),
     enabled: enabled && wants("report"),
     placeholderData: (previous) => previous,
   });
 
   const dashboards = useQuery({
     queryKey: ["dashboards", selectedId],
-    queryFn: () => listDashboards(selectedId),
+    queryFn: () => listDashboards(scope),
     enabled: enabled && wants("dashboard"),
     placeholderData: (previous) => previous,
   });
 
   const explores = useQuery({
     queryKey: ["explores", selectedId, browse.params],
-    queryFn: () => listExplores(selectedId, browse.params),
+    queryFn: () => listExplores(scope, browse.params),
     enabled: enabled && wants("explore"),
     placeholderData: (previous) => previous,
   });
@@ -168,6 +176,8 @@ export default function WorkspacePage() {
             ? `${report.view.database}.${report.view.schema}.${report.view.name}`
             : "—",
           myRole: report.myRole,
+          workspaceName: report.workspaceName,
+          createdBy: report.createdBy ?? "",
           favorite: report.favorite,
           lastViewedAt: report.lastViewedAt,
           updatedAt: report.updatedAt,
@@ -183,6 +193,8 @@ export default function WorkspacePage() {
           name: dashboard.name,
           detail: `${dashboard.tileCount} tile${dashboard.tileCount === 1 ? "" : "s"}`,
           myRole: dashboard.myRole,
+          workspaceName: dashboard.workspaceName,
+          createdBy: dashboard.createdBy ?? "",
           favorite: dashboard.favorite ?? false,
           lastViewedAt: dashboard.lastViewedAt ?? null,
           updatedAt: dashboard.updatedAt ?? "",
@@ -200,6 +212,8 @@ export default function WorkspacePage() {
             ? `${explore.view.database}.${explore.view.schema}.${explore.view.name}`
             : "—",
           myRole: explore.myRole,
+          workspaceName: explore.workspaceName,
+          createdBy: explore.createdBy ?? "",
           favorite: explore.favorite,
           lastViewedAt: explore.lastViewedAt,
           updatedAt: explore.updatedAt,
@@ -272,9 +286,11 @@ export default function WorkspacePage() {
    *  that write to it, with the reason attached -- an action that vanishes
    *  reads as a bug, one that says why does not. */
   const createItems = (): MenuItem[] => {
-    const blocked = canCreateHere
-      ? undefined
-      : `Your access to ${selected?.name ?? "this workspace"} is read-only.`;
+    const blocked = !selected
+      ? "Pick a workspace first — a report has to live in one."
+      : canCreateHere
+        ? undefined
+        : `Your access to ${selected.name} is read-only.`;
     return [
       {
         id: "report",
@@ -323,12 +339,16 @@ export default function WorkspacePage() {
     <main className="reports">
       <header className="reports-head">
         <div className="ws-title">
-          <h1 className="page-title">{selected?.name ?? "Workspace"}</h1>
-          {selected && (
-            <p className="ws-subtitle">
-              {selected.kind === "personal" ? "Personal workspace" : "Shared workspace"}
-            </p>
-          )}
+          <h1 className="page-title">{selected?.name ?? "Browse"}</h1>
+          <p className="ws-subtitle">
+            {selected
+              ? selected.kind === "personal"
+                ? "Personal workspace"
+                : "Shared workspace"
+              : `Everything you can open, across ${rows.length} workspace${
+                  rows.length === 1 ? "" : "s"
+                }`}
+          </p>
         </div>
         <div className="reports-actions">
           {/* A personal workspace has no membership to manage -- that is
@@ -378,6 +398,23 @@ export default function WorkspacePage() {
           placeholder="Search by name, view or workspace"
         />
         {/* One filter instead of a menu per kind. */}
+        <label className="library-sort">
+          <span className="sr-only">Workspace</span>
+          <select
+            value={selectedId}
+            onChange={(event) => {
+              const next = event.target.value;
+              setSearchParams(next ? { workspace: next } : {});
+            }}
+          >
+            <option value="">All workspaces</option>
+            {rows.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="kind-filter" role="group" aria-label="Show">
           {ITEM_FILTERS.map((filter) => (
             <button
@@ -560,6 +597,8 @@ export default function WorkspacePage() {
                 <td className="cell-detail report-view" title={item.detail}>
                   {item.detail}
                 </td>
+                <td className="cell-workspace">{item.workspaceName}</td>
+                <td className="cell-creator">{item.createdBy || "—"}</td>
                 <td className="cell-role">{item.myRole}</td>
                 <td
                   className="cell-updated report-updated"

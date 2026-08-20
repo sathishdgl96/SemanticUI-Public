@@ -50,6 +50,8 @@ export interface DashboardSummary {
    *  three kinds and sort them together. */
   favorite: boolean;
   lastViewedAt: string | null;
+  /** Who created it. Provenance, never permission (ADR 0009). */
+  createdBy?: string;
 }
 
 export type DashboardDetail = DashboardSummary & { tiles: DashboardTile[] };

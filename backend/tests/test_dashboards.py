@@ -5,6 +5,8 @@ them: a tile NAMES a visual rather than copying one, and a tile may not
 name a report outside the dashboard's own workspace.
 """
 
+import uuid
+
 import pytest
 
 from app.auth.sessions import SESSION_COOKIE, create_session
@@ -319,6 +321,33 @@ def test_a_tile_whose_report_is_gone_says_so(db):
     tile = service.detail(db, sess.user_id, made)["tiles"][0]
     assert tile["available"] is False
     assert tile["reason"] == "This report is no longer available."
+
+
+def test_a_listing_says_who_made_each_one(db):
+    """Browse spans every workspace, so "whose is this" is a column rather
+    than something you open the item to find out."""
+    alice = create_session(db, account="ACME", user="ALICE", mode="dev")
+    bob = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+    ws = workspace(db, alice.user_id)
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=bob.user_id, role="editor"))
+    db.commit()
+    dashboard(db, bob.user_id, ws, "Theirs")
+
+    listed = service.list_dashboards(db, alice.user_id, None)
+    assert listed[0]["createdBy"] == "BOB"
+
+
+def test_a_listing_survives_a_creator_who_is_gone(db):
+    """Who made it is a caption, not the reason the row exists."""
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    ws = workspace(db, sess.user_id)
+    made = dashboard(db, sess.user_id, ws)
+    made.owner_user_id = uuid.uuid4()
+    db.commit()
+
+    listed = service.list_dashboards(db, sess.user_id, None)
+    assert listed[0]["createdBy"] == ""
 
 
 # --- the home dashboard ----------------------------------------------------
