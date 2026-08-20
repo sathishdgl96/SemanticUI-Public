@@ -146,7 +146,7 @@ def create_app() -> FastAPI:
             "logoUrl": logo,
             # The sign-in page's own dressing. Empty means the built-in
             # gradient, which is what an unconfigured deployment gets.
-            "loginBackgroundUrl": current.login_background_url,
+            "loginBackgroundUrl": current.login_background(),
             "loginTagline": current.login_tagline,
         }
 
@@ -163,6 +163,22 @@ def create_app() -> FastAPI:
         path = get_settings().app_logo_file
         if not path or not os.path.isfile(path):
             raise ApiError("HTTP_ERROR", 404, "No logo file is configured.")
+        return FileResponse(path)
+
+    @app.get("/api/branding/login-background")
+    def branding_login_background():
+        """The sign-in backdrop, when it lives on this machine rather than
+        behind a URL. Same shape as the logo endpoint, and public for the
+        same reason: it is drawn before anybody has signed in."""
+        import os
+
+        from fastapi.responses import FileResponse
+
+        from app.errors import ApiError
+
+        path = get_settings().login_background_path()
+        if not path or not os.path.isfile(path):
+            raise ApiError("HTTP_ERROR", 404, "No sign-in background is configured.")
         return FileResponse(path)
 
     from app.auth.routes import router as auth_router

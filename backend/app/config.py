@@ -126,9 +126,45 @@ class Settings(BaseSettings):
     #: somebody could grant themselves.
     app_admins: list[str] = []
 
-    #: Behind the sign-in card. A URL the browser can reach, or empty for
-    #: the built-in gradient.
+    #: Behind the sign-in card. A URL the BROWSER can reach -- the app
+    #: never fetches it -- or empty for the built-in gradient.
     login_background_url: str = ""
+    #: ...or an image on this machine, served by the app itself, exactly
+    #: as app_logo_file is. Which one a deployment wants depends only on
+    #: whether the picture already lives somewhere with a URL.
+    login_background_file: str = ""
+
+    def login_background(self) -> str:
+        """What the sign-in page should put behind its card.
+
+        A configured URL wins. A path that is not a URL is treated as a
+        FILE and served from here -- because "./reporting-bg.jpg" in the
+        url setting is not a mistake worth punishing with a blank page,
+        it is somebody reasonably assuming the two settings behave alike.
+        """
+        import os
+
+        configured = self.login_background_url.strip()
+        if configured.startswith(("http://", "https://", "/api/", "data:")):
+            return configured
+        # A local path in either setting resolves to the endpoint that
+        # serves it, if the file is actually there.
+        for candidate in (self.login_background_file.strip(), configured):
+            if candidate and os.path.isfile(candidate):
+                return "/api/branding/login-background"
+        return ""
+
+    def login_background_path(self) -> str:
+        """The file to serve, whichever setting named it."""
+        import os
+
+        for candidate in (
+            self.login_background_file.strip(),
+            self.login_background_url.strip(),
+        ):
+            if candidate and os.path.isfile(candidate):
+                return candidate
+        return ""
     #: Shown under the brand on the sign-in page. Empty for none.
     login_tagline: str = ""
 

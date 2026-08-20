@@ -350,6 +350,42 @@ button:disabled {
   .login .sso-signin .button:hover { transform: none; }
 }
 
+/* Once pressed, the button IS the progress indicator. In a kiosk or a
+   full-screen window there is no browser chrome to say a navigation is
+   under way, and a control that does nothing visible for two seconds
+   gets pressed again. */
+.login .button.is-busy {
+  cursor: progress;
+  filter: saturate(0.85);
+}
+
+.login .button.is-busy:hover {
+  transform: none;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
+  border: 2px solid currentColor;
+  /* Three sides of the ring, so the gap is what reads as rotation. */
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Still says something without moving: the ring holds, and the label
+   beside it has already changed to say what is happening. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; opacity: 0.6; }
+}
+
 /* --- the direct-credential form, where a deployment still offers one ------ */
 
 .login-card form {

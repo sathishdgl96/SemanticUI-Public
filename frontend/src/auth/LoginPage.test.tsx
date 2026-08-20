@@ -55,6 +55,24 @@ describe("LoginPage", () => {
     expect(link).toHaveAttribute("href", "/auth/login");
   });
 
+  it("says it is working the moment the sign-in link is clicked", async () => {
+    // Signing in is a full-page navigation to the IdP. In a kiosk or a
+    // full-screen window there is no browser chrome to say one is under
+    // way, and a control that does nothing visible for two seconds gets
+    // pressed again.
+    apiFetchMock.mockResolvedValueOnce({ authMode: "oauth", directLoginMethods: [] });
+    renderPage();
+    const link = await screen.findByRole("link", { name: /sign in with snowflake/i });
+    expect(link).toHaveAttribute("aria-busy", "false");
+
+    await userEvent.click(link);
+    const busy = await screen.findByRole("link", { name: /taking you to snowflake/i });
+    expect(busy).toHaveAttribute("aria-busy", "true");
+    // Still a link to the same place: intercepting the click must not
+    // take the navigation away.
+    expect(busy).toHaveAttribute("href", "/auth/login");
+  });
+
   it("submits the dev-login form in dev mode", async () => {
     apiFetchMock.mockResolvedValueOnce({
       authMode: "dev",

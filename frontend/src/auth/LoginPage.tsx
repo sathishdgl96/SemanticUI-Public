@@ -32,6 +32,11 @@ export default function LoginPage() {
   const [user, setUser] = useState("");
   const [authenticator, setAuthenticator] = useState<Authenticator>("externalbrowser");
   const [password, setPassword] = useState("");
+  //: Set the moment the sign-in link is clicked. The page is on its way
+  //: out, so this only has to survive until the navigation commits --
+  //: which is exactly the window in which the reader has nothing else to
+  //: look at.
+  const [redirecting, setRedirecting] = useState(false);
   const [privateKeyPem, setPrivateKeyPem] = useState("");
   const [privateKeyPassphrase, setPrivateKeyPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -141,15 +146,24 @@ export default function LoginPage() {
             value={chosenAccount}
             onChange={setSsoAccount}
           />
+          {/* An anchor, not a button: signing in is a full-page
+              navigation to the IdP, and a fetch could not follow it. The
+              click is intercepted only to show that it is under way --
+              in a kiosk or a full-screen window there is no browser
+              chrome to say so, and a button that does nothing visible
+              for two seconds gets pressed again. */}
           <a
-            className="button"
+            className={redirecting ? "button is-busy" : "button"}
+            aria-busy={redirecting}
             href={
               chosenAccount
                 ? `/auth/login?account=${encodeURIComponent(chosenAccount)}`
                 : "/auth/login"
             }
+            onClick={() => setRedirecting(true)}
           >
-            Sign in with Snowflake
+            {redirecting && <span className="spinner" aria-hidden="true" />}
+            {redirecting ? "Taking you to Snowflake…" : "Sign in with Snowflake"}
           </a>
         </div>
       )}
@@ -228,8 +242,9 @@ export default function LoginPage() {
               </>
             )}
             {error && <p role="alert">{error}</p>}
-            <button type="submit" disabled={busy}>
-              {busy ? "Signing in..." : "Sign in"}
+            <button type="submit" disabled={busy} aria-busy={busy}>
+              {busy && <span className="spinner" aria-hidden="true" />}
+              {busy ? "Signing in…" : "Sign in"}
             </button>
           </form>
         </>

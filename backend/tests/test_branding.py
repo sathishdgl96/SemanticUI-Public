@@ -69,3 +69,49 @@ def test_an_explicit_url_wins_over_the_file(client, monkeypatch, tmp_path):
 def test_no_logo_file_is_a_clean_404(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "app_logo_file", None)
     assert client.get("/api/branding/logo").status_code == 404
+
+
+def test_a_background_given_as_a_local_path_is_served_by_the_app(client, db, tmp_path, monkeypatch):
+    """"./reporting-bg.jpg" in the url setting is not a mistake worth
+    punishing with a blank page -- it is somebody reasonably assuming the
+    two branding settings behave alike. The logo already works that way."""
+    image = tmp_path / "bg.jpg"
+    # Bytes, not a real JPEG: the endpoint serves a file, it does not
+    # decode one.
+    image.write_bytes(b"not-really-a-jpeg")
+    monkeypatch.setattr(get_settings(), "login_background_url", str(image))
+    monkeypatch.setattr(get_settings(), "login_background_file", "")
+
+    body = client.get("/api/branding").json()
+    assert body["loginBackgroundUrl"] == "/api/branding/login-background"
+
+    served = client.get("/api/branding/login-background")
+    assert served.status_code == 200
+    assert served.content == b"not-really-a-jpeg"
+
+
+def test_a_background_given_as_a_url_is_passed_through(client, monkeypatch):
+    monkeypatch.setattr(
+        get_settings(), "login_background_url", "https://cdn.example/office.jpg"
+    )
+    assert (
+        client.get("/api/branding").json()["loginBackgroundUrl"]
+        == "https://cdn.example/office.jpg"
+    )
+
+
+def test_a_background_that_is_not_there_is_no_background(client, monkeypatch):
+    """Rather than a URL the browser will ask for and get a 404 from."""
+    monkeypatch.setattr(get_settings(), "login_background_url", "./nowhere.jpg")
+    monkeypatch.setattr(get_settings(), "login_background_file", "")
+    assert client.get("/api/branding").json()["loginBackgroundUrl"] == ""
+    assert client.get("/api/branding/login-background").status_code == 404
+
+
+def test_the_background_endpoint_is_public(client, monkeypatch, tmp_path):
+    """It is drawn before anybody has signed in."""
+    image = tmp_path / "bg.jpg"
+    image.write_bytes(b"x")
+    monkeypatch.setattr(get_settings(), "login_background_file", str(image))
+    # No session cookie set anywhere in this test.
+    assert client.get("/api/branding/login-background").status_code == 200
