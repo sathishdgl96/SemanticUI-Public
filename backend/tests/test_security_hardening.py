@@ -98,3 +98,17 @@ class TestProductionGuardrails:
 
         monkeypatch.delenv("SEMANTICUI_XMLA_TRACE", raising=False)
         Settings(**self._production(monkeypatch))  # no raise
+
+    def test_every_state_changing_endpoint_added_since_is_covered(self, client):
+        # The guard is path-based with two carve-outs, so a new endpoint
+        # is protected by default -- this asserts that stays true as the
+        # surface grows, rather than trusting it by inspection.
+        for path in (
+            "/api/session/context",
+            "/api/library/report/00000000-0000-0000-0000-000000000000/favorite",
+            "/api/library/report/00000000-0000-0000-0000-000000000000/view",
+        ):
+            response = client.post(
+                path, json={}, headers={"Sec-Fetch-Site": "cross-site"}
+            )
+            assert response.status_code == 403, path
