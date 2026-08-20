@@ -1811,6 +1811,46 @@ button.secondary:hover,
    still yours -- it is the thing inside that went away. */
 
 
+/* One filter instead of a menu per kind: reports, dashboards and explores
+   all live in a workspace and browse the same way. */
+.kind-filter {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--chrome);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.kind-tab {
+  height: 26px;
+  padding: 0 11px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.kind-tab:hover:not([aria-pressed="true"]) {
+  background: rgb(255 255 255 / 0.7);
+  color: var(--ink);
+}
+
+.kind-tab.on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
+}
+
+.item-kind {
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
 /* ==========================================================================
    Context menu — the browser's own is suppressed only where this replaces it
    ========================================================================== */
@@ -2659,11 +2699,6 @@ button.secondary:hover,
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.workspace-role {
-  font-size: 0.8125rem;
-  color: var(--ink-muted);
 }
 
 .workspace-create {

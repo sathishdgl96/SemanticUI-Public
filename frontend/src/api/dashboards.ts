@@ -45,6 +45,11 @@ export interface DashboardSummary {
   myRole: Role;
   tileCount: number;
   updatedAt: string | null;
+  /** Pinned by THIS caller, and when they last opened it -- the same
+   *  browse state reports and explores carry, so one list can hold all
+   *  three kinds and sort them together. */
+  favorite: boolean;
+  lastViewedAt: string | null;
 }
 
 export type DashboardDetail = DashboardSummary & { tiles: DashboardTile[] };

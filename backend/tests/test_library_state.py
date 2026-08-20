@@ -76,6 +76,19 @@ def test_forgetting_an_item_removes_every_users_row(db):
 
 
 def test_an_unknown_item_type_is_refused(db):
+    # "dashboard" used to be the example here; it is a real kind now, and
+    # pinning one works exactly as pinning a report does. The guard is
+    # still what stops a typo creating a parallel namespace that silently
+    # returns nothing.
     user = make_user(db)
     with pytest.raises(ValueError):
-        state.set_favorite(db, user.id, "dashboard", uuid.uuid4(), True)
+        state.set_favorite(db, user.id, "dashbaord", uuid.uuid4(), True)
+
+
+def test_a_dashboard_pins_like_anything_else(db):
+    user = make_user(db)
+    item = uuid.uuid4()
+    state.set_favorite(db, user.id, "dashboard", item, True)
+    assert state.favorite_ids(db, user.id, "dashboard") == {item}
+    # Its own namespace still: pinning a dashboard pins no report.
+    assert state.favorite_ids(db, user.id, "report") == set()

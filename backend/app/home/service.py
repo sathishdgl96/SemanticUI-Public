@@ -16,7 +16,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Report, SavedExplore, Workspace
+from app.db.models import Dashboard, Report, SavedExplore, Workspace
 from app.errors import ApiError
 from app.library import state
 from app.workspaces.access import require_owned
@@ -27,7 +27,7 @@ from app.workspaces.access import require_owned
 #: rest.
 RECENT_LIMIT = 5
 
-_MODELS = {"report": Report, "explore": SavedExplore}
+_MODELS = {"report": Report, "explore": SavedExplore, "dashboard": Dashboard}
 
 
 def _readable(db: Session, user_id: uuid.UUID, item_type: str, item_id) -> bool:
@@ -45,8 +45,9 @@ def _readable(db: Session, user_id: uuid.UUID, item_type: str, item_id) -> bool:
 
 
 def _name_of(row) -> str:
-    definition = row.definition or {}
-    return definition.get("name") or "Untitled"
+    # The column first: a dashboard is renamed through it, and a report's
+    # document name is kept in step with it on every save.
+    return getattr(row, "name", None) or (row.definition or {}).get("name") or "Untitled"
 
 
 def recent_items(
@@ -59,7 +60,7 @@ def recent_items(
     of thing the answer is.
     """
     seen: list[tuple[datetime, str, uuid.UUID]] = []
-    for item_type in ("report", "explore"):
+    for item_type in ("report", "explore", "dashboard"):
         for item_id, when in state.recent_order(db, user_id, item_type).items():
             seen.append((when, item_type, item_id))
     seen.sort(key=lambda entry: entry[0], reverse=True)

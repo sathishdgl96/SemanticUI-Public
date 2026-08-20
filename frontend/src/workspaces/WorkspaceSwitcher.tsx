@@ -52,12 +52,6 @@ export default function WorkspaceSwitcher({
         ))}
       </select>
 
-      {selected && (
-        <span className="workspace-role">
-          You are {selected.myRole === "admin" ? "an" : "a"} {selected.myRole} here
-        </span>
-      )}
-
       {/* A personal workspace has no membership to manage -- that is what
           makes it personal -- so the control is absent rather than disabled.
           A disabled button would imply there is something to reveal. */}

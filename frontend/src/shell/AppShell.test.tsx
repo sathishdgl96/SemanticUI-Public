@@ -90,13 +90,16 @@ describe("AppShell", () => {
   it("frames the page with the brand, nav rail and content", async () => {
     renderShell();
     expect(screen.getByText("SemanticUI")).toBeInTheDocument();
-    // Home and the report library are separate destinations: home is what
-    // you pinned and last opened, /reports is the whole list.
+    // Home and Browse are separate destinations: home is your recents and
+    // the dashboard you chose, Browse is everything in a workspace. There
+    // is deliberately no menu per KIND -- reports, dashboards and explores
+    // are one list with a filter.
     expect(screen.getByRole("link", { name: /home/i })).toHaveAttribute("href", "/");
-    expect(screen.getByRole("link", { name: /^reports$/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^browse$/i })).toHaveAttribute(
       "href",
       "/reports",
     );
+    expect(screen.queryByRole("link", { name: /^dashboards$/i })).toBeNull();
     expect(screen.getByRole("link", { name: /explore/i })).toHaveAttribute(
       "href",
       "/explore",

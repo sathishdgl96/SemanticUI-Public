@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.routes import current_session
 from app.db.base import get_db
-from app.db.models import DbSession, Report, SavedExplore
+from app.db.models import Dashboard, DbSession, Report, SavedExplore
 from app.errors import ApiError
 from app.library import state
 from app.workspaces.access import require_owned
@@ -20,7 +20,7 @@ from app.workspaces.access import require_owned
 router = APIRouter()
 
 #: The item kinds addressable here, mapped to the table each lives in.
-_MODELS = {"report": Report, "explore": SavedExplore}
+_MODELS = {"report": Report, "explore": SavedExplore, "dashboard": Dashboard}
 
 
 class FavoriteBody(BaseModel):

@@ -22,7 +22,7 @@ from app.db.models import UserItemState
 #: The item kinds that can be pinned or viewed. Guarded rather than
 #: free-form so a typo cannot quietly create a parallel namespace that
 #: silently returns nothing.
-ITEM_TYPES = ("report", "explore")
+ITEM_TYPES = ("report", "explore", "dashboard")
 
 
 def _check(item_type: str) -> str:

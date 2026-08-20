@@ -76,9 +76,14 @@ describe("WorkspaceSwitcher", () => {
     expect(onChange).toHaveBeenCalledWith("w1");
   });
 
-  it("states my role in the selected workspace", async () => {
+  it("does not announce my own permissions back at me", async () => {
+    // "You are a viewer here" is a sentence about the reader, not a fact
+    // the page needs to state. Where the role MATTERS -- a workspace you
+    // cannot write to -- the list says so at the point the action is
+    // unavailable.
     wrap(<WorkspaceSwitcher {...props} value="w1" />);
-    expect(await screen.findByText(/you are a viewer here/i)).toBeInTheDocument();
+    await screen.findByRole("combobox", { name: /workspace/i });
+    expect(screen.queryByText(/you are a/i)).toBeNull();
   });
 
   it("offers Members for a shared workspace, with the count", async () => {

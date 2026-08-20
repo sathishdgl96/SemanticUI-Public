@@ -9,6 +9,16 @@ vi.mock("../api/reports", () => ({
   deleteReport: vi.fn(),
   createReport: vi.fn(),
 }));
+// One list holds all three kinds now, so all three have to answer for
+// anything to render.
+vi.mock("../api/dashboards", () => ({
+  listDashboards: vi.fn().mockResolvedValue({ dashboards: [] }),
+  createDashboard: vi.fn(),
+  deleteDashboard: vi.fn(),
+}));
+vi.mock("../api/explores", () => ({
+  listExplores: vi.fn().mockResolvedValue({ explores: [] }),
+}));
 vi.mock("../api/library", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/library")>()),
   setFavorite: vi.fn().mockResolvedValue({ favorite: true }),
@@ -37,13 +47,17 @@ import { ApiError } from "../api/client";
 import { setFavorite, recordView } from "../api/library";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportSummary } from "../api/types";
-import ReportListPage from "./ReportListPage";
+import { listDashboards } from "../api/dashboards";
+import { listExplores } from "../api/explores";
+import WorkspacePage from "./WorkspacePage";
 
 const listMock = vi.mocked(listReports);
 const deleteMock = vi.mocked(deleteReport);
 const createMock = vi.mocked(createReport);
 const favoriteMock = vi.mocked(setFavorite);
 const viewMock = vi.mocked(recordView);
+const dashboardsMock = vi.mocked(listDashboards);
+const exploresMock = vi.mocked(listExplores);
 
 /** A report summary with every field the list reads, so a test only has to
  *  state what it is actually about. */
@@ -67,7 +81,7 @@ function renderPageAt(path: string) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
-        <ReportListPage />
+        <WorkspacePage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -78,7 +92,7 @@ function renderPage() {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <ReportListPage />
+        <WorkspacePage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -90,9 +104,111 @@ beforeEach(() => {
   createMock.mockReset();
   favoriteMock.mockClear();
   viewMock.mockClear();
+  // Reset, not clear: a mockResolvedValue set by one test otherwise leaks
+  // into the next, and a stray explore row is enough to break a test that
+  // is only about reports.
+  dashboardsMock.mockReset().mockResolvedValue({ dashboards: [] });
+  exploresMock.mockReset().mockResolvedValue({ explores: [] });
 });
 
-describe("ReportListPage", () => {
+describe("WorkspacePage", () => {
+  it("lists reports, dashboards and explores together, with the kind on each", async () => {
+    // One list with a filter rather than a menu per kind: all three live in
+    // a workspace, are governed by the same membership, and browse the same
+    // way.
+    listMock.mockResolvedValue({ reports: [summary()] });
+    dashboardsMock.mockResolvedValue({
+      dashboards: [
+        {
+          id: "d1",
+          name: "Ops",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin",
+          tileCount: 2,
+          updatedAt: "2026-08-19T10:00:00Z",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+    });
+    exploresMock.mockResolvedValue({
+      explores: [
+        {
+          id: "e1",
+          name: "Churn",
+          view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
+          updatedAt: "2026-08-18T10:00:00Z",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+    });
+    renderPage();
+
+    expect(await screen.findByText("Sales overview")).toBeInTheDocument();
+    expect(screen.getByText("Ops")).toBeInTheDocument();
+    expect(screen.getByText("Churn")).toBeInTheDocument();
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+  });
+
+  it("narrows to one kind, and does not fetch the others", async () => {
+    listMock.mockResolvedValue({ reports: [summary()] });
+    dashboardsMock.mockResolvedValue({
+      dashboards: [
+        {
+          id: "d1",
+          name: "Ops",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin",
+          tileCount: 2,
+          updatedAt: "2026-08-19T10:00:00Z",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+    });
+    renderPage();
+    await screen.findByText("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: /^dashboards$/i }));
+    expect(await screen.findByText("Ops")).toBeInTheDocument();
+    expect(screen.queryByText("Sales overview")).toBeNull();
+  });
+
+  it("links each kind to the page that opens it", async () => {
+    listMock.mockResolvedValue({ reports: [summary()] });
+    dashboardsMock.mockResolvedValue({
+      dashboards: [
+        {
+          id: "d1",
+          name: "Ops",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin",
+          tileCount: 0,
+          updatedAt: "2026-08-19T10:00:00Z",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByRole("link", { name: "Ops" })).toHaveAttribute(
+      "href",
+      "/dashboards/d1",
+    );
+    expect(screen.getByRole("link", { name: "Sales overview" })).toHaveAttribute(
+      "href",
+      "/reports/r1",
+    );
+  });
+
   it("lists reports with their bound view", async () => {
     listMock.mockResolvedValue({ reports: [summary()] });
     renderPage();
@@ -103,7 +219,7 @@ describe("ReportListPage", () => {
   it("invites the user to act when there are no reports", async () => {
     listMock.mockResolvedValue({ reports: [] });
     renderPage();
-    expect(await screen.findByText(/no reports yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nothing here yet/i)).toBeInTheDocument();
   });
 
   it("deletes a report after confirmation", async () => {
@@ -151,7 +267,7 @@ describe("ReportListPage", () => {
       ),
     );
     renderPage();
-    await screen.findByText(/no reports yet/i);
+    await screen.findByText(/nothing here yet/i);
     await userEvent.click(screen.getByRole("button", { name: /new report/i }));
 
     const alert = await screen.findByRole("alert");
@@ -161,7 +277,7 @@ describe("ReportListPage", () => {
   });
 });
 
-describe("ReportListPage browsing", () => {
+describe("WorkspacePage browsing", () => {
   it("asks the server to search for what was typed", async () => {
     listMock.mockResolvedValue({ reports: [summary()] });
     renderPage();
@@ -218,7 +334,7 @@ describe("ReportListPage browsing", () => {
 
     // Not the same emptiness as "you have no reports": one is a dead end,
     // the other has an obvious next move.
-    expect(await screen.findByText(/no reports match/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nothing matches/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /clear filters/i }));
     // Cleared, whether that is an empty string or the key dropped -- what
     // matters is that the next fetch carries no search.
@@ -228,7 +344,7 @@ describe("ReportListPage browsing", () => {
   it("still invites a first report when the workspace is genuinely empty", async () => {
     listMock.mockResolvedValue({ reports: [] });
     renderPage();
-    expect(await screen.findByText(/no reports yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/nothing here yet/i)).toBeInTheDocument();
   });
 
   it("records that a report was opened", async () => {
@@ -252,7 +368,7 @@ describe("ReportListPage browsing", () => {
   });
 });
 
-describe("ReportListPage workspaces", () => {
+describe("WorkspacePage workspaces", () => {
   it("scopes the listing to the selected workspace", async () => {
     listMock.mockResolvedValue({ reports: [] });
     renderPage();
@@ -284,7 +400,7 @@ describe("ReportListPage workspaces", () => {
   });
 });
 
-describe("ReportListPage URL scoping", () => {
+describe("WorkspacePage URL scoping", () => {
   it("scopes the listing to the workspace named in the URL", async () => {
     // The rail's flyout navigates to /reports?workspace=<id>; the page must
     // honor that rather than its own default.

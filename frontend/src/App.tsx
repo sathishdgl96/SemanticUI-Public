@@ -13,10 +13,9 @@ import { useMe } from "./auth/useMe";
 import AppShell from "./shell/AppShell";
 import ExplorerPage from "./explorer/ExplorerPage";
 import HomePage from "./home/HomePage";
-import DashboardListPage from "./dashboards/DashboardListPage";
 import DashboardPage from "./dashboards/DashboardPage";
+import WorkspacePage from "./workspaces/WorkspacePage";
 import BuilderPage from "./reports/BuilderPage";
-import ReportListPage from "./reports/ReportListPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -62,7 +61,7 @@ export default function App() {
             element={
               <RequireAuth>
                 <AppShell>
-                  <ReportListPage />
+                  <WorkspacePage />
                 </AppShell>
               </RequireAuth>
             }
@@ -77,16 +76,9 @@ export default function App() {
               </RequireAuth>
             }
           />
-          <Route
-            path="/dashboards"
-            element={
-              <RequireAuth>
-                <AppShell>
-                  <DashboardListPage />
-                </AppShell>
-              </RequireAuth>
-            }
-          />
+          {/* One browse page. The old per-kind route lands on it rather
+              than 404ing a link somebody already has. */}
+          <Route path="/dashboards" element={<Navigate to="/reports" replace />} />
           <Route
             path="/dashboards/:id"
             element={

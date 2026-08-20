@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.dashboards.schema import MAX_TILES, blank, parse_definition
 from app.db.models import Dashboard, Report, User, Workspace
 from app.errors import ApiError
+from app.library import state
 from app.reports.migrate import migrate_definition
 from app.reports.service import personal_workspace_id
 from app.workspaces.access import as_uuid, membership, require_owned, require_workspace
@@ -70,10 +71,18 @@ def list_dashboards(db: Session, user_id: uuid.UUID, workspace_id: str | None) -
             return []
         query = query.where(Dashboard.workspace_id == key)
     rows = db.scalars(query.order_by(Dashboard.updated_at.desc())).all()
+    # Pins and recents work the same on a dashboard as on anything else,
+    # so one browse list can hold all three kinds and sort them together.
+    favorites = state.favorite_ids(db, user_id, "dashboard")
+    recents = state.recent_order(db, user_id, "dashboard")
     out = []
     for row in rows:
         workspace, role = _context(db, user_id, row)
-        out.append(_summary(row, workspace=workspace, role=role))
+        summary = _summary(row, workspace=workspace, role=role)
+        summary["favorite"] = row.id in favorites
+        seen = recents.get(row.id)
+        summary["lastViewedAt"] = seen.isoformat() if seen else None
+        out.append(summary)
     return out
 
 
