@@ -18,3 +18,4 @@ A superseded decision is never deleted; it gets a `Superseded by` line.
 | [0006](0006-values-bound-never-sql-text.md) | Values are bound, never SQL text |
 | [0007](0007-value-free-observability.md) | Logs and audit events are value-free |
 | [0008](0008-in-process-state-with-swap-seams.md) | In-process state, with seams to swap it out |
+| [0009](0009-role-is-a-facet-not-a-boundary.md) | A Snowflake role is a facet, not a boundary |

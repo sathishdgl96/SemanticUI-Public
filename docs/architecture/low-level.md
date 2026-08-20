@@ -13,6 +13,8 @@ request flows, the database schema, and the XMLA protocol contract.
 | `workspaces` | Membership and roles | `access.py` (`require_access(db, user_id, report_id, need)` — 404 non-member, 403 low role), `service.py` (`ensure_personal_workspace`) |
 | `reports` | The report document | `schema.py` (pydantic document model + `parse_definition` validation), `catalog.py` (visual types, wells, `wells_to_query`), `filters.py` (filter model, `is_active`), `migrate.py` (v1→v3 document migration), `service.py`, `routes.py` |
 | `explores` | Saved ad-hoc explorations | mirrors reports at smaller scale |
+| `library` | Finding your work | `state.py` (favourites and recents on one `user_item_state` row), `search.py` (the search/facet/sort filter BOTH lists apply, so they cannot drift), `routes.py` (pin, record a view) |
+| `session` | Execution context | `context.py` (`available_roles`/`available_warehouses`/`resolve`/`apply_context` — the only place `USE ROLE` is issued), `routes.py` |
 | `cortex` | Natural-language Q&A via Snowflake Cortex | `routes.py` |
 | `export` | Excel artifacts | `sheets.py`/`workbook.py` (snapshot .xlsx), `live.py` (live-connection workbook: OOXML query table + hidden definedName), `odc.py`, `literals.py` (CSV formula-injection guard), `service.py`, `routes.py` (also `POST /api/connect/token`, `GET /api/branding`… branding itself lives in `main.py`) |
 | `feed` | Power Query per-visual feed | `service.py` (`build_feed_request`, `run_feed`), `render.py` (`to_csv` RFC 4180 + formula guard, `to_json`), `routes.py` (Basic → connect token) |
