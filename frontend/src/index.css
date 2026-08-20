@@ -3652,10 +3652,23 @@ body {
   margin: 0 0 8px;
 }
 
-/* The explorer's rail is half the width of the reports page. */
+/* The explorer's rail is half the width of the reports page. Nothing
+   here may wrap: with wrapping on, the search grows to full width and
+   pushes the pinned-only toggle onto a line of its own beneath it,
+   where it reads as a stray control rather than a filter on the search
+   beside it. The search shrinks instead. */
+.library-bar-compact {
+  flex-wrap: nowrap;
+}
+
 .library-bar-compact .searchbar {
   max-width: none;
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+.library-bar-compact .toggle-button {
+  flex: 0 0 auto;
 }
 
 /* A pressed state needs to be legible without colour alone, so the pressed
@@ -3730,11 +3743,15 @@ body {
   min-width: 0;
 }
 
-/* The pin appears on hover or focus; a column of stars down a narrow rail
-   competes with the names, which are what the eye is scanning for. */
+/* Faint until hovered, never absent. At opacity 0 the control could not
+   be found without hovering -- and a touch device never hovers, so
+   pinning an explore was unreachable there entirely. Faint keeps the
+   names dominant, which is what the eye scans a narrow rail for, while
+   still saying the control is there. */
 .saved-explore-row .star {
-  opacity: 0;
+  opacity: 0.45;
   flex: 0 0 auto;
+  transition: opacity 120ms ease;
 }
 
 .saved-explore-row:hover .star,

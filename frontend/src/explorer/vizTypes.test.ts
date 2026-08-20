@@ -67,9 +67,29 @@ describe("wellsForType", () => {
     });
   });
 
-  it("keeps a bar to one axis field, because that is all a bar has", () => {
+  it("splits a bar by the second dimension instead of dropping it", () => {
+    // Two dimensions used to leave the second out of the visual while
+    // the query still grouped by it, so the chart repeated the same
+    // category label with a single series. The second dimension is the
+    // series split: grouped bars, one colour per value.
     const wells = selection(["C.REGION", "C.COUNTRY"], [], ["O.REVENUE"]);
-    expect(wellsForType("bar", wells).axis).toEqual(["C.REGION"]);
+    expect(wellsForType("bar", wells)).toMatchObject({
+      axis: ["C.REGION"],
+      legend: ["C.COUNTRY"],
+      values: ["O.REVENUE"],
+    });
+  });
+
+  it("prefers an explicit Split by over promoting a second Group by", () => {
+    const wells = selection(["C.REGION", "C.COUNTRY"], ["C.SEGMENT"], ["O.REVENUE"]);
+    expect(wellsForType("bar", wells).legend).toEqual(["C.SEGMENT"]);
+  });
+
+  it("promotes the second dimension for every axis-and-legend chart", () => {
+    const wells = selection(["C.REGION", "C.COUNTRY"], [], ["O.REVENUE"]);
+    for (const type of ["bar", "hbar", "line", "area"] as const) {
+      expect(wellsForType(type, wells).legend).toEqual(["C.COUNTRY"]);
+    }
   });
 });
 
@@ -103,9 +123,16 @@ describe("unusedFields", () => {
     expect(unusedFields("bar", ONE_BY_ONE)).toEqual([]);
   });
 
-  it("names dimensions a bar cannot put on its single axis", () => {
+  it("does not call the second dimension unused: it becomes the split", () => {
     const wells = selection(["C.REGION", "C.COUNTRY"], [], ["O.REVENUE"]);
-    expect(unusedFields("bar", wells)).toEqual(["C.COUNTRY"]);
+    expect(unusedFields("bar", wells)).toEqual([]);
+  });
+
+  it("still names a THIRD dimension, which a bar has nowhere to put", () => {
+    const wells = selection(
+      ["C.REGION", "C.COUNTRY", "C.CITY"], [], ["O.REVENUE"],
+    );
+    expect(unusedFields("bar", wells)).toEqual(["C.CITY"]);
   });
 });
 
@@ -125,7 +152,14 @@ describe("effectiveType", () => {
 
   it("defaults to a table once there is more than one dimension", () => {
     expect(defaultTypeFor(ONE_BY_ONE)).toBe("bar");
-    expect(defaultTypeFor(selection(["A.X", "B.Y"], [], ["O.REVENUE"]))).toBe("table");
+    // Two dimensions now draw as grouped bars -- one on the axis, one
+    // as the colour split -- so a table is no longer the only option.
+    expect(defaultTypeFor(selection(["A.X", "B.Y"], [], ["O.REVENUE"]))).toBe("bar");
+    expect(defaultTypeFor(selection(["A.X"], ["B.Y"], ["O.REVENUE"]))).toBe("bar");
+    // Three has nowhere left to go on a bar.
+    expect(
+      defaultTypeFor(selection(["A.X", "B.Y", "C.Z"], [], ["O.REVENUE"])),
+    ).toBe("table");
     // Nothing to measure: a chart would have no series, so show the rows.
     expect(defaultTypeFor(selection(["A.X"], [], []))).toBe("table");
   });

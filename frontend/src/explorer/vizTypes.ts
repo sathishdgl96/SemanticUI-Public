@@ -33,7 +33,15 @@ export function wellsForType(
     case "line":
     case "area":
       mapped.axis = wells.axis.slice(0, 1);
-      mapped.legend = wells.legend.slice(0, 1);
+      // A second Group-by dimension becomes the series split. Dropping it
+      // instead left the query still grouping by it, so the chart drew the
+      // same category label several times over with one series -- the
+      // second dimension invisible but silently reshaping the data. As the
+      // split it draws the way people expect two dimensions to draw:
+      // side by side within each category, one colour per value.
+      mapped.legend = wells.legend.length
+        ? wells.legend.slice(0, 1)
+        : wells.axis.slice(1, 2);
       mapped.values = wells.values;
       break;
     case "combo":
@@ -102,10 +110,11 @@ export function unusedFields(type: VisualType, wells: Wells): string[] {
 
 /** The type to draw when the user has not picked one.
  *
- *  A table once there is more than one dimension, because a bar's axis takes
- *  exactly one; a bar otherwise. This is the rule the report hand-off has
- *  always used -- it now decides what is drawn here too, so the explorer and
- *  the report it produces agree.
+ *  A bar up to TWO dimensions -- one on the axis, one as the colour split --
+ *  and a table beyond that, where a bar has nowhere left to put them. It
+ *  used to fall back to a table at two, because a bar's axis takes exactly
+ *  one; that stopped being the whole story once the second dimension became
+ *  the series split (see wellsForType).
  */
 export function defaultTypeFor(wells: Wells): VisualType {
   const dimensions = wells.axis.length + wells.legend.length;
@@ -115,7 +124,7 @@ export function defaultTypeFor(wells: Wells): VisualType {
   // card and several are a table. This is the case that used to leave "Add
   // to report" disabled -- a lone measure is a perfectly good report.
   if (dimensions === 0) return wells.values.length === 1 ? "kpi" : "table";
-  return dimensions > 2 || wells.axis.length > 1 ? "table" : "bar";
+  return dimensions > 2 ? "table" : "bar";
 }
 
 /** The type actually drawn: what the user picked, if it still works.
