@@ -3923,3 +3923,273 @@ body {
 .th-sort-numeric {
   justify-content: flex-end;
 }
+
+
+/* --- Semantic model tab --------------------------------------------- */
+
+.model-tab {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.model-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  /* A faint grid says "this surface can be panned" before anyone drags
+     it, the way a design canvas does. */
+  background-color: var(--page);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.model-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.model-toolbar button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--ink);
+  font-weight: 400;
+  line-height: 1;
+}
+
+.model-toolbar button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.model-zoom-level {
+  min-width: 46px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.model-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.model-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.model-swatch.kind-fact { background: #4a6fa5; }
+.model-swatch.kind-dimension { background: #7a9e7e; }
+
+.model-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.model-pane.grabbing {
+  cursor: grabbing;
+}
+
+.model-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Drawn through foreignObject so a node is a real button: focusable,
+   announced, and keyboard-operable without reimplementing any of that on
+   an SVG shape. */
+.model-node {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  /* The role of the table, as a spine down its left edge: legible at any
+     zoom, and it never competes with the name for attention. */
+  border-left: 4px solid var(--axis);
+  border-radius: 6px;
+  color: var(--ink);
+  font-weight: 400;
+  text-align: left;
+  cursor: grab;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.model-node.kind-fact { border-left-color: #4a6fa5; }
+.model-node.kind-dimension { border-left-color: #7a9e7e; }
+
+.model-node:hover {
+  border-color: var(--accent);
+}
+
+.model-node.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-wash), 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.model-node-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-node-meta {
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.model-edge {
+  stroke: var(--axis);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.model-marker {
+  stroke: var(--axis);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+/* The joins of the selected table, lifted out of the rest. */
+.model-edge-group.on .model-edge,
+.model-edge-group.on .model-marker {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.model-edge-group.on .model-edge-label {
+  fill: var(--accent);
+}
+
+.model-edge-label {
+  fill: var(--ink-muted);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.model-detail {
+  flex: 0 0 auto;
+  width: 260px;
+  padding: 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.model-detail-title {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.model-detail-role {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.model-detail-group {
+  margin: 12px 0 4px;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-detail-fields {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-detail-fields li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.model-field-type {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* The join columns: the first thing anyone asks of a relationship. */
+.model-join {
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.model-join-keys {
+  color: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* A segmented control: one border around both, so it reads as a single
+   choice rather than two unrelated buttons. */
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mode-switch button {
+  padding: 4px 12px;
+  background: var(--surface);
+  border: none;
+  border-radius: 0;
+  color: var(--ink-secondary);
+  font-weight: 400;
+  font-size: 13px;
+}
+
+.mode-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.mode-switch button:disabled {
+  opacity: 0.5;
+}

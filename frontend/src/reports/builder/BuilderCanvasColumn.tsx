@@ -2,9 +2,11 @@ import type {
   Hierarchy,
   Page,
   ReportDefinition,
+  SemanticViewDetail,
   ViewRef,
   VisualLayout,
 } from "../../api/types";
+import ModelTab from "../../model/ModelTab";
 import CanvasGrid from "../CanvasGrid";
 import PageBar from "../PageBar";
 import SheetView from "../SheetView";
@@ -20,6 +22,7 @@ export default function BuilderCanvasColumn({
   view,
   hierarchies,
   factRefs,
+  viewDetail,
   canEdit,
   ui,
   onSelect,
@@ -32,6 +35,7 @@ export default function BuilderCanvasColumn({
   view: ViewRef;
   hierarchies: Hierarchy[];
   factRefs: string[];
+  viewDetail?: SemanticViewDetail;
   canEdit: boolean;
   ui: BuilderInteraction;
   onSelect: (visualId: string) => void;
@@ -39,6 +43,16 @@ export default function BuilderCanvasColumn({
   onSwitchPage: (pageId: string) => void;
   onPageOp: (result: pageOps.PageOpResult) => void;
 }) {
+  // The model takes the whole surface: it is a different way of looking
+  // at the same view, not something to squeeze beside the pages.
+  if (ui.mode === "model") {
+    return (
+      <div className="canvas-column">
+        <ModelTab detail={viewDetail} />
+      </div>
+    );
+  }
+
   return (
     <div className="canvas-column">
       {activePage.kind === "sheet" ? (

@@ -37,6 +37,11 @@ export interface Relationship {
   name: string;
   table: string | null;
   refTable: string | null;
+  /** The columns the join is ON, as Snowflake reports them
+   *  (FOREIGN_KEY / REF_KEY). Optional because a describe from before
+   *  they were parsed carries neither. */
+  foreignKey?: string[];
+  refKey?: string[];
 }
 
 export interface SemanticViewDetail {

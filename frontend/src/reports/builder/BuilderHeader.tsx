@@ -15,6 +15,8 @@ export default function BuilderHeader({
   onToggleMove,
   panel,
   onTogglePanel,
+  mode,
+  onSetMode,
   viewName,
   exporting,
   onExportExcel,
@@ -29,6 +31,8 @@ export default function BuilderHeader({
   onToggleMove: () => void;
   panel: PanelKind;
   onTogglePanel: (panel: Exclude<PanelKind, null>) => void;
+  mode: "report" | "model";
+  onSetMode: (mode: "report" | "model") => void;
   viewName: string;
   exporting: boolean;
   onExportExcel: () => void;
@@ -55,6 +59,28 @@ export default function BuilderHeader({
             Move
           </button>
         )}
+        <span className="cmd-sep" aria-hidden="true" />
+        {/* A view switch rather than a panel: a model diagram needs the
+            whole canvas, and looking at it changes nothing about the
+            report -- so it is a way of looking, not saved state. */}
+        <div className="mode-switch" role="group" aria-label="Report or model">
+          <button
+            type="button"
+            aria-pressed={mode === "report"}
+            onClick={() => onSetMode("report")}
+          >
+            Report
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "model"}
+            disabled={!viewName}
+            title={viewName ? "See this view's tables and joins" : UNBOUND_HINT}
+            onClick={() => onSetMode("model")}
+          >
+            Model
+          </button>
+        </div>
         <span className="cmd-sep" aria-hidden="true" />
         {/* All three need a semantic view to work against, and the server
             refuses without one. Disabling with the reason attached beats

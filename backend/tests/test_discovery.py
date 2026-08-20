@@ -92,7 +92,15 @@ def test_describe_semantic_view_parses_shape():
     # join graph Snowflake gives us, and without them a query across two
     # entities can only be checked by running it and reading the error.
     assert detail["relationships"] == [
-        {"name": "ORDERS_TO_CUSTOMERS", "table": "ORDERS", "refTable": "CUSTOMERS"}
+        {
+            "name": "ORDERS_TO_CUSTOMERS",
+            "table": "ORDERS",
+            "refTable": "CUSTOMERS",
+            # The columns the join is ON. This fixture has no REF_KEY row,
+            # so that side is empty rather than missing.
+            "foreignKey": ["O_CUSTKEY"],
+            "refKey": [],
+        }
     ]
     assert detail["dimensions"] == [
         {"table": "ORDERS", "name": "ORDER_DATE", "dataType": "DATE"},
@@ -149,3 +157,47 @@ def test_detect_hierarchies_skips_one_level_objects():
 def test_detect_hierarchies_tolerates_a_hierarchy_with_no_levels_property():
     rows = DESCRIBE_ROWS + [("HIERARCHY", "EMPTY", "CUSTOMERS", "COMMENT", "hi")]
     assert detect_hierarchies(_detail(rows)) == []
+
+
+def test_relationships_carry_their_join_columns():
+    """FOREIGN_KEY / REF_KEY are the only statement of WHICH columns join.
+
+    Snowflake reports them as JSON arrays and the parser used to drop
+    them, so the model diagram could say that two tables are joined but
+    never on what -- the first question anyone asks of a data model.
+    """
+    from app.semantic.discovery import describe_semantic_view
+
+    rows = list(DESCRIBE_ROWS) + [
+        ("RELATIONSHIP", "ORDERS_TO_CUSTOMERS", "ORDERS", "REF_KEY", '["C_CUSTKEY"]'),
+    ]
+    conn = FakeConnection(FakeCursor(rows=rows, description=DESCRIBE_DESC))
+    detail = describe_semantic_view(conn, "DB", "SCHEMA", "VIEW")
+
+    assert detail["relationships"] == [
+        {
+            "name": "ORDERS_TO_CUSTOMERS",
+            "table": "ORDERS",
+            "refTable": "CUSTOMERS",
+            "foreignKey": ["O_CUSTKEY"],
+            "refKey": ["C_CUSTKEY"],
+        }
+    ]
+
+
+def test_a_relationship_with_unreadable_keys_still_parses():
+    """A key list that is not the JSON array Snowflake documents must not
+    take the whole describe down -- the join still exists."""
+    from app.semantic.discovery import describe_semantic_view
+
+    rows = [
+        ("TABLE", "A", None, None, None),
+        ("TABLE", "B", None, None, None),
+        ("RELATIONSHIP", "A_TO_B", "A", "TABLE", "A"),
+        ("RELATIONSHIP", "A_TO_B", "A", "REF_TABLE", "B"),
+        ("RELATIONSHIP", "A_TO_B", "A", "FOREIGN_KEY", "not-json"),
+    ]
+    conn = FakeConnection(FakeCursor(rows=rows, description=DESCRIBE_DESC))
+    detail = describe_semantic_view(conn, "DB", "SCHEMA", "VIEW")
+    assert detail["relationships"][0]["foreignKey"] == []
+    assert detail["relationships"][0]["refKey"] == []

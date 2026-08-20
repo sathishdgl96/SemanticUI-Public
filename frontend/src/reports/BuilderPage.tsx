@@ -281,6 +281,8 @@ export default function BuilderPage() {
         onToggleMove={() => ui.setMoving((open) => !open)}
         panel={ui.panel}
         onTogglePanel={(kind) => ui.setPanel(ui.panel === kind ? null : kind)}
+        mode={ui.mode}
+        onSetMode={ui.setMode}
         viewName={view.name}
         exporting={exportExcel.isPending}
         onExportExcel={() => exportExcel.mutate()}
@@ -336,6 +338,7 @@ export default function BuilderPage() {
               view={view}
               hierarchies={hierarchies}
               factRefs={factRefs}
+              viewDetail={fields.viewDetail.data}
               canEdit={canEdit}
               ui={ui}
               onSelect={selectVisual}

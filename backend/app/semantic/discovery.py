@@ -58,6 +58,27 @@ def list_semantic_views(
 _FIELD_KINDS = {"DIMENSION": "dimensions", "METRIC": "metrics", "FACT": "facts"}
 
 
+def _key_list(value: Any) -> list[str]:
+    """The join columns Snowflake reports, as a JSON array of names.
+
+    Unreadable input yields no columns rather than raising: the
+    relationship itself still exists and still constrains the join graph,
+    and losing the whole describe over a key list would be a far worse
+    trade than losing the column names.
+    """
+    import json
+
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if item]
+
+
 def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> dict:
     fqn = f"{quote_ident(database)}.{quote_ident(schema)}.{quote_ident(name)}"
     rows = _execute_dicts(conn, f"DESCRIBE SEMANTIC VIEW {fqn}")
@@ -83,12 +104,23 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
             # unanswerable field combination could only be discovered by
             # sending it to Snowflake and reading the error.
             entry = relationships.setdefault(
-                obj_name, {"name": obj_name, "table": parent, "refTable": None}
+                obj_name,
+                {
+                    "name": obj_name,
+                    "table": parent,
+                    "refTable": None,
+                    "foreignKey": [],
+                    "refKey": [],
+                },
             )
             if prop == "TABLE":
                 entry["table"] = row.get("property_value")
             elif prop == "REF_TABLE":
                 entry["refTable"] = row.get("property_value")
+            elif prop == "FOREIGN_KEY":
+                entry["foreignKey"] = _key_list(row.get("property_value"))
+            elif prop == "REF_KEY":
+                entry["refKey"] = _key_list(row.get("property_value"))
         elif kind == "HIERARCHY" and obj_name:
             # Collected verbatim; detect_hierarchies below decides what, if
             # anything, is usable. No account seen so far emits these rows.

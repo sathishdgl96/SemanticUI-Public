@@ -14,6 +14,10 @@ export function useBuilderInteraction(reportId: string) {
   const [selectedType, setSelectedType] = useState<VisualType>("bar");
   const [notice, setNotice] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelKind>(null);
+  // Which surface the canvas shows. Ephemeral like the rest: a saved
+  // report always opens on its pages, and looking at the model never
+  // changes the document.
+  const [mode, setMode] = useState<"report" | "model">("report");
   const [drill, setDrill] = useState<Record<string, DrillState>>({});
   const [crossFilter, setCrossFilter] = useState<CrossFilter | null>(null);
   // Slicer ticks, keyed by field ref.
@@ -43,6 +47,7 @@ export function useBuilderInteraction(reportId: string) {
     setSelectedId(null);
     setActivePageId(null);
     setNotice(null);
+    setMode("report");
     setPanel(null);
     setDrill({});
     setCrossFilter(null);
@@ -85,6 +90,7 @@ export function useBuilderInteraction(reportId: string) {
     selectedType, setSelectedType,
     notice, setNotice,
     panel, setPanel,
+    mode, setMode,
     drill, onDrill,
     crossFilter, setCrossFilter,
     slicerSelections, onSlicerChange,
