@@ -1355,7 +1355,18 @@ button.secondary:hover,
    Report canvas tiles
    ========================================================================== */
 
+/* Every piece of text in a tile is sized against the TILE, not the
+   viewport. The chart's own labels are scaled in AutoChart; everything
+   here is HTML -- the title, a KPI's number, a matrix, a card's values --
+   and stayed at whatever px it was written at however small the tile got.
+   That is what left the picture and the words at different scales.
+
+   `inline-size`, not `size`: size containment would stop the tile's
+   HEIGHT depending on its contents, which is exactly what a tile outside
+   the fixed-height grid relies on. */
 .tile {
+  container-type: inline-size;
+  container-name: tile;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1380,7 +1391,11 @@ button.secondary:hover,
 
 .tile-head h3 {
   margin: 0;
-  font-size: 12px;
+  /* A size chosen in the Format pane arrives as --title-size and is
+     honoured -- up to what the tile can hold. clamp's max wins over the
+     value, so a 20px title on a narrow tile comes down rather than
+     running out of the header. */
+  font-size: clamp(10px, var(--title-size, 3.6cqi), 6cqi);
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
@@ -1427,7 +1442,9 @@ button.secondary:hover,
 
 .kpi-value {
   margin: 0;
-  font-size: 28px;
+  /* A KPI is one number and the tile is its frame: it should fill what it
+     is given rather than sit at 28px in a tile twice that tall. */
+  font-size: clamp(15px, 13cqi, 40px);
   font-weight: 600;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -1442,7 +1459,7 @@ button.secondary:hover,
 }
 .matrix {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: clamp(9px, 3.2cqi, 13px);
   width: 100%;
 }
 .matrix th,
@@ -1573,7 +1590,7 @@ button.secondary:hover,
 }
 .multi-card-title {
   margin: 0 0 4px;
-  font-size: 12px;
+  font-size: clamp(10px, 3.4cqi, 13px);
   font-weight: 600;
   color: var(--ink);
 }
@@ -1584,12 +1601,12 @@ button.secondary:hover,
   margin: 0;
 }
 .multi-card-values dt {
-  font-size: 11px;
+  font-size: clamp(9px, 3cqi, 12px);
   color: var(--ink-secondary);
 }
 .multi-card-values dd {
   margin: 0;
-  font-size: 16px;
+  font-size: clamp(12px, 4.6cqi, 20px);
   font-weight: 600;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -5070,6 +5087,8 @@ button.model-column:hover {
 
 .model-swatch.kind-fact { background: var(--m-fact); }
 .model-swatch.kind-dimension { background: var(--m-dim); }
+
+.tile .tile-hint { font-size: clamp(10px, 3.2cqi, 12px); }
 
 .model-canvas .tile-hint {
   color: var(--m-ink-dim);

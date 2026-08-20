@@ -156,6 +156,38 @@ function stubRows(dimension = "COUNTRY", value = "US") {
   });
 }
 
+describe("VisualTile title size", () => {
+  it("hands a chosen size to the stylesheet rather than fixing it inline", async () => {
+    // The stylesheet caps it against the tile's own width. An inline
+    // font-size would win over that cap and run a 20px title out of the
+    // header on a small tile.
+    apiFetchMock.mockResolvedValue({
+      columns: [{ name: "REGION", type: "TEXT" }],
+      rows: [["EU"]],
+      truncated: false,
+      sfqid: null,
+      sql: "",
+    });
+    renderTile(visual({ title: "Revenue", options: { titleFontSize: 20 } }));
+    const heading = await screen.findByRole("heading", { name: "Revenue" });
+    expect(heading.style.getPropertyValue("--title-size")).toBe("20px");
+    expect(heading.style.fontSize).toBe("");
+  });
+
+  it("sets nothing when no size was chosen", async () => {
+    apiFetchMock.mockResolvedValue({
+      columns: [{ name: "REGION", type: "TEXT" }],
+      rows: [["EU"]],
+      truncated: false,
+      sfqid: null,
+      sql: "",
+    });
+    renderTile(visual({ title: "Revenue" }));
+    const heading = await screen.findByRole("heading", { name: "Revenue" });
+    expect(heading.getAttribute("style")).toBeNull();
+  });
+});
+
 describe("VisualTile hierarchies", () => {
   it("names the current level in an untitled tile rather than the reference", async () => {
     stubRows();

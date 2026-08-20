@@ -233,9 +233,12 @@ export default function VisualTile({
             reader and to a test, which "no title" should not cost. */}
         <h3
           className={showTitle ? undefined : "sr-only"}
+          // A custom property rather than a fontSize: the stylesheet caps
+          // it against the tile's own width, and an inline font-size would
+          // win over that and run out of the header on a small tile.
           style={
             typeof visual.options.titleFontSize === "number"
-              ? { fontSize: `${visual.options.titleFontSize}px` }
+              ? ({ "--title-size": `${visual.options.titleFontSize}px` } as React.CSSProperties)
               : undefined
           }
         >
