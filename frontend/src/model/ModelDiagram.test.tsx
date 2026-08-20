@@ -19,12 +19,31 @@ describe("ModelDiagram", () => {
     expect(screen.getByRole("button", { name: /CUSTOMERS/ })).toBeInTheDocument();
   });
 
-  it("draws one edge per declared relationship, named", () => {
+  it("draws one edge per declared relationship", () => {
     const { container } = render(
       <ModelDiagram detail={DETAIL} selected={null} onSelect={() => {}} />,
     );
     expect(container.querySelectorAll("[data-edge]")).toHaveLength(1);
-    expect(screen.getByText("cust_fk")).toBeInTheDocument();
+    // Named on hover rather than on the canvas: a label over every edge
+    // buries the diagram it is meant to explain.
+    expect(container.querySelector("[data-edge] title")?.textContent).toBe("cust_fk");
+  });
+
+  it("names the join on the canvas once its table is selected", () => {
+    const { container } = render(
+      <ModelDiagram detail={DETAIL} selected="ORDERS" onSelect={() => {}} />,
+    );
+    // A drawn label, not just the hover title every edge already carries.
+    expect(container.querySelector("text.model-edge-label")?.textContent).toBe(
+      "cust_fk",
+    );
+  });
+
+  it("leaves the canvas unlabelled while nothing is selected", () => {
+    const { container } = render(
+      <ModelDiagram detail={DETAIL} selected={null} onSelect={() => {}} />,
+    );
+    expect(container.querySelector("text.model-edge-label")).toBeNull();
   });
 
   it("selects a table when it is clicked", async () => {

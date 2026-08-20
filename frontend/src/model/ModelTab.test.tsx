@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import ModelTab from "./ModelTab";
@@ -27,13 +27,16 @@ describe("ModelTab", () => {
   it("shows a table's fields once it is chosen", async () => {
     render(<ModelTab detail={DETAIL} />);
     await userEvent.click(screen.getByRole("button", { name: /ORDERS/ }));
-    expect(screen.getByText("STATUS")).toBeInTheDocument();
+    // The card lists columns too, so scope to the detail panel.
+    const panel = document.querySelector(".model-detail") as HTMLElement;
+    expect(within(panel).getByText("STATUS")).toBeInTheDocument();
   });
 
   it("clears the selection when the view changes under it", async () => {
     const { rerender } = render(<ModelTab detail={DETAIL} />);
     await userEvent.click(screen.getByRole("button", { name: /ORDERS/ }));
-    expect(screen.getByText("STATUS")).toBeInTheDocument();
+    const panel = document.querySelector(".model-detail") as HTMLElement;
+    expect(within(panel).getByText("STATUS")).toBeInTheDocument();
 
     rerender(
       <ModelTab

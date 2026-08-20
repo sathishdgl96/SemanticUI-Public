@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SemanticViewDetail } from "../api/types";
 import { layoutModel, type ModelNode } from "./layout";
 import { fitTo, IDENTITY, zoomAbout, type Viewport } from "./viewport";
@@ -14,16 +14,37 @@ interface Drag {
   fromPosition: { x: number; y: number };
 }
 
+/** Where an edge meets a card: the middle of whichever side faces the
+ *  other card. Anchoring to the centre instead would run the line under
+ *  the card and hide the crow's foot behind it. */
+function anchor(from: ModelNode, to: ModelNode) {
+  const fromCentre = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+  const toCentre = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+  const dx = toCentre.x - fromCentre.x;
+  const dy = toCentre.y - fromCentre.y;
+  // Side or top/bottom, by which separation dominates.
+  if (Math.abs(dx) * from.height >= Math.abs(dy) * from.width) {
+    return {
+      x: dx >= 0 ? from.x + from.width : from.x,
+      y: fromCentre.y,
+    };
+  }
+  return {
+    x: fromCentre.x,
+    y: dy >= 0 ? from.y + from.height : from.y,
+  };
+}
+
 /**
- * The model as an interactive diagram: pan, zoom, fit, and drag a table
- * where you want it.
+ * The model as an interactive ER diagram: pan, zoom, fit, and drag a
+ * table where you want it.
  *
  * Edges run from the foreign-key side to the referenced side and carry
  * crow's-foot notation — many at the foreign key, one at the referenced
- * key. That is not a guess: a semantic view's relationship names a
+ * key. That is not a guess: a semantic view's relationship declares a
  * foreign key against a referenced key, which is many-to-one by
  * construction, and it is the direction `app/semantic/joins.py` reasons
- * over when it decides whether a field combination is answerable.
+ * over when deciding whether a field combination is answerable.
  * Snowflake reports no cardinality of its own, so one-to-one is never
  * claimed.
  */
@@ -48,8 +69,8 @@ export default function ModelDiagram({
   );
   const at = useMemo(() => new Map(positioned.map((n) => [n.name, n])), [positioned]);
 
-  /** Pointer position relative to the pane, which is the space the
-   *  viewport transform is expressed in. */
+  /** Pointer position relative to the pane, the space the viewport
+   *  transform is expressed in. */
   const panepoint = (event: { clientX: number; clientY: number }) => {
     const box = paneRef.current?.getBoundingClientRect();
     return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
@@ -62,11 +83,22 @@ export default function ModelDiagram({
   }, [layout]);
 
   // Fit when the model changes, so a newly opened view arrives framed
-  // rather than cropped into its top-left corner. Any dragging done to
-  // the previous model belonged to that model.
+  // rather than cropped into a corner. Dragging done to the previous
+  // model belonged to that model.
   useLayoutEffect(() => {
     setOverrides({});
     fit();
+  }, [fit]);
+
+  // Re-fit when the pane changes size. Collapsing a side pane hands the
+  // diagram a much larger box, and without this it keeps the scale it
+  // was fitted at and simply sits in the corner of the new space.
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => fit());
+    observer.observe(pane);
+    return () => observer.disconnect();
   }, [fit]);
 
   const startPan = (event: React.PointerEvent) => {
@@ -81,7 +113,7 @@ export default function ModelDiagram({
 
   const startNodeDrag = (event: React.PointerEvent, node: ModelNode) => {
     if (event.button !== 0) return;
-    // Or the pane would pan at the same time as the node moves.
+    // Or the pane would pan at the same time as the card moves.
     event.stopPropagation();
     setDrag({
       kind: "node",
@@ -135,20 +167,19 @@ export default function ModelDiagram({
     return <p className="tile-hint">This view declares no tables.</p>;
   }
 
-  // Anchored to the facing sides of the boxes as they sit NOW, so an edge
-  // follows a table that has been dragged somewhere else.
   const edges = layout.edges.flatMap((edge) => {
     const from = at.get(edge.from);
     const to = at.get(edge.to);
     if (!from || !to) return [];
-    const leftToRight = from.x + from.width / 2 <= to.x + to.width / 2;
+    const start = anchor(from, to);
+    const end = anchor(to, from);
     return [
       {
         name: edge.name,
-        x1: leftToRight ? from.x + from.width : from.x,
-        y1: from.y + from.height / 2,
-        x2: leftToRight ? to.x : to.x + to.width,
-        y2: to.y + to.height / 2,
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
         on: selected === edge.from || selected === edge.to,
       },
     ];
@@ -175,6 +206,7 @@ export default function ModelDiagram({
         <span className="model-legend">
           <span className="model-swatch kind-fact" aria-hidden="true" /> fact
           <span className="model-swatch kind-dimension" aria-hidden="true" /> dimension
+          <span className="model-legend-note">⋯ many → one ⊣</span>
         </span>
       </div>
 
@@ -194,44 +226,47 @@ export default function ModelDiagram({
       >
         <svg className="model-svg" role="group" aria-label="Semantic model diagram">
           <defs>
-            {/* Crow's foot: the MANY end, drawn at the foreign key. */}
+            {/* Crow's foot: the MANY end, at the foreign key. Drawn
+                pointing back down the line, which is what
+                auto-start-reverse means on a marker-start. */}
             <marker
               id="model-many"
-              viewBox="0 0 12 12"
-              refX="11"
-              refY="6"
-              markerWidth="12"
-              markerHeight="12"
+              viewBox="0 0 14 14"
+              refX="13"
+              refY="7"
+              markerWidth="14"
+              markerHeight="14"
+              markerUnits="userSpaceOnUse"
               orient="auto-start-reverse"
             >
               <path
-                d="M 1 1 L 11 6 M 1 6 L 11 6 M 1 11 L 11 6"
+                d="M 13 7 L 1 1 M 13 7 L 1 7 M 13 7 L 1 13"
                 className="model-marker"
               />
             </marker>
             {/* A single bar: the ONE end, at the referenced key. */}
             <marker
               id="model-one"
-              viewBox="0 0 12 12"
-              refX="6"
-              refY="6"
-              markerWidth="12"
-              markerHeight="12"
+              viewBox="0 0 14 14"
+              refX="4"
+              refY="7"
+              markerWidth="14"
+              markerHeight="14"
+              markerUnits="userSpaceOnUse"
               orient="auto-start-reverse"
             >
-              <path d="M 6 1 L 6 11" className="model-marker" />
+              <path d="M 4 1 L 4 13" className="model-marker" />
             </marker>
           </defs>
 
-          <g
-            transform={`translate(${viewport.x}, ${viewport.y}) scale(${viewport.scale})`}
-          >
+          <g transform={`translate(${viewport.x}, ${viewport.y}) scale(${viewport.scale})`}>
             {edges.map((edge) => (
               <g
                 key={edge.name}
                 data-edge={edge.name}
                 className={edge.on ? "model-edge-group on" : "model-edge-group"}
               >
+                <title>{edge.name}</title>
                 <line
                   x1={edge.x1}
                   y1={edge.y1}
@@ -241,14 +276,16 @@ export default function ModelDiagram({
                   markerStart="url(#model-many)"
                   markerEnd="url(#model-one)"
                 />
-                <text
-                  x={(edge.x1 + edge.x2) / 2}
-                  y={(edge.y1 + edge.y2) / 2 - 7}
-                  className="model-edge-label"
-                  textAnchor="middle"
-                >
-                  {edge.name}
-                </text>
+                {edge.on && (
+                  <text
+                    x={(edge.x1 + edge.x2) / 2}
+                    y={(edge.y1 + edge.y2) / 2 - 7}
+                    className="model-edge-label"
+                    textAnchor="middle"
+                  >
+                    {edge.name}
+                  </text>
+                )}
               </g>
             ))}
 
@@ -258,7 +295,7 @@ export default function ModelDiagram({
                 transform={`translate(${node.x}, ${node.y})`}
                 onPointerDown={(event) => startNodeDrag(event, node)}
               >
-                {/* foreignObject so a node is a real button: focusable,
+                {/* foreignObject so a card is a real button: focusable,
                     announced, and keyboard-operable without reimplementing
                     any of that on an SVG shape. */}
                 <foreignObject width={node.width} height={node.height}>
@@ -270,14 +307,43 @@ export default function ModelDiagram({
                       selected === node.name ? "selected" : "",
                     ].join(" ").trim()}
                     aria-pressed={selected === node.name}
-                    onClick={() =>
-                      onSelect(selected === node.name ? null : node.name)
-                    }
+                    onClick={() => onSelect(selected === node.name ? null : node.name)}
                   >
-                    <span className="model-node-name">{node.name}</span>
-                    <span className="model-node-meta">
-                      {node.fieldCount} {node.fieldCount === 1 ? "field" : "fields"}
+                    <span className="model-node-head">
+                      <span className="model-node-name">{node.name}</span>
+                      <span className="model-node-count">{node.fieldCount}</span>
                     </span>
+                    {node.columns.length > 0 && (
+                      <span className="model-node-columns">
+                        {node.columns.map((column) => (
+                          <span
+                            key={column.name}
+                            className={
+                              column.key
+                                ? `model-column is-key kind-${column.kind}`
+                                : `model-column kind-${column.kind}`
+                            }
+                          >
+                            <span className="model-column-name">
+                              {column.key && (
+                                <span className="model-key" aria-label="join key">
+                                  ⚿
+                                </span>
+                              )}
+                              {column.name}
+                            </span>
+                            <span className="model-column-type">
+                              {shortType(column.dataType)}
+                            </span>
+                          </span>
+                        ))}
+                        {node.hiddenColumns > 0 && (
+                          <span className="model-column more">
+                            +{node.hiddenColumns} more
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </button>
                 </foreignObject>
               </g>
@@ -287,4 +353,11 @@ export default function ModelDiagram({
       </div>
     </div>
   );
+}
+
+/** `VARCHAR(16777216)` is noise in a card this size; the type family is
+ *  the part that tells you what a column is. */
+function shortType(dataType: string | null): string {
+  if (!dataType) return "";
+  return dataType.split("(")[0].toUpperCase().slice(0, 8);
 }

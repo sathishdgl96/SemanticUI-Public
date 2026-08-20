@@ -3927,12 +3927,27 @@ body {
 
 /* --- Semantic model tab --------------------------------------------- */
 
+/* The diagram carries its own dark palette rather than the app's light
+   one. A model canvas is a workspace you stare at, not a document: dark
+   ground makes the cards and the join lines the only bright things on
+   it, which is what you are actually reading. Declared as local tokens
+   so every rule below states its intent rather than a hex code. */
 .model-tab {
+  --m-ground: #1c2027;
+  --m-grid: #262b33;
+  --m-card: #2b313b;
+  --m-card-head: #333a45;
+  --m-ink: #e8eaed;
+  --m-ink-dim: #9aa2ad;
+  --m-line: #7d8896;
+  --m-fact: #6aa2e8;
+  --m-dim: #6fc39a;
+  --m-key: #e8c46a;
+
   display: flex;
   align-items: stretch;
   height: 100%;
   min-height: 0;
-  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
@@ -3945,13 +3960,11 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  /* A faint grid says "this surface can be panned" before anyone drags
-     it, the way a design canvas does. */
-  background-color: var(--page);
+  background-color: var(--m-ground);
   background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 24px 24px;
+    linear-gradient(var(--m-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--m-grid) 1px, transparent 1px);
+  background-size: 26px 26px;
 }
 
 .model-toolbar {
@@ -3959,30 +3972,30 @@ body {
   align-items: center;
   gap: 4px;
   padding: 6px 8px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--m-card-head);
+  border-bottom: 1px solid var(--m-grid);
 }
 
 .model-toolbar button {
   min-width: 28px;
   min-height: 28px;
   padding: 0 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
   border-radius: 4px;
-  color: var(--ink);
+  color: var(--m-ink);
   font-weight: 400;
   line-height: 1;
 }
 
 .model-toolbar button:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--m-fact);
+  color: var(--m-fact);
 }
 
 .model-zoom-level {
   min-width: 46px;
-  color: var(--ink-secondary);
+  color: var(--m-ink-dim);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -3993,8 +4006,13 @@ body {
   align-items: center;
   gap: 6px;
   margin-left: auto;
-  color: var(--ink-secondary);
+  color: var(--m-ink-dim);
   font-size: 11px;
+}
+
+.model-legend-note {
+  margin-left: 8px;
+  font-family: var(--font-mono);
 }
 
 .model-swatch {
@@ -4004,8 +4022,8 @@ body {
   border-radius: 2px;
 }
 
-.model-swatch.kind-fact { background: #4a6fa5; }
-.model-swatch.kind-dimension { background: #7a9e7e; }
+.model-swatch.kind-fact { background: var(--m-fact); }
+.model-swatch.kind-dimension { background: var(--m-dim); }
 
 .model-pane {
   flex: 1 1 auto;
@@ -4015,9 +4033,7 @@ body {
   touch-action: none;
 }
 
-.model-pane.grabbing {
-  cursor: grabbing;
-}
+.model-pane.grabbing { cursor: grabbing; }
 
 .model-svg {
   width: 100%;
@@ -4025,84 +4041,140 @@ body {
   display: block;
 }
 
-/* Drawn through foreignObject so a node is a real button: focusable,
+/* Drawn through foreignObject so a card is a real button: focusable,
    announced, and keyboard-operable without reimplementing any of that on
    an SVG shape. */
 .model-node {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 2px;
+  gap: 0;
   width: 100%;
   height: 100%;
-  padding: 8px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  /* The role of the table, as a spine down its left edge: legible at any
-     zoom, and it never competes with the name for attention. */
-  border-left: 4px solid var(--axis);
+  padding: 0;
+  background: var(--m-card);
+  border: 1px solid var(--m-line);
   border-radius: 6px;
-  color: var(--ink);
+  color: var(--m-ink);
   font-weight: 400;
   text-align: left;
+  overflow: hidden;
   cursor: grab;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
-.model-node.kind-fact { border-left-color: #4a6fa5; }
-.model-node.kind-dimension { border-left-color: #7a9e7e; }
-
-.model-node:hover {
-  border-color: var(--accent);
+.model-node-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 9px;
+  background: var(--m-card-head);
+  /* The table's role, as a bar across the top of its card. */
+  border-top: 3px solid var(--m-line);
+  font-weight: 600;
+  font-size: 12.5px;
 }
 
-.model-node.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-wash), 0 2px 6px rgba(0, 0, 0, 0.12);
-}
+.model-node.kind-fact .model-node-head { border-top-color: var(--m-fact); }
+.model-node.kind-dimension .model-node-head { border-top-color: var(--m-dim); }
 
 .model-node-name {
-  font-weight: 600;
-  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.model-node-meta {
-  color: var(--ink-secondary);
-  font-size: 11px;
+.model-node-count {
+  flex: 0 0 auto;
+  color: var(--m-ink-dim);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.model-node-columns {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 0;
+}
+
+.model-column {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 19px;
+  padding: 0 9px;
+  color: var(--m-ink-dim);
+  font-size: 10.5px;
+  line-height: 19px;
+}
+
+.model-column-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A join key is what the relationships in this diagram are drawn on, so
+   it is the one column worth picking out of the list. */
+.model-column.is-key {
+  color: var(--m-ink);
+  font-weight: 600;
+}
+
+.model-key { color: var(--m-key); }
+
+.model-column-type {
+  flex: 0 0 auto;
+  color: var(--m-line);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.model-column.more {
+  color: var(--m-line);
+  font-style: italic;
+}
+
+.model-node:hover { border-color: var(--m-fact); }
+
+.model-node.selected {
+  border-color: var(--m-fact);
+  box-shadow: 0 0 0 2px rgba(106, 162, 232, 0.35), 0 4px 10px rgba(0, 0, 0, 0.45);
 }
 
 .model-edge {
-  stroke: var(--axis);
+  stroke: var(--m-line);
   stroke-width: 1.5;
   fill: none;
 }
 
+/* Markers do not inherit the line's stroke, so they carry their own. */
 .model-marker {
-  stroke: var(--axis);
+  stroke: var(--m-line);
   stroke-width: 1.5;
   fill: none;
+  stroke-linecap: round;
 }
 
 /* The joins of the selected table, lifted out of the rest. */
 .model-edge-group.on .model-edge,
 .model-edge-group.on .model-marker {
-  stroke: var(--accent);
-  stroke-width: 2;
+  stroke: var(--m-fact);
+  stroke-width: 2.25;
 }
 
-.model-edge-group.on .model-edge-label {
-  fill: var(--accent);
+.model-canvas .tile-hint {
+  color: var(--m-ink-dim);
+  padding: 6px 10px;
+  margin: 0;
 }
 
-.model-edge-label {
-  fill: var(--ink-muted);
-  font-size: 10px;
-  pointer-events: none;
-}
-
+/* The detail panel stays in the app's light palette: it is a document
+   about the selection, and it sits outside the canvas. */
 .model-detail {
   flex: 0 0 auto;
   width: 260px;
@@ -4112,17 +4184,7 @@ body {
   overflow-y: auto;
 }
 
-.model-detail-title {
-  margin: 0 0 2px;
-  font-size: 14px;
-}
-
-.model-detail-role {
-  display: inline-block;
-  margin-bottom: 8px;
-  color: var(--ink-secondary);
-  font-size: 11px;
-}
+.model-detail-title { margin: 0 0 2px; font-size: 14px; }
 
 .model-detail-group {
   margin: 12px 0 4px;
@@ -4133,11 +4195,7 @@ body {
   letter-spacing: 0.04em;
 }
 
-.model-detail-fields {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+.model-detail-fields { margin: 0; padding: 0; list-style: none; }
 
 .model-detail-fields li {
   display: flex;
@@ -4153,11 +4211,7 @@ body {
   font-size: 10px;
 }
 
-/* The join columns: the first thing anyone asks of a relationship. */
-.model-join {
-  padding: 4px 0;
-  font-size: 12px;
-}
+.model-join { padding: 4px 0; font-size: 12px; }
 
 .model-join-keys {
   color: var(--ink-secondary);
@@ -4190,6 +4244,4 @@ body {
   font-weight: 600;
 }
 
-.mode-switch button:disabled {
-  opacity: 0.5;
-}
+.mode-switch button:disabled { opacity: 0.5; }
