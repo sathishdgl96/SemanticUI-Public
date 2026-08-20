@@ -174,6 +174,46 @@ describe("layoutModel", () => {
     expect(nodes.find((n) => n.name === "REGION")!.kind).toBe("dimension");
   });
 
+  it("lists a join key as its own column, on both sides", () => {
+    // FOREIGN_KEY and REF_KEY name PHYSICAL columns; a semantic view's
+    // fields are modelled over expressions, so O_CUSTKEY is never one of
+    // them. Matching key names against field names left every card
+    // keyless, which is how this was found.
+    const keyed = model(
+      ["ORDERS", "CUSTOMERS"],
+      [{ name: "ord_cust", table: "ORDERS", refTable: "CUSTOMERS" }],
+      [{ table: "ORDERS", name: "ORDER_STATUS" }],
+    );
+    keyed.relationships[0].foreignKey = ["O_CUSTKEY"];
+    keyed.relationships[0].refKey = ["C_CUSTKEY"];
+
+    const { nodes } = layoutModel(keyed);
+    const orders = nodes.find((n) => n.name === "ORDERS")!;
+    const customers = nodes.find((n) => n.name === "CUSTOMERS")!;
+
+    expect(orders.columns[0]).toMatchObject({ name: "O_CUSTKEY", key: true });
+    expect(customers.columns[0]).toMatchObject({ name: "C_CUSTKEY", key: true });
+    // Keys come first, then the modelled fields.
+    expect(orders.columns.map((c) => c.name)).toEqual([
+      "O_CUSTKEY",
+      "ORDER_STATUS",
+    ]);
+  });
+
+  it("lists a key shared by two joins only once", () => {
+    const shared = model(
+      ["LINEITEMS", "ORDERS", "PART"],
+      [
+        { name: "a", table: "LINEITEMS", refTable: "ORDERS" },
+        { name: "b", table: "LINEITEMS", refTable: "PART" },
+      ],
+    );
+    shared.relationships[0].foreignKey = ["L_KEY"];
+    shared.relationships[1].foreignKey = ["L_KEY"];
+    const lineitems = layoutModel(shared).nodes.find((n) => n.name === "LINEITEMS")!;
+    expect(lineitems.columns.filter((c) => c.name === "L_KEY")).toHaveLength(1);
+  });
+
   it("counts the fields each table carries", () => {
     const counted = model(["ORDERS"], [], [
       { table: "ORDERS", name: "STATUS" },

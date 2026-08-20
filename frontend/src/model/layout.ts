@@ -1,14 +1,14 @@
 import type { FieldInfo, Relationship, SemanticViewDetail } from "../api/types";
 
-export const NODE_WIDTH = 210;
+export const NODE_WIDTH = 268;
 /** Header only, for a table whose columns are all hidden. */
-export const NODE_HEADER = 34;
+export const NODE_HEADER = 40;
 /** One column row inside a card. */
-export const ROW_HEIGHT = 19;
+export const ROW_HEIGHT = 23;
 /** Columns shown before the card says how many more there are. Enough to
  *  recognise a table by; past that the card starts competing with the
  *  diagram for the reader's attention. */
-export const MAX_ROWS = 7;
+export const MAX_ROWS = 8;
 /** Kept for callers that only need a representative size. */
 export const NODE_HEIGHT = NODE_HEADER + MAX_ROWS * ROW_HEIGHT;
 const PADDING = 40;
@@ -48,10 +48,36 @@ export interface ModelNode {
 export interface ModelColumn {
   name: string;
   dataType: string | null;
-  kind: "dimension" | "metric" | "fact";
+  kind: "key" | "dimension" | "metric" | "fact";
   /** Part of a declared join. Marked, because the keys are what the
    *  relationships in the diagram are actually drawn on. */
   key: boolean;
+}
+
+/** The join keys a table carries, as their own rows.
+ *
+ *  FOREIGN_KEY and REF_KEY name PHYSICAL columns, while a semantic
+ *  view's dimensions and metrics are modelled fields over expressions --
+ *  so O_CUSTKEY is essentially never one of them, and marking matching
+ *  field names left every card keyless. The keys are listed in their own
+ *  right instead, which is what an ER diagram shows anyway.
+ */
+function keyColumnsOf(edges: Relationship[]): Map<string, ModelColumn[]> {
+  const byTable = new Map<string, ModelColumn[]>();
+  const add = (table: string | null, name: string) => {
+    if (!table || !name) return;
+    const existing = byTable.get(table) ?? [];
+    if (existing.some((c) => c.name.toUpperCase() === name.toUpperCase())) return;
+    byTable.set(table, [
+      ...existing,
+      { name, dataType: null, kind: "key", key: true },
+    ]);
+  };
+  for (const edge of edges) {
+    for (const column of edge.foreignKey ?? []) add(edge.table, column);
+    for (const column of edge.refKey ?? []) add(edge.refTable, column);
+  }
+  return byTable;
 }
 
 export interface ModelEdge {
@@ -313,44 +339,20 @@ export function layoutModel(detail: SemanticViewDetail): ModelLayout {
     ]);
   }
 
-  // Every column a join is declared on. Marked in the card, because
-  // those are the columns the relationships are actually drawn on.
-  const keyColumns = new Set<string>();
-  for (const edge of edges) {
-    for (const column of edge.foreignKey ?? []) {
-      keyColumns.add(`${edge.table}.${column}`.toUpperCase());
-    }
-    for (const column of edge.refKey ?? []) {
-      keyColumns.add(`${edge.refTable}.${column}`.toUpperCase());
-    }
-  }
-
   // Keys first, then dimensions, metrics and facts: a card with room for
-  // seven rows should spend them on what identifies the table.
-  const columnsByTable = new Map<string, ModelColumn[]>();
+  // eight rows should spend them on what identifies the table.
+  const columnsByTable = keyColumnsOf(edges);
   const collect = (fields: FieldInfo[], kind: ModelColumn["kind"]) => {
     for (const field of fields) {
-      const column: ModelColumn = {
-        name: field.name,
-        dataType: field.dataType,
-        kind,
-        key: keyColumns.has(`${field.table}.${field.name}`.toUpperCase()),
-      };
       columnsByTable.set(field.table, [
         ...(columnsByTable.get(field.table) ?? []),
-        column,
+        { name: field.name, dataType: field.dataType, kind, key: false },
       ]);
     }
   };
   collect(detail.dimensions, "dimension");
   collect(detail.metrics, "metric");
   collect(detail.facts, "fact");
-  for (const [table, columns] of columnsByTable) {
-    columnsByTable.set(
-      table,
-      [...columns].sort((a, b) => Number(b.key) - Number(a.key)),
-    );
-  }
 
   const heightOf = (table: string): number => {
     const rows = Math.min((columnsByTable.get(table) ?? []).length, MAX_ROWS);

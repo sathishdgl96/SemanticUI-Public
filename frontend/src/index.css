@@ -3937,8 +3937,8 @@ body {
   --m-grid: #262b33;
   --m-card: #2b313b;
   --m-card-head: #333a45;
-  --m-ink: #e8eaed;
-  --m-ink-dim: #9aa2ad;
+  --m-ink: #ffffff;
+  --m-ink-dim: #c7cdd6;
   --m-line: #7d8896;
   --m-fact: #6aa2e8;
   --m-dim: #6fc39a;
@@ -4007,7 +4007,7 @@ body {
   gap: 6px;
   margin-left: auto;
   color: var(--m-ink-dim);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .model-legend-note {
@@ -4067,12 +4067,13 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 7px 9px;
+  padding: 8px 11px;
   background: var(--m-card-head);
   /* The table's role, as a bar across the top of its card. */
   border-top: 3px solid var(--m-line);
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 14.5px;
+  letter-spacing: 0.01em;
 }
 
 .model-node.kind-fact .model-node-head { border-top-color: var(--m-fact); }
@@ -4087,14 +4088,14 @@ body {
 .model-node-count {
   flex: 0 0 auto;
   color: var(--m-ink-dim);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
 }
 
 .model-node-columns {
   display: flex;
   flex-direction: column;
-  padding: 3px 0;
+  padding: 0;
 }
 
 .model-column {
@@ -4102,11 +4103,11 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 19px;
-  padding: 0 9px;
-  color: var(--m-ink-dim);
-  font-size: 10.5px;
-  line-height: 19px;
+  height: 23px;
+  padding: 0 11px;
+  color: var(--m-ink);
+  font-size: 13px;
+  line-height: 23px;
 }
 
 .model-column-name {
@@ -4121,22 +4122,27 @@ body {
 /* A join key is what the relationships in this diagram are drawn on, so
    it is the one column worth picking out of the list. */
 .model-column.is-key {
-  color: var(--m-ink);
-  font-weight: 600;
+  color: var(--m-key);
+  font-weight: 700;
+  background: rgba(232, 196, 106, 0.08);
 }
 
-.model-key { color: var(--m-key); }
+.model-key {
+  color: var(--m-key);
+  font-size: 12px;
+}
 
 .model-column-type {
   flex: 0 0 auto;
-  color: var(--m-line);
+  color: var(--m-ink-dim);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10.5px;
 }
 
 .model-column.more {
-  color: var(--m-line);
+  color: var(--m-ink-dim);
   font-style: italic;
+  font-size: 11.5px;
 }
 
 .model-node:hover { border-color: var(--m-fact); }
