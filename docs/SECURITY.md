@@ -39,7 +39,14 @@ metadata* — table and column names the user has already been granted.
 ## 2. Authentication
 
 **Single sign-on is the way in.** Snowflake External OAuth (Entra ID,
-Okta, any OIDC provider) or Snowflake's built-in OAuth.
+Okta, any OIDC provider) or Snowflake's built-in OAuth. Setting it up is
+[docs/operations/snowflake-sso.md](operations/snowflake-sso.md) —
+registration, security integration, and every trap the setup actually
+hit.
+
+The backend is a **confidential client**: it performs the authorization
+code exchange and keeps the token server-side, encrypted. The browser
+never holds a Snowflake token at all.
 
 - **PKCE** on the authorization code exchange.
 - **`state`** is single-use, time-bounded, and carries the chosen account

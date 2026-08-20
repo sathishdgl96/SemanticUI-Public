@@ -27,7 +27,7 @@ grants them a document, not a grant.
 
 | Capability | What it means |
 |---|---|
-| **Single sign-on** | Snowflake External OAuth (Entra ID, Okta, any OIDC IdP) or Snowflake's built-in OAuth. PKCE on the authorization code. The default install offers **nothing else** — direct credentials must be named explicitly in configuration, and production may only ever name key-pair. |
+| **Single sign-on** | Snowflake External OAuth (Entra ID, Okta, any OIDC IdP) or Snowflake's built-in OAuth. PKCE on the authorization code, exchanged by the backend as a confidential client, so the browser never holds a Snowflake token. The default install offers **nothing else** — direct credentials must be named explicitly, and production may only ever name key-pair. Setup: [operations/snowflake-sso.md](operations/snowflake-sso.md). |
 | **Role and warehouse** | Chosen at sign-in from what the user's Snowflake account actually grants, remembered per user, and switchable from the profile menu without signing out. |
 | **Multi-account** | The login page can offer a list of Snowflake accounts; the chosen one is bound to the session so a rebuilt connection cannot silently land elsewhere. |
 | **Workspaces** | Reports, dashboards and explores live in a workspace. Membership decides who may read and who may write — never who created a thing. |

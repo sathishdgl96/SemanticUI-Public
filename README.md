@@ -10,6 +10,8 @@ Spec: docs/superpowers/specs/2026-08-14-foundation-auth-query-gateway-design.md
   organisation, and the guarantee behind each capability.
 - **[docs/SECURITY.md](docs/SECURITY.md)** — the threat model, the
   controls, and the weaknesses that are known and unfixed.
+- **[docs/operations/snowflake-sso.md](docs/operations/snowflake-sso.md)** —
+  app registration and Snowflake security integration, step by step.
 
 ## Quick start
 
