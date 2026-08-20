@@ -3,6 +3,11 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createDashboard, deleteDashboard, listDashboards } from "../api/dashboards";
+import {
+  createComposite,
+  deleteComposite,
+  listComposites,
+} from "../api/composites";
 import { deleteExplore, listExplores } from "../api/explores";
 import { recordView, type ItemType } from "../api/library";
 import { createReport, deleteReport, listReports } from "../api/reports";
@@ -64,6 +69,7 @@ const GLYPH: Record<ItemType, string> = {
   report: "▦",
   dashboard: "▩",
   explore: "◈",
+  composite: "⬡",
 };
 
 /** The columns, in order. `key` is both the CSS class suffix and the
@@ -99,6 +105,7 @@ const LABEL: Record<ItemType, string> = {
   report: "Report",
   dashboard: "Dashboard",
   explore: "Explore",
+  composite: "Model",
 };
 
 /**
@@ -166,6 +173,12 @@ export default function WorkspacePage() {
     queryFn: () => listDashboards(scope),
     enabled: enabled && wants("dashboard"),
     placeholderData: (previous) => previous,
+  });
+
+  const composites = useQuery({
+    queryKey: ["composites", selectedId],
+    queryFn: () => listComposites(selectedId || undefined),
+    enabled: enabled && wants("composite"),
   });
 
   const explores = useQuery({
@@ -236,9 +249,31 @@ export default function WorkspacePage() {
       }
     }
 
+    if (wants("composite")) {
+      for (const composite of composites.data?.composites ?? []) {
+        out.push({
+          kind: "composite",
+          id: composite.id,
+          name: composite.name,
+          // A model reads several views, so naming one would be a lie.
+          detail:
+            composite.memberCount === 1
+              ? "1 view"
+              : `${composite.memberCount} views`,
+          myRole: composite.myRole,
+          workspaceName: composite.workspaceName,
+          createdBy: composite.createdBy ?? "",
+          favorite: composite.favorite,
+          lastViewedAt: composite.lastViewedAt,
+          updatedAt: composite.updatedAt,
+          href: `/models/${composite.id}`,
+        });
+      }
+    }
+
     return sortRows(out, sort);
     // `wants` closes over browse.kind, which is in the list.
-  }, [reports.data, dashboards.data, explores.data, kind, sort]);
+  }, [reports.data, dashboards.data, explores.data, composites.data, kind, sort]);
 
   // Any of the three saying it was cut short means the merged list is
   // incomplete, and a list that is silently a fraction of the truth is
@@ -246,20 +281,24 @@ export default function WorkspacePage() {
   const truncated = Boolean(
     (wants("report") && reports.data?.truncated) ||
       (wants("dashboard") && dashboards.data?.truncated) ||
-      (wants("explore") && explores.data?.truncated),
+      (wants("explore") && explores.data?.truncated) ||
+      (wants("composite") && composites.data?.truncated),
   );
 
   const loading =
     (wants("report") && reports.isLoading) ||
     (wants("dashboard") && dashboards.isLoading) ||
-    (wants("explore") && explores.isLoading);
-  const error = reports.error ?? dashboards.error ?? explores.error;
+    (wants("explore") && explores.isLoading) ||
+    (wants("composite") && composites.isLoading);
+  const error =
+    reports.error ?? dashboards.error ?? explores.error ?? composites.error;
   const filtering = browse.activeFacets.length > 0;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["reports"] });
     queryClient.invalidateQueries({ queryKey: ["dashboards"] });
     queryClient.invalidateQueries({ queryKey: ["explores"] });
+    queryClient.invalidateQueries({ queryKey: ["composites"] });
     queryClient.invalidateQueries({ queryKey: ["home"] });
   };
 
@@ -269,6 +308,7 @@ export default function WorkspacePage() {
   const removeByKind = (item: Item) => {
     if (item.kind === "dashboard") return deleteDashboard(item.id);
     if (item.kind === "explore") return deleteExplore(item.id);
+    if (item.kind === "composite") return deleteComposite(item.id);
     return deleteReport(item.id);
   };
 
@@ -311,7 +351,19 @@ export default function WorkspacePage() {
       ),
   });
 
-  const creating = createTheReport.isPending || createTheDashboard.isPending;
+  const createTheModel = useMutation({
+    mutationFn: () => createComposite("Untitled model", selectedId || undefined),
+    onSuccess: (composite) => navigate(`/models/${composite.id}`),
+    onError: (failure) =>
+      setCreateError(
+        failure instanceof ApiError ? failure.message : "Could not create a model.",
+      ),
+  });
+
+  const creating =
+    createTheReport.isPending ||
+    createTheDashboard.isPending ||
+    createTheModel.isPending;
 
   /** What "Create" offers. Read-only in this workspace disables the two
    *  that write to it, with the reason attached -- an action that vanishes
@@ -358,6 +410,19 @@ export default function WorkspacePage() {
               ? `/explore?workspace=${encodeURIComponent(selectedId)}`
               : "/explore",
           ),
+      },
+      {
+        id: "composite",
+        // Created empty, like a dashboard: a model is authored by naming
+        // views and mapping their columns, so there is something to open
+        // from the first moment.
+        label: "Model over several views",
+        icon: "model",
+        disabledReason: blocked,
+        onSelect: () => {
+          setCreateError(null);
+          createTheModel.mutate();
+        },
       },
       {
         id: "import",

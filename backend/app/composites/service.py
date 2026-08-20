@@ -178,3 +178,31 @@ def detail(db: Session, user_id: uuid.UUID, composite: CompositeModel) -> dict:
     )
     out["definition"] = composite.definition or {}
     return out
+
+
+def import_composite(
+    db: Session, user_id: uuid.UUID, document: dict, workspace_id: str | None
+) -> CompositeModel:
+    """Create a model from an exported document.
+
+    Validated by the same parser a save uses: an import is a way of
+    typing a definition quickly, not a way past the rules. The name comes
+    from the document, because a model's name is part of what was
+    exported.
+    """
+    parsed = parse_definition(document)
+    target = (
+        require_workspace(db, user_id, workspace_id, need="editor").id
+        if workspace_id
+        else personal_workspace_id(db, user_id)
+    )
+    composite = CompositeModel(
+        owner_user_id=user_id,
+        workspace_id=target,
+        name=parsed.name or "Untitled model",
+        definition=parsed.model_dump(by_alias=True),
+    )
+    db.add(composite)
+    db.commit()
+    db.refresh(composite)
+    return composite

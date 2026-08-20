@@ -383,3 +383,70 @@ def test_signed_out_callers_get_401(client, db):
     client.cookies.clear()
     assert client.get("/api/composites").status_code == 401
     assert client.post("/api/composites", json={}).status_code == 401
+
+
+# ------------------------------------------------------- portability
+
+
+def test_export_is_byte_stable_across_two_exports(client, db):
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    first = client.get(f"/api/composites/{created['id']}/export")
+    second = client.get(f"/api/composites/{created['id']}/export")
+    assert first.status_code == 200
+    assert first.text == second.text
+    assert first.text.endswith("\n")
+
+
+def test_an_exported_model_imports_back_to_the_same_thing(client, db):
+    import json
+
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+    document = json.loads(client.get(f"/api/composites/{created['id']}/export").text)
+
+    imported = client.post(
+        "/api/composites/import",
+        json={"definition": document, "workspaceId": str(ws.id)},
+    )
+    assert imported.status_code == 201
+    assert imported.json()["name"] == "Customer 360"
+    assert imported.json()["memberCount"] == 2
+    # And the copy exports identically to its original.
+    again = client.get(f"/api/composites/{imported.json()['id']}/export")
+    assert json.loads(again.text) == document
+
+
+def test_import_validates_exactly_as_a_save_does(client, db):
+    # An import is a fast way to type a definition, not a way past the
+    # rules.
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    refused = client.post(
+        "/api/composites/import",
+        json={
+            "definition": definition(sharedDimensions=[]),
+            "workspaceId": str(ws.id),
+        },
+    )
+    assert refused.status_code == 400
+
+
+def test_import_needs_write_access_to_the_target_workspace(client, db):
+    owner = sign_in(client, db, "ALICE")
+    ws = workspace(db, owner.user_id)
+
+    guest = sign_in(client, db, "BOB")
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=guest.user_id, role="viewer"))
+    db.commit()
+
+    refused = client.post(
+        "/api/composites/import",
+        json={"definition": definition(), "workspaceId": str(ws.id)},
+    )
+    assert refused.status_code == 403

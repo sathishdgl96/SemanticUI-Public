@@ -3,16 +3,17 @@ import type { LibraryParams, LibrarySort } from "../api/library";
 import type { Facet } from "./FacetChips";
 
 /** Which kind of thing a workspace list is showing. A filter rather than
- *  three menus: reports, dashboards and explores all live in a workspace
- *  and are browsed the same way, so what separates them is a control on
- *  one page, not a page each. */
-export type ItemFilter = "all" | "report" | "dashboard" | "explore";
+ *  four menus: reports, dashboards, explores and models all live in a
+ *  workspace and are browsed the same way, so what separates them is a
+ *  control on one page, not a page each. */
+export type ItemFilter = "all" | "report" | "dashboard" | "explore" | "composite";
 
 export const ITEM_FILTERS: { value: ItemFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "report", label: "Reports" },
   { value: "dashboard", label: "Dashboards" },
   { value: "explore", label: "Explores" },
+  { value: "composite", label: "Models" },
 ];
 
 /** The browse state for one list: what is typed, what is filtered, how it is

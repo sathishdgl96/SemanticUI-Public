@@ -1,6 +1,6 @@
 import { apiFetch } from "./client";
 
-export type ItemType = "report" | "explore" | "dashboard";
+export type ItemType = "report" | "explore" | "dashboard" | "composite";
 export type LibrarySort = "recent" | "name" | "updated";
 
 export interface LibraryParams {

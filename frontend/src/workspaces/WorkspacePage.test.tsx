@@ -20,6 +20,11 @@ vi.mock("../api/explores", () => ({
   listExplores: vi.fn().mockResolvedValue({ explores: [] }),
   deleteExplore: vi.fn(),
 }));
+vi.mock("../api/composites", () => ({
+  listComposites: vi.fn().mockResolvedValue({ composites: [] }),
+  createComposite: vi.fn(),
+  deleteComposite: vi.fn(),
+}));
 vi.mock("../api/library", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/library")>()),
   setFavorite: vi.fn().mockResolvedValue({ favorite: true }),
@@ -50,6 +55,7 @@ import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportSummary } from "../api/types";
 import { createDashboard, listDashboards } from "../api/dashboards";
 import { deleteExplore, listExplores } from "../api/explores";
+import { listComposites } from "../api/composites";
 import WorkspacePage from "./WorkspacePage";
 
 const listMock = vi.mocked(listReports);
@@ -59,6 +65,7 @@ const favoriteMock = vi.mocked(setFavorite);
 const viewMock = vi.mocked(recordView);
 const dashboardsMock = vi.mocked(listDashboards);
 const exploresMock = vi.mocked(listExplores);
+const compositesMock = vi.mocked(listComposites);
 const deleteExploreMock = vi.mocked(deleteExplore);
 
 /** An explore summary as the list reads one. */
@@ -126,6 +133,7 @@ beforeEach(() => {
   // is only about reports.
   dashboardsMock.mockReset().mockResolvedValue({ dashboards: [] });
   exploresMock.mockReset().mockResolvedValue({ explores: [] });
+  compositesMock.mockReset().mockResolvedValue({ composites: [], truncated: false });
   deleteExploreMock.mockReset();
 });
 

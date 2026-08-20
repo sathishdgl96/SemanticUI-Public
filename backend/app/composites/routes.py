@@ -10,7 +10,7 @@ definition names warehouse objects, and the audit trail is value-free by
 contract precisely so it can be shown to an operator in full.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -32,6 +32,11 @@ class CreateBody(BaseModel):
 
 class DefinitionBody(BaseModel):
     definition: dict
+
+
+class ImportBody(BaseModel):
+    definition: dict
+    workspaceId: str | None = None
 
 
 class CompositeQueryBody(BaseModel):
@@ -117,8 +122,6 @@ def delete_composite(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ):
-    from fastapi import Response
-
     service.delete_composite(db, sess.user_id, composite_id)
     record(db, "composite.delete", user_id=sess.user_id, session_id=sess.id,
            resource_type="composite", resource_id=composite_id)
@@ -202,3 +205,47 @@ def query_composite(
         # one branch, and saying so is how that stays visible.
         "branches": [branch.alias for branch in stitch.branches],
     }
+
+
+@router.get("/api/composites/{composite_id}/export")
+def export_composite(
+    composite_id: str,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> Response:
+    """The portable document, byte-stable across two exports of one model.
+
+    A composite is a mapping and nothing else, so exporting one carries
+    no data anywhere -- which is what makes it safe to keep in a
+    repository beside the views it describes.
+    """
+    from app.composites.schema import parse_definition, to_export_document
+
+    composite = service.get_composite(db, sess.user_id, composite_id)
+    document = to_export_document(parse_definition(composite.definition or {}))
+    record(db, "composite.read", user_id=sess.user_id, session_id=sess.id,
+           resource_type="composite", resource_id=composite.id,
+           detail={"export": True})
+    return Response(content=document, media_type="application/json")
+
+
+@router.post("/api/composites/import", status_code=201)
+def import_composite(
+    body: ImportBody,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Create a model from an exported document.
+
+    The document is validated exactly as a save is -- an import is not a
+    privileged way in. Member views are NOT resolved here: whether the
+    caller can read them is Snowflake's answer, given the first time the
+    model is queried, on their own connection.
+    """
+    composite = service.import_composite(
+        db, sess.user_id, body.definition, body.workspaceId
+    )
+    record(db, "composite.create", user_id=sess.user_id, session_id=sess.id,
+           resource_type="composite", resource_id=composite.id,
+           detail={"imported": True, **_shape(composite)})
+    return service.detail(db, sess.user_id, composite)

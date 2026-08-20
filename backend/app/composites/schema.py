@@ -293,6 +293,17 @@ def parse_definition(raw: dict) -> CompositeDefinition:
     return definition
 
 
+def to_export_document(definition: CompositeDefinition) -> str:
+    """Serialise portably: sorted keys, stable indent, trailing newline.
+
+    Byte-stable across two exports of the same model, which is what makes
+    an exported definition diffable and reviewable like any other
+    artefact a team keeps.
+    """
+    payload = definition.model_dump(by_alias=True, mode="json")
+    return json.dumps(payload, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+
+
 def blank(name: str) -> dict:
     return {
         "schemaVersion": SCHEMA_VERSION,

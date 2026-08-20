@@ -6020,3 +6020,151 @@ button.model-column:hover {
 }
 
 .mode-switch button:disabled { opacity: 0.45; }
+
+/* --- Composite models -------------------------------------------------
+   Authoring a model over several semantic views. Sections rather than a
+   canvas: what is being written is a mapping, and a mapping reads as a
+   list of statements. */
+.model-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.model-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.model-name {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  padding: 0.4rem 0.6rem;
+}
+
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.model-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.model-section > h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.model-section > table,
+.model-section > .table-scroll,
+.model-section > .model-shared {
+  width: 100%;
+}
+
+.model-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.model-members li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.model-alias {
+  width: 9rem;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.model-view-name {
+  color: var(--muted);
+  font-size: 0.85rem;
+  /* The long part of the row: it shrinks before the alias does, because
+     the alias is what everything else in the model refers to. */
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-shared {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.model-shared-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.model-shared-head input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.model-choices {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.model-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .model-page {
+    padding: 0.75rem;
+  }
+  .model-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+}

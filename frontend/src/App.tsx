@@ -17,6 +17,7 @@ import AdminPage from "./admin/AdminPage";
 import DashboardPage from "./dashboards/DashboardPage";
 import WorkspacePage from "./workspaces/WorkspacePage";
 import BuilderPage from "./reports/BuilderPage";
+import ModelPage from "./models/ModelPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
@@ -98,6 +99,16 @@ export default function App() {
               <RequireAuth>
                 <AppShell>
                   <AdminPage />
+                </AppShell>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/models/:id"
+            element={
+              <RequireAuth>
+                <AppShell>
+                  <ModelPage />
                 </AppShell>
               </RequireAuth>
             }
