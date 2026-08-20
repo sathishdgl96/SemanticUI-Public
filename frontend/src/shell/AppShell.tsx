@@ -8,6 +8,7 @@ import { ProfileMenu } from "../session/ProfileMenu";
 import WorkspacesFlyout from "./WorkspacesFlyout";
 import { amIAppAdmin } from "../api/admin";
 import Icon from "../ui/Icon";
+import AnnouncementBanner from "../announcements/AnnouncementBanner";
 
 /** The PowerBI-style frame every authenticated page sits in: near-black top
  *  bar with the brand mark and identity, and the left nav rail with the
@@ -162,7 +163,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
         {workspacesOpen && <WorkspacesFlyout onClose={() => setWorkspacesOpen(false)} />}
-        <main className="app-content">{children}</main>
+        {/* Above the page rather than on it: a notice you have to be on
+            Home to see is a notice most people miss. */}
+        <main className="app-content">
+          <AnnouncementBanner />
+          {children}
+        </main>
       </div>
     </div>
   );

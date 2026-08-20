@@ -565,12 +565,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.topbar .add-to-report-hint {
-  flex: 0 1 auto;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-
 .columns {
   display: flex;
   flex: 1;
@@ -2255,31 +2249,30 @@ button.secondary:hover,
 
 .content-table .confirm-row [role="alert"] { color: var(--error); }
 
-/* --- a dashboard's announcement ------------------------------------------ */
+/* --- announcements ------------------------------------------------------- */
 
-/* A note from whoever maintains the dashboard, above the tiles. Part of
-   the dashboard rather than a per-user message -- "Q3 is provisional
-   until the 5th" is a fact about the numbers, and everyone reading them
-   needs it. Not dismissible for the same reason: a caveat you can turn
-   off is a caveat half the readers will not have. */
+/* Above every page rather than on one: a notice you have to be on Home to
+   see is a notice most people miss. Not dismissible -- one half the
+   readers have turned off is one half the readers do not have. */
+.announcements {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 10px clamp(12px, 2vw, 28px) 0;
+}
+
 .announcement {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin: 0 clamp(12px, 2vw, 20px);
   padding: 10px 12px;
-  background: var(--accent-wash);
-  border: 1px solid rgba(0, 120, 212, 0.28);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
   border-radius: var(--radius-pane);
-  color: var(--ink);
+  background: var(--surface);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.announcement > .icon {
-  flex: 0 0 auto;
-  margin-top: 1px;
-  color: var(--accent);
 }
 
 .announcement p {
@@ -2289,19 +2282,61 @@ button.secondary:hover,
   overflow-wrap: anywhere;
 }
 
-.announcement-actions {
+/* The badge carries the level for anybody scanning rather than reading.
+   Shape and colour together, so it survives being printed in grey. */
+.announcement-badge {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.announcement.editing {
-  flex-direction: column;
-  align-items: stretch;
+.announcement.level-info {
+  border-left-color: var(--accent);
+  background: var(--accent-wash);
+}
+.announcement.level-info .announcement-badge {
+  background: var(--accent);
+  color: #ffffff;
 }
 
-.announcement textarea {
+.announcement.level-warning {
+  border-left-color: #d99b28;
+  background: rgba(217, 155, 40, 0.1);
+}
+.announcement.level-warning .announcement-badge {
+  background: #d99b28;
+  color: #ffffff;
+}
+
+.announcement.level-critical {
+  border-left-color: var(--error);
+  background: rgba(164, 38, 44, 0.09);
+}
+.announcement.level-critical .announcement-badge {
+  background: var(--error);
+  color: #ffffff;
+}
+
+/* --- managing them ------------------------------------------------------- */
+
+.announcement-message {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role-pill.status-live { background: rgba(16, 124, 16, 0.12); color: #0e6b0e; }
+.role-pill.status-info { background: var(--accent-wash); color: var(--accent); }
+.role-pill.status-muted { background: var(--ink-wash); color: var(--ink-muted); }
+
+.admin-page .member-add textarea {
   width: 100%;
   padding: 8px;
   border: 1px solid var(--border);
@@ -2310,39 +2345,6 @@ button.secondary:hover,
   font-size: 12px;
   resize: vertical;
 }
-
-.announcement-count {
-  margin-right: auto;
-  color: var(--ink-muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Offered, not insisted on: an empty dashboard should not open with a
-   banner-shaped hole in it. */
-.announcement-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: flex-start;
-  margin: 0 clamp(12px, 2vw, 20px);
-  padding: 4px 8px;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: 4px;
-  color: var(--ink-secondary);
-  font-size: 11px;
-  font-weight: 400;
-}
-
-.announcement-add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: transparent;
-}
-
-.home .announcement,
-.home .announcement-add { margin: 0 0 10px; }
 
 /* The direct-credential form is the alternative, not the offer. */
 .login-alternative {

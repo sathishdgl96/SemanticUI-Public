@@ -188,6 +188,7 @@ def create_app() -> FastAPI:
     from app.home.routes import router as home_router
     from app.dashboards.routes import router as dashboards_router
     from app.admin.routes import router as admin_router
+    from app.announcements.routes import router as announcements_router
     from app.session.routes import router as session_router
     from app.reports.routes import router as reports_router
     from app.workspaces.routes import router as workspaces_router
@@ -206,6 +207,7 @@ def create_app() -> FastAPI:
     app.include_router(home_router)
     app.include_router(dashboards_router)
     app.include_router(admin_router)
+    app.include_router(announcements_router)
     app.include_router(session_router)
     app.include_router(workspaces_router)
     app.include_router(ask_router)

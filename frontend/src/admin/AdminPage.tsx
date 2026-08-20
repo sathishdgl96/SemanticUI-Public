@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import ActivityPage from "./ActivityPage";
+import AnnouncementsPage from "./AnnouncementsPage";
 import OperationsPage from "./OperationsPage";
 import SecurityPage from "./SecurityPage";
 
@@ -7,6 +8,7 @@ const TABS = [
   { to: "/admin", label: "Operations", end: true },
   { to: "/admin/activity", label: "Activity log" },
   { to: "/admin/security", label: "Security" },
+  { to: "/admin/announcements", label: "Announcements" },
 ];
 
 /**
@@ -46,6 +48,7 @@ export default function AdminPage() {
         <Route index element={<OperationsPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="security" element={<SecurityPage />} />
+        <Route path="announcements" element={<AnnouncementsPage />} />
       </Routes>
     </main>
   );

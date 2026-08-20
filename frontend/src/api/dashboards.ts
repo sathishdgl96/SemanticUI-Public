@@ -45,9 +45,6 @@ export interface DashboardSummary {
   myRole: Role;
   tileCount: number;
   updatedAt: string | null;
-  /** A note from whoever maintains this dashboard, shown above the tiles
-   *  to everyone who opens it. Null when there is none. */
-  announcement: string | null;
   /** Pinned by THIS caller, and when they last opened it -- the same
    *  browse state reports and explores carry, so one list can hold all
    *  three kinds and sort them together. */
@@ -72,7 +69,6 @@ export interface TileRef {
 export interface DashboardDefinition {
   schemaVersion: number;
   name: string;
-  announcement: string | null;
   tiles: TileRef[];
 }
 

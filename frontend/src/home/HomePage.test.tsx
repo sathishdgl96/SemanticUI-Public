@@ -68,7 +68,6 @@ function dashboard(overrides: Record<string, unknown> = {}) {
     workspaceName: "Team",
     myRole: "editor",
     tileCount: 1,
-    announcement: null,
     updatedAt: new Date().toISOString(),
     tiles: [tile()],
     ...overrides,
@@ -142,42 +141,6 @@ describe("HomePage", () => {
     );
   });
 
-  it("shows the dashboard's announcement", async () => {
-    getHomeMock.mockResolvedValue(
-      payload({
-        dashboard: dashboard({ announcement: "Q3 is provisional." }) as never,
-      }),
-    );
-    renderHome();
-    expect(await screen.findByRole("note", { name: /announcement/i })).toHaveTextContent(
-      "Q3 is provisional.",
-    );
-  });
-
-  it("lets an editor write one without opening the dashboard", async () => {
-    // It is their own dashboard and this is where they look at it.
-    renderHome();
-    await screen.findByTestId("tile");
-    await userEvent.click(screen.getByRole("button", { name: /add an announcement/i }));
-    await userEvent.type(screen.getByLabelText("Announcement"), "Refreshed at 6am.");
-    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
-    await waitFor(() =>
-      expect(updateDashboardMock).toHaveBeenCalledWith(
-        "d1",
-        expect.objectContaining({ announcement: "Refreshed at 6am." }),
-      ),
-    );
-  });
-
-  it("does not offer to write one to someone who may only read it", async () => {
-    getHomeMock.mockResolvedValue(
-      payload({ dashboard: dashboard({ myRole: "viewer" }) as never }),
-    );
-    renderHome();
-    await screen.findByTestId("tile");
-    expect(screen.queryByRole("button", { name: /add an announcement/i })).toBeNull();
-  });
-
   it("offers a dashboard to choose when none is set", async () => {
     // The same state as never having chosen, the chosen one being deleted,
     // and losing access to its workspace -- all three mean "pick one".
@@ -191,7 +154,6 @@ describe("HomePage", () => {
           workspaceName: "Team",
           myRole: "viewer",
           tileCount: 3,
-          announcement: null,
           updatedAt: null,
         },
       ],

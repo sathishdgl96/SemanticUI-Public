@@ -10,6 +10,18 @@ const healthMock = vi.hoisted(() => vi.fn());
 const eventsMock = vi.hoisted(() => vi.fn());
 const securityMock = vi.hoisted(() => vi.fn());
 
+const listAnnouncementsMock = vi.hoisted(() => vi.fn());
+const createAnnouncementMock = vi.hoisted(() => vi.fn());
+const updateAnnouncementMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../api/announcements", () => ({
+  listAnnouncements: listAnnouncementsMock,
+  createAnnouncement: createAnnouncementMock,
+  updateAnnouncement: updateAnnouncementMock,
+  deleteAnnouncement: vi.fn(),
+  getLiveAnnouncements: vi.fn().mockResolvedValue({ announcements: [] }),
+}));
+
 vi.mock("../api/admin", () => ({
   getHealth: healthMock,
   getEvents: eventsMock,
@@ -106,6 +118,22 @@ beforeEach(() => {
   healthMock.mockResolvedValue(health());
   eventsMock.mockResolvedValue(events());
   securityMock.mockResolvedValue(security());
+  listAnnouncementsMock.mockResolvedValue({
+    announcements: [
+      {
+        id: "a1",
+        message: "Snowflake maintenance on Saturday.",
+        level: "warning",
+        active: true,
+        startsAt: new Date().toISOString(),
+        endsAt: null,
+        createdBy: "A_SMITH",
+        updatedAt: null,
+      },
+    ],
+  });
+  createAnnouncementMock.mockResolvedValue({});
+  updateAnnouncementMock.mockResolvedValue({});
 });
 
 describe("Operations", () => {
@@ -320,5 +348,57 @@ describe("the admin shell", () => {
     expect(
       await screen.findByText(/administrators named in this deployment/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Announcements", () => {
+  it("lists what has been announced, and what state each one is in", async () => {
+    // Four states from two dates and a flag; said in words rather than
+    // left to be worked out.
+    renderAdmin("/admin/announcements");
+    expect(
+      await screen.findByText("Snowflake maintenance on Saturday."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Showing")).toBeInTheDocument();
+  });
+
+  it("posts a new one", async () => {
+    renderAdmin("/admin/announcements");
+    await screen.findByText("Snowflake maintenance on Saturday.");
+    await userEvent.type(screen.getByLabelText(/message/i), "Release tonight.");
+    await userEvent.click(screen.getByRole("button", { name: /^post$/i }));
+    await waitFor(() =>
+      expect(createAnnouncementMock).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Release tonight.", level: "info" }),
+      ),
+    );
+  });
+
+  it("will not post an empty one", async () => {
+    renderAdmin("/admin/announcements");
+    await screen.findByText("Snowflake maintenance on Saturday.");
+    expect(screen.getByRole("button", { name: /^post$/i })).toBeDisabled();
+  });
+
+  it("takes one down without deleting it", async () => {
+    renderAdmin("/admin/announcements");
+    await screen.findByText("Snowflake maintenance on Saturday.");
+    await userEvent.click(screen.getByRole("button", { name: /take down/i }));
+    await waitFor(() =>
+      expect(updateAnnouncementMock).toHaveBeenCalledWith("a1", { active: false }),
+    );
+  });
+
+  it("says what the chosen level will do", async () => {
+    renderAdmin("/admin/announcements");
+    await screen.findByText("Snowflake maintenance on Saturday.");
+    await userEvent.selectOptions(screen.getByLabelText(/level/i), "critical");
+    expect(screen.getByText(/interrupts the reader/i)).toBeInTheDocument();
+  });
+
+  it("says so when nothing has been announced", async () => {
+    listAnnouncementsMock.mockResolvedValue({ announcements: [] });
+    renderAdmin("/admin/announcements");
+    expect(await screen.findByText(/nothing has been announced/i)).toBeInTheDocument();
   });
 });

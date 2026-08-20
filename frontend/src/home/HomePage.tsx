@@ -10,7 +10,6 @@ import {
 } from "../api/dashboards";
 import { getHome } from "../api/home";
 import { atLeast } from "../api/workspaces";
-import Announcement from "../dashboards/Announcement";
 import TileGrid from "../dashboards/TileGrid";
 import RecentItems from "./RecentItems";
 
@@ -24,7 +23,6 @@ function definitionOf(
   return {
     schemaVersion: 1,
     name: dashboard.name,
-    announcement: dashboard.announcement,
     tiles: dashboard.tiles.map((tile) => {
       const next = moved.get(tile.id);
       return {
@@ -114,15 +112,6 @@ export default function HomePage() {
     // the whole page on a drag that changed nothing but position.
   });
 
-  const announce = useMutation({
-    mutationFn: (announcement: string | null) =>
-      updateDashboard(dashboard?.id as string, {
-        ...definitionOf(dashboard as DashboardDetail),
-        announcement,
-      }),
-    onSuccess: invalidate,
-  });
-
   const clearChoice = useMutation({
     mutationFn: () => setHomeDashboard(null),
     onSuccess: invalidate,
@@ -182,16 +171,6 @@ export default function HomePage() {
         </h2>
         {home.isLoading ? null : dashboard ? (
           <>
-          {/* Editable here too. It is the reader's own dashboard and
-              this is where they look at it; making them open the
-              dashboard to write a note about it was a restriction with
-              nothing behind it. */}
-          <Announcement
-            text={dashboard.announcement}
-            canEdit={canEdit}
-            saving={announce.isPending}
-            onChange={(next) => announce.mutate(next)}
-          />
           <TileGrid
             tiles={dashboard.tiles}
             canEdit={canEdit}

@@ -12,7 +12,6 @@ import {
 } from "../api/dashboards";
 import { atLeast } from "../api/workspaces";
 import Icon from "../ui/Icon";
-import Announcement from "./Announcement";
 import TileGrid from "./TileGrid";
 
 /** The stored document, rebuilt from what the server resolved. Tiles are
@@ -26,7 +25,6 @@ function definitionOf(
   return {
     schemaVersion: 1,
     name: dashboard.name,
-    announcement: dashboard.announcement,
     tiles: dashboard.tiles.map((tile) => {
       const next = moved.get(tile.id);
       return {
@@ -74,15 +72,6 @@ export default function DashboardPage() {
     // Deliberately NOT invalidating: the grid already shows the new
     // arrangement, and refetching would drop every tile's query and make
     // the whole page flash on a drag that changed nothing but position.
-  });
-
-  const announce = useMutation({
-    mutationFn: (announcement: string | null) =>
-      updateDashboard(dashboardId, {
-        ...definitionOf(dashboard.data as DashboardDetail),
-        announcement,
-      }),
-    onSuccess: invalidate,
   });
 
   const rename = useMutation({
@@ -165,13 +154,6 @@ export default function DashboardPage() {
       {rearrange.isError && (
         <p role="alert">Could not save the new arrangement.</p>
       )}
-
-      <Announcement
-        text={dashboard.data.announcement}
-        canEdit={canEdit}
-        saving={announce.isPending}
-        onChange={(next) => announce.mutate(next)}
-      />
 
       <TileGrid
         tiles={dashboard.data.tiles}

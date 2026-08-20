@@ -337,22 +337,31 @@ export default function ExplorerPage() {
           {saveError && <span role="alert">{saveError}</span>}
         </span>
         <span className="identity-row">
+          {/* The reason lives ON the disabled button rather than beside
+              it. A line of instructions that is always on the page is read
+              once and then becomes furniture; a tooltip on the control
+              that is refusing you arrives exactly when you ask it to do
+              something and it will not. `title` and `aria-label` both,
+              because a tooltip a screen reader cannot reach is a reason
+              only some readers get. */}
           <button
             type="button"
             className="add-to-report"
             onClick={handleAddToReport}
             disabled={!canAddToReport || addToReport.isPending}
-            aria-describedby={
-              selectedView && !canAddToReport ? "add-to-report-hint" : undefined
+            title={
+              selectedView && !canAddToReport
+                ? "Pick a field first — a report starts from something to show."
+                : undefined
+            }
+            aria-label={
+              selectedView && !canAddToReport
+                ? "Add to report — pick a field first"
+                : undefined
             }
           >
             {addToReport.isPending ? "Adding…" : "Add to report"}
           </button>
-          {selectedView && !canAddToReport && (
-            <span id="add-to-report-hint" className="add-to-report-hint">
-              Pick a field to start a report.
-            </span>
-          )}
           {addToReport.isError && (
             <span role="alert">
               {addToReport.error instanceof ApiError

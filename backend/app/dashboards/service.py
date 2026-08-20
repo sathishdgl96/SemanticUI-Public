@@ -50,7 +50,6 @@ def _summary(
         "workspaceId": str(dashboard.workspace_id),
         "workspaceName": workspace.name if workspace else "",
         "myRole": role,
-        "announcement": definition.get("announcement") or None,
         "tileCount": len(definition.get("tiles") or []),
         "updatedAt": dashboard.updated_at.isoformat() if dashboard.updated_at else None,
         #: Who made it. Provenance, never permission (ADR 0009).
@@ -267,7 +266,6 @@ def add_tile(
     tiles.append(tile)
     definition["tiles"] = tiles
     definition.setdefault("schemaVersion", 1)
-    definition.setdefault("announcement", None)
     definition["name"] = dashboard.name
     dashboard.definition = parse_definition(definition).model_dump()
     db.commit()

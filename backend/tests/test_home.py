@@ -141,28 +141,3 @@ def test_home_returns_recents_and_the_chosen_dashboard(client, db):
 
 def test_home_needs_a_session(client):
     assert client.get("/api/home").status_code == 401
-
-
-def test_home_carries_the_dashboards_announcement(client, db):
-    """It is shown on Home, so it has to travel there -- the payload is
-    the only route it has."""
-    sess = sign_in(client, db)
-    ws = workspace(db, sess.user_id, role="admin")
-    made = client.post(
-        "/api/dashboards", json={"name": "Ops", "workspaceId": str(ws.id)}
-    ).json()
-    client.put(
-        f"/api/dashboards/{made['id']}",
-        json={
-            "definition": {
-                "schemaVersion": 1,
-                "name": "Ops",
-                "announcement": "Refreshed at 6am.",
-                "tiles": [],
-            }
-        },
-    )
-    client.put("/api/home/dashboard", json={"dashboardId": made["id"]})
-
-    body = client.get("/api/home").json()
-    assert body["dashboard"]["announcement"] == "Refreshed at 6am."

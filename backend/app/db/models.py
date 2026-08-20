@@ -307,3 +307,44 @@ class Dashboard(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )
+
+
+class Announcement(Base):
+    """A notice from whoever runs this deployment, shown to everyone.
+
+    Its own table and its own section rather than a field on a dashboard.
+    An announcement is not a caption about one set of numbers -- it is
+    "Snowflake is down for maintenance on Saturday", which everybody needs
+    whatever they happen to be looking at, and which nobody should have to
+    open a particular dashboard to find.
+
+    Who may write one comes from the environment, like the rest of the
+    admin area: a broadcast to every user is not a permission any row in
+    this database should be able to grant.
+    """
+
+    __tablename__ = "announcements"
+    __table_args__ = (
+        #: "What is showing right now" is the only read this table gets.
+        Index("ix_announcements_active_starts", "active", "starts_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    message: Mapped[str] = mapped_column(String(500))
+    #: How loudly to say it: "info", "warning" or "critical".
+    level: Mapped[str] = mapped_column(String(16), default="info")
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    #: When it starts mattering, and when it stops. Null end means "until
+    #: somebody turns it off" -- which is right for a standing notice and
+    #: wrong for a maintenance window, so both are offered.
+    starts_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
+    ends_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )

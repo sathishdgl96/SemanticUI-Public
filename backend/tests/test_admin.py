@@ -232,6 +232,10 @@ EXPECTED_ACTIONS = {
     # preferences worth a line
     "session.context",
     "home.dashboard_set",
+    # broadcasts
+    "announcement.create",
+    "announcement.update",
+    "announcement.delete",
 }
 
 
