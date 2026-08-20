@@ -134,7 +134,15 @@ milliseconds.
 
 ## Deployment
 
-- **Containers** with health and readiness probes (`/healthz`, `/readyz`).
+- **One container** — the image builds the SPA and the backend serves
+  it, so the API and the app are a single origin with no CORS anywhere.
+  Health and readiness are separate probes (`/healthz` asks whether the
+  process is alive, `/readyz` does a real database round trip and so
+  answers whether it should take traffic).
+- **Runs on your infrastructure, against your database.** A step-by-step
+  ECS Fargate runbook is [operations/aws-ecs-deployment.md](operations/aws-ecs-deployment.md),
+  including reaching a Postgres server you already own — in another VPC,
+  another cloud, or your own data centre.
 - **PostgreSQL** for application state; SQLite for local development.
 - **Alembic migrations**, forward and reversible.
 - **Branding** — product name, logo, sign-in backdrop and tagline, from

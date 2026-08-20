@@ -72,6 +72,14 @@ a shared NAT. A refusal for rate is itself recorded, which is what the
 security board watches for. The connect-token endpoint is throttled the
 same way.
 
+"Per client" means the address the ASGI server reports, and behind a
+reverse proxy that is the *proxy's* address unless the server is
+configured to trust `X-Forwarded-For` — at which point the property above
+inverts and one person's typos throttle everybody. Deployments must set
+it; [operations/aws-ecs-deployment.md](operations/aws-ecs-deployment.md)
+does, and explains why doing so is safe only when the app's port is
+reachable from the proxy alone.
+
 ---
 
 ## 3. Authorization
@@ -197,6 +205,7 @@ whether to deploy this needs them.
 | 5 | **Listings are bounded, not paginated.** | A workspace with more than 200 items shows the first 200 and says so. | Deliberate: the merged browse draws from three sources and a page number across three lists means nothing. Revisit if a workspace legitimately holds thousands. |
 | 6 | **A real Snowflake account identifier appears in docs and fixtures.** | Not a credential, but it names a real account in a public repository. | Worth scrubbing before wider publication. |
 | 7 | **Explores cannot be moved between workspaces.** | An explore saved into the wrong workspace has to be recreated. | Reports have a move panel; explores do not yet. |
+| 8 | **Sign-in throttling and the OAuth `state` store are per process** (`app/auth/throttle.py`, `app/auth/oauth.py`). | Across N replicas the throttle allows N times the attempts, and a sign-in started on one replica cannot complete on another. | Both belong in Postgres beside the session rows. Until then a multi-replica deployment needs sticky sessions, which pins a browser but not an attacker — see [operations/aws-ecs-deployment.md](operations/aws-ecs-deployment.md). |
 
 ---
 

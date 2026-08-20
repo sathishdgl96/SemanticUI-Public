@@ -12,6 +12,8 @@ Spec: docs/superpowers/specs/2026-08-14-foundation-auth-query-gateway-design.md
   controls, and the weaknesses that are known and unfixed.
 - **[docs/operations/snowflake-sso.md](docs/operations/snowflake-sso.md)** —
   app registration and Snowflake security integration, step by step.
+- **[docs/operations/aws-ecs-deployment.md](docs/operations/aws-ecs-deployment.md)** —
+  ECS Fargate behind an ALB, against a Postgres server you already own.
 
 ## Quick start
 
@@ -282,24 +284,32 @@ The backend refuses to start with `AUTH_MODE=dev` in production.
 
 ### Serving the SPA in production
 
-**The backend does not serve the frontend.** `backend/app/main.py` mounts no
-static files - it is an API-and-auth server only (`/auth/*`, `/api/*`,
-`/healthz`). In local dev this is invisible because the Vite dev server
-proxies `/api` and `/auth` through to the backend on your behalf; there is
-no equivalent proxy in a production build, so an operator who only follows
-the "Configure the backend env" steps above ends up with a backend that
-answers API calls correctly but returns a JSON `404 {"code": "HTTP_ERROR",
-...}` for `GET /` - and `/auth/callback`'s post-login redirect (default
-target `/`) lands there too. Pick one of these two layouts:
+**The backend serves the frontend only if you tell it where the build is.**
+Set `SEMANTICUI_STATIC_DIR` to a directory and `backend/app/main.py` mounts
+it at `/`, falling back to `index.html` for unknown paths so deep links
+work. Leave it unset - the default - and the process is an API-and-auth
+server only (`/auth/*`, `/api/*`, `/healthz`, `/readyz`), which returns a
+JSON `404 {"code": "HTTP_ERROR", ...}` for `GET /`; `/auth/callback`'s
+post-login redirect (default target `/`) then lands there too. In local dev
+none of this shows, because the Vite dev server proxies `/api` and `/auth`
+through to the backend on your behalf and there is no equivalent proxy in a
+production build. Pick one of these three layouts:
 
-1. **Reverse proxy serving both from one origin (recommended).** Point
-   your proxy (nginx, Caddy, a cloud load balancer, etc.) at
-   `frontend/dist` (the output of `cd frontend && npm run build`) for `/`,
-   and proxy `/api/*` and `/auth/*` through to the backend process. Leave
+1. **One container serving both (recommended).** The `Dockerfile` at the
+   repository root builds the SPA, installs the backend, and bakes
+   `SEMANTICUI_STATIC_DIR=/app/static` into the image - so a single process
+   answers `/`, `/api/*` and `/auth/*` on one origin, and no CORS
+   configuration exists anywhere. `docker compose up` runs it against a
+   Postgres container; [docs/operations/aws-ecs-deployment.md](docs/operations/aws-ecs-deployment.md)
+   runs the same image on ECS Fargate against a database you already own.
+2. **Reverse proxy serving both from one origin.** Point your proxy
+   (nginx, Caddy, a cloud load balancer, etc.) at `frontend/dist` (the
+   output of `cd frontend && npm run build`) for `/`, and proxy `/api/*`
+   and `/auth/*` through to the backend process. Leave
    `SEMANTICUI_POST_LOGIN_REDIRECT_URL` at its default (`/`) - the OAuth
    callback's redirect then lands back on the SPA, on the same origin, with
    no CORS configuration needed anywhere.
-2. **Frontend on a separate static host.** Deploy `frontend/dist` to a
+3. **Frontend on a separate static host.** Deploy `frontend/dist` to a
    static host/CDN (S3+CloudFront, Netlify, Vercel static hosting, etc.)
    that is a different origin from the backend, and set
    `SEMANTICUI_POST_LOGIN_REDIRECT_URL=https://<your-frontend-host>/` so
@@ -311,10 +321,11 @@ target `/`) lands there too. Pick one of these two layouts:
    navigates the browser to the backend for `/auth/login` (a top-level
    navigation, not a fetch/XHR) rather than trying to call it cross-origin.
 
-Either way, this backend never renders HTML or ships JS/CSS itself -
-`post_login_redirect_url` is the only knob it exposes for this; the actual
-topology (single origin vs. split) is a deployment decision, not something
-the app hardcodes.
+The backend never *renders* HTML - it serves a built SPA verbatim or
+nothing at all. `static_dir` and `post_login_redirect_url` are the only two
+knobs it exposes here; the actual topology (one container, one origin
+behind a proxy, or split) is a deployment decision, not something the app
+hardcodes.
 
 ## The explorer UI
 
