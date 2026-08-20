@@ -9,7 +9,16 @@ a migration in backend/migrations.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, JSON, LargeBinary, String, UniqueConstraint, Uuid
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    JSON,
+    LargeBinary,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -29,6 +38,11 @@ class User(Base):
     snowflake_account: Mapped[str] = mapped_column(String(255))
     snowflake_user: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    #: The execution context this user last chose, replayed at the next
+    #: login. NULL means they never chose: the token's role and the
+    #: account's default warehouse apply instead.
+    last_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class DbSession(Base):
@@ -110,6 +124,11 @@ class Report(Base):
     view_name: Mapped[str] = mapped_column(String(255))
     #: The portable definition document. JSONB on Postgres, JSON on SQLite.
     definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Provenance: the role and warehouse this was last saved under. A
+    #: browsing facet, never a permission -- membership alone decides
+    #: who may read it (ADR 0009).
+    snowflake_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    snowflake_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
@@ -168,7 +187,38 @@ class SavedExplore(Base):
     view_name: Mapped[str] = mapped_column(String(255))
     #: The explore document: fields, filters, ordering, row cap.
     definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Provenance: the role and warehouse this was last saved under. A
+    #: browsing facet, never a permission -- membership alone decides
+    #: who may read it (ADR 0009).
+    snowflake_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    snowflake_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )
+
+class UserItemState(Base):
+    """One user's relationship to one item: pinned, and last opened.
+
+    Recents and favourites are the same concern -- what this person
+    has done with this item -- so they share a row rather than two
+    tables that must be kept in step. `item_type` is a string because
+    reports and explores are separate tables; a column per kind would
+    grow with every kind added.
+    """
+
+    __tablename__ = "user_item_state"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "item_type", "item_id", name="uq_user_item_state"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    item_type: Mapped[str] = mapped_column(String(16))
+    item_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
