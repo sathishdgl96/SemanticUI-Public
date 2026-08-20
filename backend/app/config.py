@@ -9,11 +9,18 @@ flag or a localhost database refuses to boot rather than run insecure.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import BaseModel, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SECRET_KEY = "dev-secret-change-me"
 MIN_SECRET_KEY_LENGTH = 32
+
+
+class AccountChoice(BaseModel):
+    """One entry in the login dropdown: what to show, what to connect to."""
+
+    label: str
+    account: str
 
 
 class Settings(BaseSettings):
@@ -89,6 +96,11 @@ class Settings(BaseSettings):
     #: with EXTERNAL_OAUTH_TOKEN_USER_MAPPING_CLAIM on the integration.
     oauth_user_claim: str | None = None
 
+    #: Accounts offered at login, as JSON: [{"label": ..., "account": ...}].
+    #: Absent, `snowflake_account` below is the only choice, so a
+    #: single-account deployment needs nothing new.
+    snowflake_accounts: list[AccountChoice] = []
+
     # Where /auth/callback sends the browser after a successful login. The
     # backend does not serve the SPA itself (see README "Serving the SPA
     # in production"), so this must point at wherever the frontend is
@@ -101,6 +113,27 @@ class Settings(BaseSettings):
         "password",
         "keypair",
     ]
+
+    def account_choices(self) -> list[AccountChoice]:
+        """What the login page may offer, single-account included."""
+        if self.snowflake_accounts:
+            return self.snowflake_accounts
+        if self.snowflake_account:
+            return [
+                AccountChoice(label=self.snowflake_account, account=self.snowflake_account)
+            ]
+        return []
+
+    def allows_account(self, account: str | None) -> bool:
+        """Whether a submitted account may be connected to.
+
+        Never trust the request: the account decides which host this app
+        points its credentials at, and an allow-list is the whole reason
+        that cannot be chosen by whoever crafts the URL.
+        """
+        if account is None:
+            return True
+        return any(choice.account == account for choice in self.account_choices())
 
     @model_validator(mode="after")
     def _guard(self) -> "Settings":

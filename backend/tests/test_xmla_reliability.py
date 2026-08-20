@@ -105,7 +105,7 @@ class TestXmlaRetry:
         dying = DyingConnection()
         get_cache().put(sess.id, dying)
         rebuilt = ScriptedConnection()
-        monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None: rebuilt)
+        monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None, account=None: rebuilt)
 
         response = client.post(
             "/xmla", content=discover_body("MDSCHEMA_CUBES"),

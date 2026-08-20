@@ -28,9 +28,11 @@ _STATE_TTL_SECONDS = 600
 # entries on every insert and cap the total count, dropping the oldest
 # entries first once the cap is hit.
 _STATE_MAX_ENTRIES = 10_000
-#: state -> (created, PKCE code_verifier). The verifier lives and dies
-#: with the state: single-use, short TTL, never leaves the server.
-_states: dict[str, tuple[float, str]] = {}
+#: state -> (created, PKCE code_verifier, chosen account). Both ride the
+#: state: single-use, short TTL, never leaving the server. The account
+#: travels here rather than on the callback URL so it cannot be swapped
+#: between the redirect out and the return.
+_states: dict[str, tuple[float, str, str | None]] = {}
 
 
 #: Claims that carry a login name, best first. Entra puts the UPN in
@@ -159,13 +161,13 @@ def _enforce_state_cap() -> None:
             _states.pop(s, None)
 
 
-def make_state() -> str:
+def make_state(account: str | None = None) -> str:
     _prune_expired_states()
     state = secrets.token_urlsafe(16)
     # PKCE (RFC 7636): even a stolen authorization code is useless
     # without the verifier, which only this process ever holds.
     verifier = secrets.token_urlsafe(48)
-    _states[state] = (time.monotonic(), verifier)
+    _states[state] = (time.monotonic(), verifier, account)
     _enforce_state_cap()
     return state
 
@@ -182,16 +184,16 @@ def challenge_for(state: str) -> str | None:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def consume_state(state: str) -> str | None:
-    """Single use: returns the PKCE verifier while the state is live,
-    None otherwise. Truthiness keeps the old call-shape working."""
+def consume_state(state: str) -> tuple[str | None, str | None]:
+    """Single use: (PKCE verifier, chosen account) while the state is
+    live, (None, None) once it is spent or expired."""
     entry = _states.pop(state, None)
     if entry is None:
-        return None
-    created, verifier = entry
+        return None, None
+    created, verifier, account = entry
     if (time.monotonic() - created) >= _STATE_TTL_SECONDS:
-        return None
-    return verifier
+        return None, None
+    return verifier, account
 
 
 def set_state_cookie(response: Response, state: str) -> None:

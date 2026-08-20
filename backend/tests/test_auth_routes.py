@@ -78,8 +78,8 @@ def test_oauth_callback_creates_session_and_caches_conn(make_client, db, monkeyp
 
     conn = FakeConnection()
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier" if s == "good-state" else None)
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None: conn)
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: ("verifier", None) if s == "good-state" else (None, None))
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None, account=None: conn)
     monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
     # Simulate the browser having received the state cookie from a prior
     # /auth/login redirect.
@@ -117,8 +117,8 @@ def test_oauth_callback_redirects_to_configured_post_login_url(
             return TokenResponse("at-1", "rt-1", 600)
 
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier" if s == "good-state" else None)
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None: FakeConnection())
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: ("verifier", None) if s == "good-state" else (None, None))
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None, account=None: FakeConnection())
     monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
     client.cookies.set(OAUTH_STATE_COOKIE, "good-state")
 
@@ -133,7 +133,7 @@ def test_oauth_callback_redirects_to_configured_post_login_url(
 
 def test_oauth_callback_rejects_bad_state(make_client, monkeypatch):
     client = make_client(**OAUTH_ENV)
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: None)
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: (None, None))
     client.cookies.set(OAUTH_STATE_COOKIE, "bad")
     r = client.get(
         "/auth/callback", params={"code": "c", "state": "bad"}, follow_redirects=False
@@ -152,7 +152,7 @@ def test_oauth_callback_rejects_missing_state_cookie(make_client, monkeypatch):
     client = make_client(**OAUTH_ENV)
     consumed = []
     monkeypatch.setattr(
-        oauth_mod, "consume_state", lambda s: consumed.append(s) or "verifier"
+        oauth_mod, "consume_state", lambda s: (consumed.append(s) or "verifier", None)
     )
     r = client.get(
         "/auth/callback",
@@ -168,7 +168,7 @@ def test_oauth_callback_rejects_mismatched_state_cookie(make_client, monkeypatch
     client = make_client(**OAUTH_ENV)
     consumed = []
     monkeypatch.setattr(
-        oauth_mod, "consume_state", lambda s: consumed.append(s) or "verifier"
+        oauth_mod, "consume_state", lambda s: (consumed.append(s) or "verifier", None)
     )
     client.cookies.set(OAUTH_STATE_COOKIE, "attackers-state")
     r = client.get(
@@ -183,7 +183,7 @@ def test_oauth_callback_rejects_mismatched_state_cookie(make_client, monkeypatch
 
 def test_oauth_callback_deletes_state_cookie_on_rejection(make_client, monkeypatch):
     client = make_client(**OAUTH_ENV)
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: ("verifier", None))
     client.cookies.set(OAUTH_STATE_COOKIE, "mismatched")
     r = client.get(
         "/auth/callback",
@@ -211,8 +211,8 @@ def test_oauth_callback_closes_connection_when_probe_identity_fails(
 
     conn = FakeConnection()
     monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
-    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None: conn)
+    monkeypatch.setattr(oauth_mod, "consume_state", lambda s: ("verifier", None))
+    monkeypatch.setattr(sf_connect, "connect_oauth", lambda token, user=None, role=None, account=None: conn)
 
     def boom(c):
         raise RuntimeError("probe failed")

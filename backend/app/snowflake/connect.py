@@ -59,7 +59,10 @@ KEEP_ALIVE = {"client_session_keep_alive": True}
 
 
 def connect_oauth(
-    token: str, user: str | None = None, role: str | None = None
+    token: str,
+    user: str | None = None,
+    role: str | None = None,
+    account: str | None = None,
 ) -> Any:
     """Open a connection with an OAuth access token.
 
@@ -74,7 +77,9 @@ def connect_oauth(
     """
     settings = get_settings()
     kwargs: dict[str, Any] = {
-        "account": settings.snowflake_account,
+        # The account chosen at login when there was a choice; the
+        # single configured one otherwise.
+        "account": account or settings.snowflake_account,
         "authenticator": "oauth",
         "token": token,
         "session_parameters": _session_parameters(),

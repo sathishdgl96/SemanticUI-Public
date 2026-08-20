@@ -19,7 +19,7 @@ from app.auth.sessions import (
 )
 from app.config import get_settings
 from app.db.base import get_db
-from app.db.models import DbSession
+from app.db.models import DbSession, User
 from app.errors import ApiError, AuthExpiredError
 from app.snowflake import connect as sf_connect
 from app.snowflake.provider import get_cache
@@ -41,16 +41,39 @@ def current_session(request: Request, db: Session = Depends(get_db)) -> DbSessio
 
 
 @router.get("/auth/login")
-def oauth_login() -> RedirectResponse:
-    if get_settings().auth_mode != "oauth":
+def oauth_login(account: str | None = None) -> RedirectResponse:
+    settings = get_settings()
+    if settings.auth_mode != "oauth":
         raise ApiError("AUTH_FAILED", 400, "OAuth login is not available in dev mode")
+    if not settings.allows_account(account):
+        # The account decides which host we hand credentials to, so it
+        # comes from configuration and never from the URL.
+        raise ApiError("VALIDATION_ERROR", 400, "Unknown account")
     client = oauth_mod.get_oauth_client()
-    state = oauth_mod.make_state()
+    state = oauth_mod.make_state(account)
     response = RedirectResponse(
         client.authorize_url(state, code_challenge=oauth_mod.challenge_for(state))
     )
     oauth_mod.set_state_cookie(response, state)
     return response
+
+
+def _replay_remembered_context(db: Session, sess: DbSession, conn) -> None:
+    """Put the user back in the role and warehouse they last chose.
+
+    Best effort by design: a remembered role that has since been revoked
+    costs the user a preference, never their login. Losing it silently
+    would be worse than useless, so the gap is logged.
+    """
+    user = db.get(User, sess.user_id)
+    if user is None or not (user.last_role or user.last_warehouse):
+        return
+    from app.session import context
+
+    try:
+        context.apply_context(conn, user.last_role, user.last_warehouse)
+    except Exception as exc:
+        logger.info("remembered context no longer usable, using defaults: %s", exc)
 
 
 def _reject_oauth_callback(message: str, detail: str | None = None) -> JSONResponse:
@@ -88,7 +111,7 @@ def oauth_callback(
     if not cookie_state or not secrets.compare_digest(cookie_state, state):
         return _reject_oauth_callback("Invalid or expired OAuth state")
 
-    verifier = oauth_mod.consume_state(state)
+    verifier, account = oauth_mod.consume_state(state)
     if not verifier:
         return _reject_oauth_callback("Invalid or expired OAuth state")
     try:
@@ -102,6 +125,7 @@ def oauth_callback(
                 tok.access_token, claim=get_settings().oauth_user_claim
             ),
             role=oauth_mod.role_from_token(tok.access_token),
+            account=account,
         )
     except Exception as exc:
         # The IdP authenticated the user and issued a token, but Snowflake
@@ -130,10 +154,13 @@ def oauth_callback(
             detail=f"{exc} | claims in token: {present}",
         )
     try:
-        account, user = sf_connect.probe_identity(conn)
+        # Snowflake's own answer for who this is. Deliberately not named
+        # `account`: that one is the account CHOSEN at login, and the two
+        # are different things (a locator versus an org-account choice).
+        probed_account, user = sf_connect.probe_identity(conn)
         sess = create_session(
             db,
-            account=account,
+            account=probed_account,
             user=user,
             mode="oauth",
             access_token=tok.access_token,
@@ -144,6 +171,7 @@ def oauth_callback(
     except Exception:
         sf_connect.close_quietly(conn)
         raise
+    _replay_remembered_context(db, sess, conn)
     get_cache().put(sess.id, conn)
     response = RedirectResponse(
         get_settings().post_login_redirect_url, status_code=303
@@ -175,6 +203,9 @@ def config() -> dict:
     return {
         "authMode": settings.auth_mode,
         "directLoginMethods": settings.direct_login_methods,
+        # Labels and identifiers only -- nothing here is secret,
+        # and the login page needs it before anyone is signed in.
+        "accounts": [c.model_dump() for c in settings.account_choices()],
     }
 
 

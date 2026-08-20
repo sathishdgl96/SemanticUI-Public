@@ -116,12 +116,12 @@ class TestCallbackUsesTheTokenIdentity:
 
         seen = {}
 
-        def fake_connect(tok, user=None, role=None):
+        def fake_connect(tok, user=None, role=None, account=None):
             seen["token"], seen["user"] = tok, user
             return FakeConnection()
 
         monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-        monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
+        monkeypatch.setattr(oauth_mod, "consume_state", lambda s: ("verifier", None))
         monkeypatch.setattr(sf_connect, "connect_oauth", fake_connect)
         monkeypatch.setattr(sf_connect, "probe_identity",
                             lambda c: ("ACME", "ALICE"))
@@ -153,7 +153,7 @@ class TestRebuildKeepsTheUser:
         )
         seen = {}
 
-        def fake_connect(tok, user=None, role=None):
+        def fake_connect(tok, user=None, role=None, account=None):
             seen["user"] = user
             return FakeConnection()
 

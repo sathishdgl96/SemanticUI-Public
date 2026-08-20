@@ -74,11 +74,13 @@ def test_refresh_raises_on_4xx(settings):
 
 def test_state_is_single_use():
     s = make_state()
-    # consume now yields the PKCE verifier while live, None after.
-    verifier = consume_state(s)
+    # consume now yields (verifier, account) while live, (None, None)
+    # after: the account chosen at login rides the state too.
+    verifier, account = consume_state(s)
     assert isinstance(verifier, str) and len(verifier) >= 43
-    assert consume_state(s) is None
-    assert consume_state("unknown") is None
+    assert account is None
+    assert consume_state(s) == (None, None)
+    assert consume_state("unknown") == (None, None)
 
 
 def test_make_state_prunes_expired_entries(monkeypatch):

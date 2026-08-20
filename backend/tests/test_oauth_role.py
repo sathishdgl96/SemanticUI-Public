@@ -93,12 +93,12 @@ class TestCallbackAsksForTheGrantedRole:
 
         seen = {}
 
-        def fake_connect(tok, user=None, role=None):
+        def fake_connect(tok, user=None, role=None, account=None):
             seen.update(user=user, role=role)
             return FakeConnection()
 
         monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
-        monkeypatch.setattr(oauth_mod, "consume_state", lambda s: "verifier")
+        monkeypatch.setattr(oauth_mod, "consume_state", lambda s: ("verifier", None))
         monkeypatch.setattr(sf_connect, "connect_oauth", fake_connect)
         monkeypatch.setattr(sf_connect, "probe_identity", lambda c: ("ACME", "ALICE"))
         client.cookies.set(OAUTH_STATE_COOKIE, "good-state")
@@ -127,7 +127,7 @@ class TestRebuildAsksForItToo:
         )
         seen = {}
 
-        def fake_connect(tok, user=None, role=None):
+        def fake_connect(tok, user=None, role=None, account=None):
             seen.update(user=user, role=role)
             return FakeConnection()
 
