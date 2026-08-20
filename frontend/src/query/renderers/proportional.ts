@@ -35,9 +35,33 @@ function slices(visual: Visual, result: QueryResponse): Slice[] | null {
   const vi = columnIndex(result, fieldName(valueRef));
   if (li < 0 || vi < 0) return null;
 
-  return result.rows.map((row, i) => ({
-    name: String(row[li] ?? ""),
-    value: Number(row[vi] ?? 0),
+  return foldByLabel(result.rows, li, vi, custom);
+}
+
+/** One entry per distinct label, values summed.
+ *
+ *  A one-by-one visual can be handed rows at a finer grain than it draws --
+ *  a result from before the visual type changed, or a report whose query was
+ *  built elsewhere. Taken row by row that renders the same label two or more
+ *  times, each holding a fraction of its own total, which is a wrong answer
+ *  rather than an untidy one. Colour is assigned after folding so each label
+ *  gets exactly one.
+ */
+export function foldByLabel(
+  rows: unknown[][],
+  labelIndex: number,
+  valueIndex: number,
+  custom: string[],
+): Slice[] {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const name = String(row[labelIndex] ?? "");
+    const value = Number(row[valueIndex] ?? 0);
+    totals.set(name, (totals.get(name) ?? 0) + (Number.isFinite(value) ? value : 0));
+  }
+  return [...totals].map(([name, value], i) => ({
+    name,
+    value,
     itemStyle: { color: custom[i] ?? SERIES_COLORS[i % SERIES_COLORS.length] },
   }));
 }
@@ -108,12 +132,21 @@ export function gaugeOption(
   if (!valueRef) return null;
   const vi = columnIndex(result, fieldName(valueRef));
   if (vi < 0) return null;
-  const value = Number(result.rows[0]?.[vi] ?? 0);
+  // The TOTAL, not the first row. A gauge shows one number, so given rows
+  // split by a dimension it was showing whichever group happened to sort
+  // first -- a number that looks plausible and is simply wrong.
+  const sum = (index: number): number =>
+    result.rows.reduce((total, row) => {
+      const value = Number(row[index] ?? 0);
+      return total + (Number.isFinite(value) ? value : 0);
+    }, 0);
+
+  const value = sum(vi);
   if (!Number.isFinite(value)) return null;
 
   const targetRef = (visual.wells.target ?? [])[0];
   const ti = targetRef ? columnIndex(result, fieldName(targetRef)) : -1;
-  const target = ti >= 0 ? Number(result.rows[0]?.[ti] ?? 0) : null;
+  const target = ti >= 0 ? sum(ti) : null;
   const max = target && Number.isFinite(target) && target > 0 ? target : value || 1;
 
   return {

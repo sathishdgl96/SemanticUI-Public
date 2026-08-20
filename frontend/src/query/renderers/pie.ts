@@ -1,7 +1,8 @@
 import type { QueryResponse, Visual } from "../../api/types";
-import { CHART_INK, SERIES_COLORS } from "../palette";
+import { CHART_INK } from "../palette";
 import { hexList } from "./categorical";
 import type { PieOptionLike } from "./categorical";
+import { foldByLabel } from "./proportional";
 
 export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike | null {
   // The author's colours, if any; the shared palette otherwise. See
@@ -16,11 +17,13 @@ export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike 
   const vi = valueRef ? idx(name(valueRef)) : -1;
   if (li < 0 || vi < 0) return null;
 
-  const data = result.rows.map((row, i) => ({
-    name: String(row[li] ?? ""),
-    value: Number(row[vi] ?? 0),
+  // Folded to one slice per label: rows at a finer grain than the pie draws
+  // would otherwise put the same label on the dial two or three times, each
+  // holding a fraction of its own total.
+  const data = foldByLabel(result.rows, li, vi, custom).map((slice) => ({
+    ...slice,
     itemStyle: {
-      color: custom[i] ?? SERIES_COLORS[i % SERIES_COLORS.length],
+      ...slice.itemStyle,
       borderColor: CHART_INK.surface,
       borderWidth: 2, // the 2px surface gap between adjacent fills
     },

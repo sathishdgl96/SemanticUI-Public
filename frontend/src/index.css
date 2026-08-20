@@ -3881,3 +3881,45 @@ body {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+/* --- Sortable table headers ----------------------------------------- */
+
+/* The whole header is the target, so the click area matches what the eye
+   reads as the control. Inherits the header's own type rather than the
+   brand button styling, which would turn a table head into a row of
+   yellow buttons. */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 2px;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--accent);
+}
+
+/* Reserved whether or not this column is the sorted one, so the headers
+   do not shift sideways as the arrow moves between them. */
+.th-sort-arrow {
+  display: inline-block;
+  min-width: 0.75em;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* A numeric header keeps its figures right-aligned; the arrow follows the
+   label rather than floating away from it. */
+.th-sort-numeric {
+  justify-content: flex-end;
+}

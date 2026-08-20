@@ -30,7 +30,9 @@ import {
 import { useFieldSensors } from "./dndSensors";
 import FieldPanel from "./FieldPanel";
 import ViewTree from "./ViewTree";
-import { canRender, effectiveType, exploreVisual, unusedFields } from "./vizTypes";
+import {
+  canRender, effectiveType, exploreVisual, queryFieldsFor, unusedFields,
+} from "./vizTypes";
 import WellPanel from "./WellPanel";
 import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
 
@@ -203,7 +205,12 @@ export default function ExplorerPage() {
 
   function runQuery() {
     if (!selectedView) return;
-    const { dimensions, metrics } = wellsToQuery(wells);
+    // Grouped by what the visual DRAWS. Following the selection
+    // instead split each category across several rows, so a pie
+    // drew one label twice at half its value and a gauge read one
+    // arbitrary group -- and no client-side sum can recover a
+    // non-additive measure computed at the wrong grain.
+    const { dimensions, metrics } = queryFieldsFor(visualType, wells);
     run.mutate({
       database: selectedView.database,
       schema: selectedView.schema,
