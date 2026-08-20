@@ -90,10 +90,18 @@ describe("ModelDiagram", () => {
     );
   });
 
-  it("defines both cardinality markers once", () => {
+  it("defines both cardinality markers, plain and highlighted", () => {
     const { container } = draw();
-    expect(container.querySelector("#model-many")).toBeInTheDocument();
-    expect(container.querySelector("#model-one")).toBeInTheDocument();
+    for (const id of ["model-many", "model-one", "model-many-on", "model-one-on"]) {
+      expect(container.querySelector(`#${id}`), id).toBeInTheDocument();
+    }
+  });
+
+  it("offers zoom and fit", () => {
+    draw();
+    for (const name of [/zoom in/i, /zoom out/i, /fit to screen/i]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
   });
 
   it("says so when a view declares no tables", () => {
@@ -120,7 +128,7 @@ describe("wide tables", () => {
 
   it("offers to show the fields that did not fit", async () => {
     draw({ detail: wide });
-    const more = screen.getByRole("button", { name: /\+4 more/ });
+    const more = screen.getByRole("button", { name: /\+8 more/ });
     expect(screen.queryByText("D13")).not.toBeInTheDocument();
 
     await userEvent.click(more);

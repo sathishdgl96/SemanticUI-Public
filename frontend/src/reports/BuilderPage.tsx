@@ -346,6 +346,12 @@ export default function BuilderPage() {
               onSwitchPage={switchPage}
               onPageOp={applyPageOp}
             />
+            {/* The rail acts on the report: filters, the visual being
+                edited, the fields going into it. In model view there is no
+                visual and nothing to filter, so the rail is three panes of
+                controls for something that is not on screen -- and the
+                diagram is what wants the width. */}
+            {ui.mode !== "model" && (
             <aside className="builder-rail">
               <Pane title="Filters" defaultCollapsed={ui.startFiltersCollapsed}>
                 <FilterPane
@@ -397,6 +403,7 @@ export default function BuilderPage() {
                 }
               />
             </aside>
+            )}
           </div>
         </DndContext>
       )}

@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, Fragment, useContext } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { handleId, type ModelColumn, type TableNode as TableNodeType } from "./graph";
 import type { TableState } from "./relatedness";
@@ -31,43 +31,57 @@ function shortType(dataType: string | null): string {
   return dataType.split("(")[0].toUpperCase().slice(0, 8);
 }
 
-/** The four handles a join key row offers.
+const SIDES = {
+  left: Position.Left,
+  right: Position.Right,
+  top: Position.Top,
+  bottom: Position.Bottom,
+} as const;
+
+/**
+ * Anchors an edge can attach to.
  *
- *  Both sides and both roles, because which one an edge uses is decided
- *  after layout from the relative position of the two cards -- a line
- *  arriving at the side it should have left from loops back over its own
- *  card. React Flow resolves a source handle only among source handles,
- *  so both roles have to exist at both sides. */
-function KeyHandles({ column }: { column: string }) {
+ * Every side and both roles, because which one an edge uses is decided
+ * after layout from the relative position of the two cards -- a line
+ * arriving at the side it should have left from loops back over its own
+ * card. React Flow resolves a source handle only among source handles, so
+ * both roles have to exist at every side.
+ *
+ * A key row offers only left and right: it is 26px tall and the width of
+ * the card, so its top edge IS the card's top edge and anchoring there
+ * would say nothing. The card itself offers all four.
+ */
+function Anchors({
+  column,
+  sides,
+}: {
+  column: string;
+  sides: readonly (keyof typeof SIDES)[];
+}) {
   return (
     <>
-      <Handle
-        type="source"
-        position={Position.Left}
-        id={handleId("source", "left", column)}
-        isConnectable={false}
-      />
-      <Handle
-        type="target"
-        position={Position.Left}
-        id={handleId("target", "left", column)}
-        isConnectable={false}
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id={handleId("source", "right", column)}
-        isConnectable={false}
-      />
-      <Handle
-        type="target"
-        position={Position.Right}
-        id={handleId("target", "right", column)}
-        isConnectable={false}
-      />
+      {sides.map((side) => (
+        <Fragment key={side}>
+          <Handle
+            type="source"
+            position={SIDES[side]}
+            id={handleId("source", side, column)}
+            isConnectable={false}
+          />
+          <Handle
+            type="target"
+            position={SIDES[side]}
+            id={handleId("target", side, column)}
+            isConnectable={false}
+          />
+        </Fragment>
+      ))}
     </>
   );
 }
+
+const ROW_SIDES = ["left", "right"] as const;
+const CARD_SIDES = ["left", "right", "top", "bottom"] as const;
 
 function ColumnRow({
   column,
@@ -104,7 +118,9 @@ function ColumnRow({
 
   return (
     <li className="model-column-row">
-      {column.kind === "key" && <KeyHandles column={column.name} />}
+      {column.kind === "key" && (
+        <Anchors column={column.name} sides={ROW_SIDES} />
+      )}
       {column.ref ? (
         // `nodrag` or pressing a column would drag the card instead.
         <button
@@ -156,9 +172,10 @@ export default function TableNode({ data }: NodeProps<TableNodeType>) {
 
   return (
     <div className={classes} data-table={data.table}>
-      {/* The card's own anchors, for a relationship whose describe
-          carried no key columns to attach to. */}
-      <KeyHandles column="" />
+      {/* The card's own anchors: for a relationship whose describe
+          carried no key columns, and for one running vertically, where a
+          row has no edge of its own to offer. */}
+      <Anchors column="" sides={CARD_SIDES} />
 
       <button
         type="button"

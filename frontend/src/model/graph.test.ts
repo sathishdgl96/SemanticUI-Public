@@ -108,11 +108,74 @@ describe("buildGraph", () => {
     );
   });
 
-  it("does not lay a chain out as a single row", () => {
-    // The whole point of using the pane: a three-table chain that comes
-    // out as one flat line wastes every pixel above and below it.
+  it("lays a chain out along the wide axis", () => {
+    // A three-table chain has one shape; what the layout gets to choose is
+    // which way it points, and a landscape pane wants it pointing across.
     const { nodes } = buildGraph(DETAIL);
-    expect(new Set(nodes.map((n) => Math.round(n.position.x))).size).toBeGreaterThan(1);
+    const span = (values: number[]) => Math.max(...values) - Math.min(...values);
+    expect(span(nodes.map((n) => n.position.x))).toBeGreaterThan(
+      span(nodes.map((n) => n.position.y)),
+    );
+  });
+
+  it("turns a star schema across the pane rather than stacking it", () => {
+    // Left-to-right would put all six dimensions in one vertical rank: a
+    // tall thin ribbon that has to be scaled to nothing before it fits a
+    // landscape pane. Top-to-bottom spreads that rank across the width.
+    const star: SemanticViewDetail = {
+      tables: [{ name: "SALES" }, ...Array.from({ length: 6 }, (_, i) => ({ name: `D${i}` }))],
+      relationships: Array.from({ length: 6 }, (_, i) => ({
+        name: `R${i}`,
+        table: "SALES",
+        refTable: `D${i}`,
+        foreignKey: [`S_K${i}`],
+        refKey: [`D_K${i}`],
+      })),
+      // Fields, not bare tables: a rank of six one-row cards is short
+      // enough that stacking it is fine. It is six REAL dimension cards
+      // that make the vertical rank taller than any pane.
+      dimensions: Array.from({ length: 6 }, (_, t) =>
+        Array.from({ length: 6 }, (_, f) => ({
+          table: `D${t}`,
+          name: `D${t}_F${f}`,
+          dataType: "TEXT",
+        })),
+      ).flat(),
+      metrics: [],
+      facts: [],
+    };
+    const { nodes } = buildGraph(star);
+    const span = (values: number[]) => Math.max(...values) - Math.min(...values);
+    expect(span(nodes.map((n) => n.position.x))).toBeGreaterThan(
+      span(nodes.map((n) => n.position.y)),
+    );
+  });
+
+  it("anchors to the card, not to a key row, when an edge runs vertically", () => {
+    // A row is 26px tall and the width of the card, so its top edge IS the
+    // card's top edge -- anchoring a vertical line there would say nothing.
+    const star: SemanticViewDetail = {
+      tables: [{ name: "SALES" }, ...Array.from({ length: 6 }, (_, i) => ({ name: `D${i}` }))],
+      relationships: Array.from({ length: 6 }, (_, i) => ({
+        name: `R${i}`,
+        table: "SALES",
+        refTable: `D${i}`,
+        foreignKey: [`S_K${i}`],
+        refKey: [`D_K${i}`],
+      })),
+      dimensions: Array.from({ length: 6 }, (_, t) =>
+        Array.from({ length: 6 }, (_, f) => ({
+          table: `D${t}`,
+          name: `D${t}_F${f}`,
+          dataType: "TEXT",
+        })),
+      ).flat(),
+      metrics: [],
+      facts: [],
+    };
+    const edge = buildGraph(star).edges.find((e) => e.id === "R3")!;
+    expect(edge.sourceHandle).toBe(handleId("source", "bottom", ""));
+    expect(edge.targetHandle).toBe(handleId("target", "top", ""));
   });
 
   it("anchors an edge to the key column the join is declared on", () => {
@@ -134,8 +197,11 @@ describe("buildGraph", () => {
     // many-to-one by construction, and reports no cardinality of its own --
     // so one-to-one is never claimed.
     const edge = buildGraph(DETAIL).edges[0];
-    expect(edge.markerStart).toContain("model-many");
-    expect(edge.markerEnd).toContain("model-one");
+    // The bare id, exactly: React Flow wraps a string marker itself as
+    // url('#<id>'), so the url() form yielded url('#url(#model-many)')
+    // and no crow's foot rendered at all.
+    expect(edge.markerStart).toBe("model-many");
+    expect(edge.markerEnd).toBe("model-one");
     expect(edge.data?.on).toBe("C_NATIONKEY = N_NATIONKEY");
   });
 

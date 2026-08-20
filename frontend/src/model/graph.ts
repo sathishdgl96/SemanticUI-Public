@@ -18,10 +18,24 @@ export const NODE_HEADER = 40;
 export const ROW_HEIGHT = 26;
 /** Rows a card shows before it offers to expand. Join keys are never
  *  counted against this: an edge anchors to its key row, so a hidden key
- *  would leave the edge with nothing to attach to. */
-export const PREVIEW_ROWS = 10;
+ *  would leave the edge with nothing to attach to.
+ *
+ *  Deliberately small. Every extra row is height the whole diagram has to
+ *  be scaled down by to fit, and a card is meant to say what a table IS,
+ *  not to be its field list -- the panel on the right is that. */
+export const PREVIEW_ROWS = 6;
 /** The "+N more" row. */
 export const MORE_HEIGHT = 22;
+/** Space between ranks, and between cards within a rank. */
+const RANK_SEP = 110;
+const NODE_SEP = 30;
+/** A stand-in for the pane, used only to compare two candidate layouts.
+ *  Its absolute size does not matter -- scaling it scales both candidates'
+ *  fit equally -- so what this really says is "the pane is landscape". */
+const REFERENCE_PANE = { width: 1600, height: 900 };
+/** How much bigger top-to-bottom has to come out before it is worth
+ *  leaving the left-to-right convention for. */
+const TURN_THRESHOLD = 1.15;
 
 export interface ModelColumn {
   name: string;
@@ -57,11 +71,17 @@ export interface ModelEdgeData extends Record<string, unknown> {
 
 export type ModelEdge = Edge<ModelEdgeData>;
 
+export type Side = "left" | "right" | "top" | "bottom";
+
+/** Crow's-foot marker ids, defined once in ModelDiagram's <defs>. */
+export const MANY = "model-many";
+export const ONE = "model-one";
+
 /** Both ends of a handle id, so the node component and the edge builder
  *  cannot drift apart on the format. */
 export function handleId(
   type: "source" | "target",
-  side: "left" | "right",
+  side: Side,
   column: string,
 ): string {
   return `${type}:${side}:${column}`;
@@ -143,12 +163,70 @@ export function nodeHeight(rows: number, more: boolean): number {
   return NODE_HEADER + rows * ROW_HEIGHT + (more ? MORE_HEIGHT : 0) + 8;
 }
 
+interface Placed {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Run dagre once, in one direction. */
+function place(
+  rankdir: "LR" | "TB",
+  sizes: Map<string, { width: number; height: number }>,
+  relationships: Relationship[],
+): { at: Map<string, Placed>; width: number; height: number } {
+  const graph = new Graph({ multigraph: true });
+  graph.setGraph({
+    rankdir,
+    ranksep: RANK_SEP,
+    nodesep: NODE_SEP,
+    marginx: 24,
+    marginy: 24,
+  });
+  graph.setDefaultEdgeLabel(() => ({}));
+  for (const [table, size] of sizes) graph.setNode(table, { ...size });
+  for (const relationship of relationships) {
+    graph.setEdge(
+      relationship.table as string,
+      relationship.refTable as string,
+      {},
+      relationship.name,
+    );
+  }
+  layout(graph);
+
+  const at = new Map<string, Placed>();
+  for (const table of sizes.keys()) at.set(table, graph.node(table) as Placed);
+  const size = graph.graph() as { width?: number; height?: number };
+  return { at, width: size.width ?? 1, height: size.height ?? 1 };
+}
+
+/** What fit-to-screen would scale this layout by. The question is not
+ *  which shape is prettier but which one shows up bigger, and those are
+ *  different: a layout closer to the pane's aspect ratio can still be the
+ *  smaller of the two once both are actually fitted. */
+function fitScale(width: number, height: number): number {
+  return Math.min(
+    REFERENCE_PANE.width / Math.max(width, 1),
+    REFERENCE_PANE.height / Math.max(height, 1),
+  );
+}
+
 /**
  * Nodes and edges, positioned.
  *
+ * Laid out twice and the better one kept. Left-to-right is the ER
+ * convention and it keeps a join edge anchored to the key ROW it is
+ * declared on -- but a star schema in LR puts every dimension in one
+ * vertical rank, which on a landscape pane is a tall thin ribbon that has
+ * to be scaled to nothing before it fits. Top-to-bottom spreads that same
+ * rank across the width. Which of the two wins depends on the model, so
+ * the model decides.
+ *
  * `expanded` names the tables showing all of their fields. Expanding one
- * changes its height, so the whole graph is laid out again -- cheap, and
- * it keeps cards from overlapping the moment one of them grows.
+ * changes its height, so the whole graph is laid out again -- cheap at
+ * this size, and it keeps cards from overlapping the moment one grows.
  */
 export function buildGraph(
   detail: SemanticViewDetail,
@@ -163,17 +241,8 @@ export function buildGraph(
   const columns = columnsByTable(detail);
   const references = new Set(relationships.map((r) => r.table as string));
 
-  const graph = new Graph({ multigraph: true });
-  graph.setGraph({
-    rankdir: "LR",
-    ranksep: 150,
-    nodesep: 44,
-    marginx: 32,
-    marginy: 32,
-  });
-  graph.setDefaultEdgeLabel(() => ({}));
-
   const data = new Map<string, TableNodeData>();
+  const sizes = new Map<string, { width: number; height: number }>();
   for (const table of tables) {
     const all = columns.get(table) ?? [];
     const shown = visibleColumns(all, expanded.has(table));
@@ -186,24 +255,27 @@ export function buildGraph(
       fieldCount: all.filter((c) => c.kind !== "key").length,
       expanded: expanded.has(table),
     });
-    graph.setNode(table, {
+    sizes.set(table, {
       width: NODE_WIDTH,
       height: nodeHeight(shown.length, hidden > 0),
     });
   }
-  for (const relationship of relationships) {
-    graph.setEdge(
-      relationship.table as string,
-      relationship.refTable as string,
-      {},
-      relationship.name,
-    );
-  }
 
-  layout(graph);
+  const wide = place("LR", sizes, relationships);
+  const tall = place("TB", sizes, relationships);
+  // Left-to-right is the default and has to be BEATEN, not merely tied:
+  // it is the ER convention, and it is the orientation that anchors edges
+  // to key rows. A few percent is noise -- what it would buy in scale it
+  // would lose by turning the same model sideways between one view and
+  // the next.
+  const chosen =
+    fitScale(tall.width, tall.height) >
+    fitScale(wide.width, wide.height) * TURN_THRESHOLD
+      ? tall
+      : wide;
 
   const nodes: TableNode[] = tables.map((table) => {
-    const placed = graph.node(table) as { x: number; y: number; width: number; height: number };
+    const placed = chosen.at.get(table) as Placed;
     return {
       id: table,
       type: "table" as const,
@@ -217,17 +289,39 @@ export function buildGraph(
     };
   });
 
-  const at = new Map(nodes.map((n) => [n.id, n]));
   const edges: ModelEdge[] = relationships.map((relationship) => {
     const from = relationship.table as string;
     const to = relationship.refTable as string;
-    // Which side of each card the line leaves and arrives at. dagre lays
-    // ranks out left to right, but a back edge can still run the other
-    // way, and a line entering the side it should have left from loops
-    // back over its own card.
-    const forward = (at.get(to)?.position.x ?? 0) >= (at.get(from)?.position.x ?? 0);
+    const a = chosen.at.get(from) as Placed;
+    const b = chosen.at.get(to) as Placed;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
     const foreign = relationship.foreignKey?.[0] ?? "";
     const referenced = relationship.refKey?.[0] ?? "";
+
+    // Which side of each card the line leaves and arrives at. A line that
+    // enters the side it should have left from loops back over its own
+    // card, so the sides follow the separation rather than the rank
+    // direction -- a back edge runs the other way in either layout.
+    //
+    // Sideways it anchors to the key ROW, which is the point of the whole
+    // arrangement. Vertically it cannot: a row is 26px tall and the width
+    // of the card, so its top edge is the card's top edge. It anchors to
+    // the card instead, and says so by using the card's own handle.
+    let sourceSide: Side;
+    let targetSide: Side;
+    let sourceColumn = foreign;
+    let targetColumn = referenced;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      sourceSide = dx >= 0 ? "right" : "left";
+      targetSide = dx >= 0 ? "left" : "right";
+    } else {
+      sourceSide = dy >= 0 ? "bottom" : "top";
+      targetSide = dy >= 0 ? "top" : "bottom";
+      sourceColumn = "";
+      targetColumn = "";
+    }
+
     const on =
       relationship.foreignKey?.length && relationship.refKey?.length
         ? `${relationship.foreignKey.join(", ")} = ${relationship.refKey.join(", ")}`
@@ -236,16 +330,19 @@ export function buildGraph(
       id: relationship.name,
       source: from,
       target: to,
-      sourceHandle: handleId("source", forward ? "right" : "left", foreign),
-      targetHandle: handleId("target", forward ? "left" : "right", referenced),
+      sourceHandle: handleId("source", sourceSide, sourceColumn),
+      targetHandle: handleId("target", targetSide, targetColumn),
       type: "smoothstep",
       // Crow's foot: many at the foreign key, one at the referenced key.
       // A semantic view's relationship is many-to-one by construction --
       // it declares a foreign key against a referenced key -- and
       // Snowflake reports no cardinality of its own, so one-to-one is
       // never claimed.
-      markerStart: "url(#model-many)",
-      markerEnd: "url(#model-one)",
+      // The bare id, not a url(): React Flow wraps a string marker itself
+      // as url('#<id>'), so passing the url() form produced
+      // url('#url(#model-many)') and no marker rendered at all.
+      markerStart: MANY,
+      markerEnd: ONE,
       data: { on, from, to },
     };
   });

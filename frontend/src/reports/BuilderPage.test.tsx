@@ -809,6 +809,23 @@ describe("BuilderPage Excel export", () => {
 describe("BuilderPage PBI panes", () => {
   beforeEach(() => stubApi());
 
+  it("gives the model view the whole surface", async () => {
+    // The rail acts on the report: filters, the visual being edited, the
+    // fields going into it. In model view there is no visual and nothing
+    // to filter, so three panes of controls for something that is not on
+    // screen would be taking width the diagram wants.
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(await screen.findByLabelText(/search fields/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^model$/i }));
+    expect(screen.queryByLabelText(/search fields/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /collapse data/i })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /^report$/i }));
+    expect(await screen.findByLabelText(/search fields/i)).toBeInTheDocument();
+  });
+
   it("collapsing the Data pane tucks it into a strip and back", async () => {
     renderBuilder();
     await screen.findByDisplayValue("Sales overview");

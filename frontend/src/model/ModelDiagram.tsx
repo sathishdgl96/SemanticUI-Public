@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
-  Controls,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
@@ -11,7 +10,13 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { SemanticViewDetail } from "../api/types";
-import { buildGraph, type ModelEdge, type TableNode as TableNodeType } from "./graph";
+import {
+  buildGraph,
+  MANY,
+  ONE,
+  type ModelEdge,
+  type TableNode as TableNodeType,
+} from "./graph";
 import { highlightFor } from "./relatedness";
 import TableNode, { ModelNodeContext } from "./TableNode";
 
@@ -20,7 +25,88 @@ const nodeTypes = { table: TableNode };
 /** Fit, but never past the point where a column row stops being readable.
  *  Past that the reader is better served by a scrollable diagram at a
  *  size they can read than by a complete one they cannot. */
-const FIT = { padding: 0.18, minZoom: 0.55, maxZoom: 1 };
+const FIT = { padding: 0.12, minZoom: 0.55, maxZoom: 1 };
+
+/** Crow's foot, drawn twice: once in the line colour and once in the
+ *  accent, because a marker is a shared definition and cannot take its
+ *  colour from the edge that references it. */
+function Markers() {
+  return (
+    <svg className="model-defs" aria-hidden="true">
+      <defs>
+        {[
+          { suffix: "", className: "model-marker" },
+          { suffix: "-on", className: "model-marker on" },
+        ].map(({ suffix, className }) => (
+          <g key={suffix || "base"}>
+            {/* The MANY end, at the foreign key. Drawn pointing back down
+                the line, which is what auto-start-reverse means on a
+                marker-start. */}
+            <marker
+              id={`${MANY}${suffix}`}
+              viewBox="0 0 14 14"
+              refX="13"
+              refY="7"
+              markerWidth="14"
+              markerHeight="14"
+              markerUnits="userSpaceOnUse"
+              orient="auto-start-reverse"
+            >
+              <path d="M 13 7 L 1 1 M 13 7 L 1 7 M 13 7 L 1 13" className={className} />
+            </marker>
+            {/* A single bar: the ONE end, at the referenced key. */}
+            <marker
+              id={`${ONE}${suffix}`}
+              viewBox="0 0 14 14"
+              refX="4"
+              refY="7"
+              markerWidth="14"
+              markerHeight="14"
+              markerUnits="userSpaceOnUse"
+              orient="auto-start-reverse"
+            >
+              <path d="M 4 1 L 4 13" className={className} />
+            </marker>
+          </g>
+        ))}
+      </defs>
+    </svg>
+  );
+}
+
+/** Zoom and fit, ours rather than React Flow's `<Controls>`.
+ *
+ *  Its buttons carry a near-white face, a near-white divider and a pale
+ *  drop shadow from three separate rules, and it colours its icons from
+ *  an inherited `color` -- which on this canvas came out as a white box
+ *  with nothing visible in it. Three buttons is less code than reliably
+ *  overriding all of that. */
+function Toolbar() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  return (
+    <div className="model-tools" role="toolbar" aria-label="Diagram view">
+      <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomIn()}>
+        +
+      </button>
+      <button
+        type="button"
+        aria-label="Zoom out"
+        title="Zoom out"
+        onClick={() => zoomOut()}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        aria-label="Fit to screen"
+        title="Fit to screen"
+        onClick={() => fitView(FIT)}
+      >
+        ⤢
+      </button>
+    </div>
+  );
+}
 
 export interface ModelDiagramProps {
   detail: SemanticViewDetail;
@@ -34,11 +120,11 @@ export interface ModelDiagramProps {
 /**
  * The model as an interactive ER diagram.
  *
- * Pan, zoom, minimap, drag-a-table and fit come from React Flow rather
- * than from this file. What is ours is the layout (dagre, in `graph.ts`),
- * the cards, and the fact that a join edge anchors to the key column it
- * is declared on -- which is what makes clicking a column able to say
- * anything about how it reaches the rest of the model.
+ * Pan, zoom, drag-a-table and fit come from React Flow rather than from
+ * this file. What is ours is the layout (dagre, in `graph.ts`), the cards,
+ * and the fact that a join edge anchors to the key column it is declared
+ * on -- which is what makes clicking a column able to say anything about
+ * how it reaches the rest of the model.
  */
 function Diagram({
   detail,
@@ -100,15 +186,16 @@ function Diagram({
   // not per layout.
   const painted = useMemo(
     () =>
-      edges.map((edge) => ({
-        ...edge,
-        className: highlight
-          ? highlight.relationships.has(edge.id)
-            ? "model-edge on"
-            : "model-edge off"
-          : "model-edge",
-        label: highlight?.relationships.has(edge.id) ? edge.data?.on : undefined,
-      })),
+      edges.map((edge) => {
+        const on = highlight?.relationships.has(edge.id) ?? false;
+        return {
+          ...edge,
+          className: highlight ? (on ? "model-edge on" : "model-edge off") : "model-edge",
+          markerStart: on ? `${MANY}-on` : MANY,
+          markerEnd: on ? `${ONE}-on` : ONE,
+          label: on ? edge.data?.on : undefined,
+        };
+      }),
     [edges, highlight],
   );
 
@@ -122,37 +209,7 @@ function Diagram({
         <p className="tile-hint">This model declares no joins between its tables.</p>
       )}
 
-      {/* Crow's-foot markers. Defined once here and referenced by id from
-          the edges, because React Flow's own marker set has arrowheads
-          and nothing that states cardinality. */}
-      <svg className="model-defs" aria-hidden="true">
-        <defs>
-          <marker
-            id="model-many"
-            viewBox="0 0 14 14"
-            refX="13"
-            refY="7"
-            markerWidth="14"
-            markerHeight="14"
-            markerUnits="userSpaceOnUse"
-            orient="auto-start-reverse"
-          >
-            <path d="M 13 7 L 1 1 M 13 7 L 1 7 M 13 7 L 1 13" className="model-marker" />
-          </marker>
-          <marker
-            id="model-one"
-            viewBox="0 0 14 14"
-            refX="4"
-            refY="7"
-            markerWidth="14"
-            markerHeight="14"
-            markerUnits="userSpaceOnUse"
-            orient="auto-start-reverse"
-          >
-            <path d="M 4 1 L 4 13" className="model-marker" />
-          </marker>
-        </defs>
-      </svg>
+      <Markers />
 
       <ModelNodeContext.Provider value={context}>
         <div className="model-pane">
@@ -172,8 +229,8 @@ function Diagram({
             aria-label="Semantic model diagram"
           >
             <Background variant={BackgroundVariant.Dots} gap={22} size={1} />
-            <Controls showInteractive={false} />
           </ReactFlow>
+          <Toolbar />
         </div>
       </ModelNodeContext.Provider>
 

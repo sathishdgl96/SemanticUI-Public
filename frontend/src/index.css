@@ -3972,6 +3972,7 @@ body {
    have a height of its own -- a flex child that only sizes to its
    content measures as zero and the diagram never appears. */
 .model-pane {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -3994,36 +3995,49 @@ body {
   color: var(--m-grid);
 }
 
-/* React Flow gives the control stack a pale drop shadow and each button a
-   near-white face and a near-white divider. On a dark canvas all three
-   read as a white smear around the buttons rather than as a control. The
-   stack is clipped to its own radius so the buttons stop painting into
-   the corners. */
-.model-pane .react-flow__controls {
-  background: transparent;
-  box-shadow: none;
+/* Zoom and fit, ours rather than React Flow's <Controls>. Its buttons
+   take a near-white face, a near-white divider and a pale drop shadow
+   from three separate rules, and colour their icons from an inherited
+   `color` -- so on this canvas they came out as a white box with nothing
+   visible in it. Three buttons is less code than overriding all that. */
+.model-tools {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
   border: 1px solid var(--m-grid);
   border-radius: 4px;
   overflow: hidden;
 }
 
-.model-pane .react-flow__controls-button {
+.model-tools button {
   width: 26px;
   height: 26px;
-  padding: 5px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--m-card-head);
   border: none;
-  border-bottom: 1px solid var(--m-grid);
-  fill: var(--m-ink);
+  border-right: 1px solid var(--m-grid);
+  border-radius: 0;
+  color: var(--m-ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.model-pane .react-flow__controls-button:last-child {
-  border-bottom: none;
-}
+.model-tools button:last-child { border-right: none; }
 
-.model-pane .react-flow__controls-button:hover {
+.model-tools button:hover {
   background: var(--m-fact);
-  fill: #10151c;
+  color: #10151c;
+}
+
+/* 15px on every side of every overlay is a lot of canvas to give up. */
+.model-pane .react-flow__panel {
+  margin: 6px;
 }
 
 .model-pane .react-flow__attribution {
@@ -4237,6 +4251,13 @@ button.model-column:hover {
   fill: none;
   stroke: var(--m-line);
   stroke-width: 1.6px;
+}
+
+/* A marker is a shared definition and cannot take its colour from the
+   edge referencing it, so the highlighted crow's foot is a second one. */
+.model-marker.on {
+  stroke: var(--m-fact);
+  stroke-width: 2.2px;
 }
 
 .model-legend {
