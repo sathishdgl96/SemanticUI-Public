@@ -3472,3 +3472,167 @@ body {
   color: var(--ink-muted);
   font-size: 11px;
 }
+
+/* ==========================================================================
+   Library: search, facets, pins
+   Browsing controls shared by the reports and explores lists. Facet labels
+   are interface voice, so they take --font-sans -- the monospace `.chip`
+   above is for literal field references and means something different.
+   ========================================================================== */
+
+.searchbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 320px;
+  padding: 0 4px 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+}
+
+.searchbar:hover {
+  border-color: var(--ink-secondary);
+}
+
+/* The container owns the border, so the field inside must not draw a second
+   one; the ring is raised to the container for the same reason. */
+.searchbar:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.searchbar-glyph {
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.searchbar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.searchbar-input:hover {
+  border-color: transparent;
+}
+
+.searchbar-input:focus {
+  outline: none;
+}
+
+/* We render our own clear button; WebKit's native one would be a second ✕. */
+.searchbar-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.searchbar-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 24x24 to clear the WCAG 2.2 target-size floor, as `.chip-remove` does. */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.searchbar-clear:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+.facets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.facets-count {
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.facet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 6px 2px 8px;
+  background: var(--accent-wash);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.facet-chip:hover {
+  border-color: var(--accent);
+}
+
+.facet-chip-label {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facet-chip-remove {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.facet-chip:hover .facet-chip-remove {
+  color: var(--ink);
+}
+
+.star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  /* Muted until pinned: an unpinned row should read as unmarked, not as a
+     control competing with the report name beside it. */
+  color: var(--ink-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.star:hover:not(:disabled) {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+.star-on {
+  color: var(--brand);
+}
+
+.star-on:hover:not(:disabled) {
+  color: var(--brand);
+}
+
+.star:disabled {
+  opacity: 0.5;
+}
