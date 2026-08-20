@@ -2,12 +2,13 @@ import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
 import { hexList } from "./categorical";
 import type { ScatterOptionLike } from "./categorical";
+import { fieldName } from "../fieldName";
 
 export function scatterOption(visual: Visual, result: QueryResponse): ScatterOptionLike | null {
   // The author's colours, if any; the shared palette otherwise. See
   // the note on axisChrome.color -- palette.ts is never edited.
   const custom = hexList(visual.options.colors);
-  const name = (ref: string) => ref.split(".", 2)[1] ?? ref;
+  const name = fieldName;
   const idx = (n: string) =>
     result.columns.findIndex((c) => c.name.toUpperCase() === n.toUpperCase());
   const xRef = (visual.wells.x ?? [])[0];

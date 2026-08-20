@@ -1,6 +1,7 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import { pivotLegend } from "../pivotLegend";
 import { CHART_INK, SERIES_COLORS } from "../palette";
+import { fieldName } from "../fieldName";
 
 export interface Series {
   name: string;
@@ -85,9 +86,6 @@ export interface CategoricalOptionLike extends LooseRecord {
 
 export type EChartsOptionLike = PieOptionLike | ScatterOptionLike | CategoricalOptionLike;
 
-function fieldName(ref: string): string {
-  return ref.split(".", 2)[1] ?? ref;
-}
 
 function columnIndex(result: QueryResponse, name: string): number {
   return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getComposite } from "../api/composites";
+import ModelPicker, { type BindSource } from "../models/ModelPicker";
 import { describeUrl, queryUrl } from "../reports/builder/viewBinding";
 import { apiFetch, ApiError } from "../api/client";
 import { createExplore, updateExplore } from "../api/explores";
@@ -198,8 +199,8 @@ export default function ExplorerPage() {
     addToReport.mutate(definition);
   }
 
-  function selectView(view: SemanticViewSummary) {
-    setSelectedView(view);
+  function selectView(view: BindSource) {
+    setSelectedView({ ...view, comment: view.comment ?? null });
     setWells(emptyWells());
     // Filters name fields of the OLD view; carrying them across would send
     // references the new view has never heard of.
@@ -292,6 +293,9 @@ export default function ExplorerPage() {
   useEffect(() => {
     if (!model.data) return;
     if (selectedView?.compositeId === model.data.id) return;
+    // Set directly rather than through selectView: this runs on arrival,
+    // when there are no wells or filters to clear, and selectView is a
+    // fresh function each render that the dependency list cannot name.
     setSelectedView({
       database: "",
       schema: "",
@@ -466,10 +470,14 @@ export default function ExplorerPage() {
             {views.data && (
               <ViewTree
                 views={views.data.views}
-                selected={selectedView}
+                selected={selectedView?.compositeId ? null : selectedView}
                 onSelect={selectView}
               />
             )}
+            <ModelPicker
+              selected={selectedView?.compositeId ?? null}
+              onSelect={selectView}
+            />
             <h2 className="pane-heading">Saved explores</h2>
             <SavedExploresPanel
               openId={openExplore?.id ?? null}

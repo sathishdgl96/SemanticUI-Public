@@ -22,6 +22,10 @@ vi.mock("../api/client", () => ({
     }
   },
 }));
+vi.mock("../api/composites", () => ({
+  listComposites: vi.fn().mockResolvedValue({ composites: [], truncated: false }),
+}));
+
 vi.mock("./CanvasGrid", () => ({
   default: ({
     visuals,
@@ -226,7 +230,9 @@ describe("BuilderPage", () => {
     });
     vi.mocked(apiFetch).mockResolvedValue({ views: [] });
     renderBuilder();
-    expect(await screen.findByText(/pick a semantic view to start this report/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/pick a semantic view, or a model over several/i),
+    ).toBeInTheDocument();
   });
 
   it("offers to rebind when the bound view no longer resolves", async () => {
@@ -239,7 +245,9 @@ describe("BuilderPage", () => {
     );
     renderBuilder();
     expect(await screen.findByText(/ANALYTICS\.PUBLIC\.SALES/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /choose another view/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /choose another source/i }),
+    ).toBeInTheDocument();
   });
 
   it("SAVES the view the moment it is picked, not when Save is next pressed", async () => {
@@ -273,6 +281,10 @@ describe("BuilderPage", () => {
       database: "ANALYTICS",
       schema: "PUBLIC",
       name: "SALES",
+      // Null, not absent: rebinding a model-backed report to a plain
+      // view has to CLEAR the model, and an absent key would leave the
+      // old one in the document.
+      compositeId: null,
     });
   });
 
@@ -1124,5 +1136,92 @@ describe("BuilderPage fact wiring", () => {
     await waitFor(() =>
       expect(screen.getByTestId("canvas-fact-refs")).toHaveTextContent("O.QUANTITY"),
     );
+  });
+});
+
+describe("binding a report to a model", () => {
+  it("offers models beside the semantic views, and binds to one", async () => {
+    // A model answers a describe of the same shape a view does, so the
+    // rest of the builder never learns which it got.
+    const { listComposites } = await import("../api/composites");
+    vi.mocked(listComposites).mockResolvedValue({
+      composites: [
+        {
+          id: "m1",
+          name: "Customer 360",
+          workspaceId: "w0",
+          workspaceName: "Team",
+          myRole: "admin",
+          memberCount: 2,
+          updatedAt: "2026-08-20T10:00:00Z",
+          createdBy: "A_SMITH",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+      truncated: false,
+    } as never);
+
+    const unbound = {
+      ...detail,
+      definition: {
+        ...detail.definition,
+        view: { database: "", schema: "", name: "" },
+        pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
+      },
+    };
+    getMock.mockReset();
+    getMock.mockResolvedValue(unbound);
+    updateMock.mockImplementation((_id: string, definition: unknown) =>
+      Promise.resolve({ ...unbound, definition } as never),
+    );
+    apiFetchMock.mockResolvedValue({ views: [] } as never);
+
+    renderBuilder();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Customer 360/ }),
+    );
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const [, saved] = updateMock.mock.calls[0] as [string, { view: { compositeId?: string } }];
+    expect(saved.view.compositeId).toBe("m1");
+  });
+
+  it("does not offer a model with nothing mapped yet", async () => {
+    // An empty field list with no way to tell why is worse than no entry.
+    const { listComposites } = await import("../api/composites");
+    vi.mocked(listComposites).mockResolvedValue({
+      composites: [
+        {
+          id: "m2",
+          name: "Empty model",
+          workspaceId: "w0",
+          workspaceName: "Team",
+          myRole: "admin",
+          memberCount: 0,
+          updatedAt: "2026-08-20T10:00:00Z",
+          createdBy: "A_SMITH",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+      truncated: false,
+    } as never);
+
+    const unbound = {
+      ...detail,
+      definition: {
+        ...detail.definition,
+        view: { database: "", schema: "", name: "" },
+        pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
+      },
+    };
+    getMock.mockReset();
+    getMock.mockResolvedValue(unbound);
+    apiFetchMock.mockResolvedValue({ views: [] } as never);
+
+    renderBuilder();
+    await screen.findByText(/pick a semantic view, or a model over several/i);
+    expect(screen.queryByRole("button", { name: /Empty model/ })).toBeNull();
   });
 });

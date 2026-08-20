@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { getReport, updateReport } from "../../api/reports";
-import type { ReportDefinition, SemanticViewSummary } from "../../api/types";
+import type { ReportDefinition } from "../../api/types";
+import type { BindSource } from "../../models/ModelPicker";
 import { normalizeDefinition } from "../normalize";
 
 /** The report document itself: fetched, normalised, edited, saved. Owns the
@@ -93,11 +94,19 @@ export function useReportDocument(reportId: string) {
    *  said. Picking the view is the act that makes a report a report, so it is
    *  written down at the moment it happens.
    */
-  const bindView = (picked: SemanticViewSummary) => {
+  const bindView = (picked: BindSource) => {
     if (!definition) return;
     bind.mutate({
       ...definition,
-      view: { database: picked.database, schema: picked.schema, name: picked.name },
+      view: {
+        database: picked.database,
+        schema: picked.schema,
+        name: picked.name,
+        // Null rather than undefined: rebinding a model-backed report to
+        // a plain view has to CLEAR the model, and an absent key would
+        // leave the old one in the document.
+        compositeId: picked.compositeId ?? null,
+      },
     });
   };
 

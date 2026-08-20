@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { QueryResponse, Visual } from "../api/types";
 import { type SortDirection } from "../query/sortRows";
 import { sortTree } from "./matrixSort";
+import { fieldName } from "../query/fieldName";
 
 interface Props {
   visual: Visual;
@@ -23,9 +24,6 @@ interface MatrixSort {
 
 const ARROW: Record<SortDirection, string> = { asc: "↑", desc: "↓" };
 
-function fieldName(ref: string): string {
-  return ref.split(".", 2)[1] ?? ref;
-}
 
 function columnIndex(result: QueryResponse, name: string): number {
   return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());

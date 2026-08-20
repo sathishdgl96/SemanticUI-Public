@@ -38,6 +38,21 @@ from app.semantic.query import build_semantic_sql
 BRANCH_ROW_CAP = 50_000
 
 
+def display_name(ref: str) -> str:
+    """What the result column is called for a field reference.
+
+    A model reference carries the member in front (`sales:ORDERS.REVENUE`);
+    the column is named by the part that identifies the field within that
+    member (`ORDERS.REVENUE`). A shared dimension or a derived metric has
+    no member, so its name stands as it is.
+
+    This is the server half of one agreement: the client resolves a
+    reference to a column by taking everything after the first dot, and
+    what it gets has to be what is named here.
+    """
+    return ref.split(":", 1)[-1]
+
+
 def _key_column(index: int) -> str:
     return quote_ident(f"c{index}")
 
@@ -180,6 +195,22 @@ def compile_composite(
     # --- the projection -------------------------------------------------
     projected = [_column_sql(plan, column) for column in plan.columns]
 
+    # Two fields whose display names collide would answer under one
+    # heading, and a chart resolving that name would draw whichever came
+    # first. Refused by name rather than left to look like bad data.
+    shown: dict[str, str] = {}
+    for column in plan.columns:
+        label = display_name(column.name)
+        if label in shown and shown[label] != column.name:
+            raise ApiError(
+                "QUERY_ERROR",
+                400,
+                f"{shown[label]} and {column.name} would both be called "
+                f"{label!r} in the answer. Ask for one of them, or rename "
+                "one in its view.",
+            )
+        shown[label] = column.name
+
     order_sql = ""
     if plan.order_by:
         names = {column.name for column in plan.columns}
@@ -190,7 +221,7 @@ def compile_composite(
                     "QUERY_ERROR", 400, f"orderBy field not selected: {item.field}"
                 )
             direction = "DESC" if item.direction == "desc" else "ASC"
-            clauses.append(f"{quote_ident(item.field)} {direction}")
+            clauses.append(f"{quote_ident(display_name(item.field))} {direction}")
         order_sql = " ORDER BY " + ", ".join(clauses)
 
     effective_limit = min(plan.limit, max_rows) if plan.limit else max_rows
@@ -219,7 +250,7 @@ def _coalesced(aliases: list[str], index: int) -> str:
 
 
 def _column_sql(plan: StitchPlan, column: OutputColumn) -> str:
-    name = quote_ident(column.name)
+    name = quote_ident(display_name(column.name))
     if column.kind == "key":
         aliases = [alias for alias, _ in column.sources]
         index = column.sources[0][1]

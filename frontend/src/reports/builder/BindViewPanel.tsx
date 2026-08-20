@@ -3,6 +3,7 @@ import { useState } from "react";
 import { apiFetch } from "../../api/client";
 import type { SemanticViewSummary } from "../../api/types";
 import ViewTree from "../../explorer/ViewTree";
+import ModelPicker, { type BindSource } from "../../models/ModelPicker";
 
 /** Shared by both "no view bound yet" (fresh report) and "the bound view no
  *  longer resolves" (deleted/forbidden) — both cases hand the user the same
@@ -15,7 +16,7 @@ export default function BindViewPanel({
   bindError,
 }: {
   reason: string | null;
-  onBind: (view: SemanticViewSummary) => void;
+  onBind: (source: BindSource) => void;
   canEdit: boolean;
   binding: boolean;
   bindError: string | null;
@@ -34,7 +35,7 @@ export default function BindViewPanel({
       <div className="builder-bind">
         <p role="alert">
           {reason ??
-            "This report has no semantic view yet, and only an editor can choose one."}
+            "This report has no source yet, and only an editor can choose one."}
         </p>
       </div>
     );
@@ -47,7 +48,7 @@ export default function BindViewPanel({
           <p role="alert">{reason}</p>
           {!open && (
             <button type="button" onClick={() => setOpen(true)}>
-              Choose another view
+              Choose another source
             </button>
           )}
         </>
@@ -55,7 +56,10 @@ export default function BindViewPanel({
         // Says that choosing SAVES, because it does -- and because the state
         // this replaces was one where the report looked bound and the server
         // disagreed.
-        <p>Pick a semantic view to start this report. Choosing one saves it.</p>
+        <p>
+          Pick a semantic view, or a model over several, to start this
+          report. Choosing one saves it.
+        </p>
       )}
       {bindError && <p role="alert">{bindError}</p>}
       {binding && <p className="tile-hint">Saving the view to this report…</p>}
@@ -64,6 +68,7 @@ export default function BindViewPanel({
           {views.isLoading && <p>Loading views…</p>}
           {views.isError && <p role="alert">Could not load semantic views.</p>}
           {views.data && <ViewTree views={views.data.views} selected={null} onSelect={onBind} />}
+          <ModelPicker selected={null} onSelect={onBind} />
         </>
       )}
     </div>

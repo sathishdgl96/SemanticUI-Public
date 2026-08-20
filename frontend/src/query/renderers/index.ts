@@ -13,6 +13,7 @@ import { CHART_INK } from "../palette";
 import { pieOption } from "./pie";
 import { funnelOption, gaugeOption, treemapOption } from "./proportional";
 import { scatterOption } from "./scatter";
+import { fieldName } from "../fieldName";
 
 /** Types whose ECharts option is built by the categorical (cartesian) path. */
 const CARTESIAN = new Set<VisualType>(["bar", "hbar", "line", "area", "combo"]);
@@ -26,9 +27,6 @@ const DOM_RENDERED = new Set<VisualType>([
   "slicer",
 ]);
 
-function fieldName(ref: string): string {
-  return ref.split(".", 2)[1] ?? ref;
-}
 
 /** The tile heading: an explicit title if set, else composed from the wells. */
 export function visualTitle(visual: Visual): string {

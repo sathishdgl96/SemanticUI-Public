@@ -1,5 +1,6 @@
 import type { ViewRef, Visual } from "../api/types";
 import ValuePicker from "./ValuePicker";
+import { fieldName } from "../query/fieldName";
 
 interface Props {
   visual: Visual;
@@ -9,9 +10,6 @@ interface Props {
   onChange: (field: string, values: string[]) => void;
 }
 
-function fieldName(ref: string): string {
-  return ref.split(".", 2)[1] ?? ref;
-}
 
 /** A slicer: the on-canvas way to filter, and the control PowerBI users reach
  *  for before they ever open the filter pane.

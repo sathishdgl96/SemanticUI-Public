@@ -343,7 +343,7 @@ def test_order_by_names_an_output_column():
         metrics=["sales:ORDERS.REVENUE"],
         order_by=[OrderBy(field="sales:ORDERS.REVENUE", direction="desc")],
     )
-    assert 'ORDER BY "sales:ORDERS.REVENUE" DESC' in sql
+    assert 'ORDER BY "ORDERS.REVENUE" DESC' in sql
     # And only once, at the top: branch ordering decides nothing.
     assert sql.count("ORDER BY") == 1
 
@@ -502,3 +502,48 @@ class TestBuilderDialect:
         )
         assert [b.alias for b in builder.branches] == [b.alias for b in native.branches]
         assert builder.keys == native.keys
+
+
+class TestColumnNames:
+    """One agreement, two halves: the client resolves a field reference to
+    a column by taking everything after the first dot, so the server has
+    to name the column exactly that. Getting it wrong drew every chart as
+    "nothing to chart for this field combination"."""
+
+    def test_a_members_field_is_named_without_its_member(self):
+        sql, _, _ = compiled(
+            model(), dimensions=["Customer"], metrics=["sales:ORDERS.REVENUE"]
+        )
+        # `sales.ORDERS.REVENUE` -> after the first dot -> `ORDERS.REVENUE`
+        assert 'AS "ORDERS.REVENUE"' in sql
+        assert '"sales:ORDERS.REVENUE"' not in sql
+
+    def test_a_shared_dimension_keeps_its_own_name(self):
+        sql, _, _ = compiled(
+            model(), dimensions=["Customer"], metrics=["sales:ORDERS.REVENUE"]
+        )
+        assert 'AS "Customer"' in sql
+
+    def test_a_derived_metric_keeps_its_own_name(self):
+        sql, _, _ = compiled(
+            model(), dimensions=["Customer"], metrics=["Revenue per ticket"]
+        )
+        assert 'AS "Revenue per ticket"' in sql
+
+    def test_two_fields_that_would_share_a_heading_are_refused_by_name(self):
+        # Both members having ORDERS.REVENUE would answer under one
+        # heading, and a chart resolving that name would draw whichever
+        # came first -- wrong numbers that look right.
+        defn = model()
+        support = dict(SUPPORT)
+        support["metrics"] = [{"table": "ORDERS", "name": "REVENUE"}]
+        stitch = plan(
+            defn,
+            dimensions=["Customer"],
+            metrics=["sales:ORDERS.REVENUE", "support:ORDERS.REVENUE"],
+        )
+        with pytest.raises(ApiError) as caught:
+            compile_composite(
+                stitch, {"sales": SALES, "support": support}, max_rows=200
+            )
+        assert "ORDERS.REVENUE" in str(caught.value.message)

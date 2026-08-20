@@ -6250,3 +6250,21 @@ button.model-column:hover {
   gap: 0.5rem;
   align-items: center;
 }
+
+/* Models in a source picker. Its own list rather than a branch of the
+   view tree: a model does not live in a database and a schema, and
+   inventing a place for it there would be a lie about where it comes
+   from. */
+.model-picker-tree > h3 {
+  margin-bottom: 0.15rem;
+}
+
+.model-picker-tree > .tile-hint {
+  margin: 0 0 0.4rem;
+}
+
+.view-tree-note {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+}

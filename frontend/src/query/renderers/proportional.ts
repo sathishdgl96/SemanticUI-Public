@@ -7,10 +7,8 @@ import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
 import { hexList } from "./categorical";
 import type { LooseRecord, PieOptionLike } from "./categorical";
+import { fieldName } from "../fieldName";
 
-function fieldName(ref: string): string {
-  return ref.split(".", 2)[1] ?? ref;
-}
 
 function columnIndex(result: QueryResponse, name: string): number {
   return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());
