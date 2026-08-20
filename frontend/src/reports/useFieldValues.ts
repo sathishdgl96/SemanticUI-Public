@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
 import type { FieldValuesResponse, ViewRef } from "../api/types";
+import { valuesUrl } from "./builder/viewBinding";
 
 /** What a picker shows at once. Mirrors VALUES_PAGE on the server, which is
  *  what actually decides -- this is the number we ask for. */
@@ -25,7 +26,9 @@ export function useFieldValues(
   const { search = "", limit = VALUES_PAGE } = options;
   return useQuery({
     queryKey: ["field-values", view, field, search, limit],
-    enabled: Boolean(view.name && field),
+    // A model has no database/schema/name, so `name` alone is not what
+    // says the source is usable -- it is either a bound view or a model.
+    enabled: Boolean((view.name || view.compositeId) && field),
     // Values change far more slowly than a picker opens and closes, and every
     // fetch is a real Snowflake query. Caching per search term also means
     // backspacing through what you typed costs nothing.
@@ -34,12 +37,9 @@ export function useFieldValues(
     // does not make the list flicker empty between keystrokes.
     placeholderData: (previous) => previous,
     queryFn: () => {
-      const base = `/api/semantic-views/${encodeURIComponent(
-        view.database,
-      )}/${encodeURIComponent(view.schema)}/${encodeURIComponent(view.name)}/values`;
       const params = new URLSearchParams({ field: field ?? "", limit: String(limit) });
       if (search) params.set("search", search);
-      return apiFetch<FieldValuesResponse>(`${base}?${params}`);
+      return apiFetch<FieldValuesResponse>(`${valuesUrl(view)}?${params}`);
     },
   });
 }

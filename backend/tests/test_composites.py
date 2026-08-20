@@ -450,3 +450,148 @@ def test_import_needs_write_access_to_the_target_workspace(client, db):
         json={"definition": definition(), "workspaceId": str(ws.id)},
     )
     assert refused.status_code == 403
+
+
+# --------------------------------------------------- filter value pickers
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self.rows = rows
+        self.columns = [{"name": "V", "type": "TEXT"}]
+        self.truncated = False
+        self.sfqid = "q1"
+
+
+def _stub_snowflake(monkeypatch, rows, seen):
+    """One member view answering a values query, recorded for inspection."""
+    from app.composites import routes as composite_routes  # noqa: F401
+    from app.semantic import routes as semantic_routes  # noqa: F401
+    from app.snowflake import gateway, provider
+
+    detail = {
+        "tables": [{"name": "CUSTOMER"}, {"name": "CLIENT"}],
+        "relationships": [],
+        "dimensions": [
+            {"table": "CUSTOMER", "name": "CUSTOMER_ID", "dataType": "TEXT"},
+            {"table": "CUSTOMER", "name": "REGION", "dataType": "TEXT"},
+            {"table": "CLIENT", "name": "CLIENT_ID", "dataType": "TEXT"},
+        ],
+        "metrics": [],
+        "facts": [],
+        "hierarchies": [],
+    }
+
+    class _Entry:
+        conn = object()
+
+        class lock:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *a):
+                return False
+
+        lock = lock()
+
+    class _Cache:
+        def acquire(self, db, sess):
+            return _Entry()
+
+        def describe(self, entry, database, schema, view):
+            seen.append(("describe", database, schema, view))
+            return detail
+
+    monkeypatch.setattr(provider, "get_cache", lambda: _Cache())
+    monkeypatch.setattr(
+        gateway,
+        "run_query",
+        lambda conn, sql, *, max_rows, params=None: (
+            seen.append(("query", sql)) or _FakeResult(rows)
+        ),
+    )
+
+
+def test_values_for_a_shared_dimension_come_from_one_member(client, db, monkeypatch):
+    # A conformed dimension means the same thing in every member, so
+    # asking the whole model would pay for a join to learn what one view
+    # already knows.
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    seen: list = []
+    _stub_snowflake(monkeypatch, [["ACME"], ["Globex"], [None]], seen)
+
+    answer = client.get(
+        f"/api/composites/{created['id']}/values",
+        params={"field": "Customer 360.Customer"},
+    )
+    assert answer.status_code == 200
+    # NULL is dropped: `IN (?)` never matches it, so offering it would
+    # build a filter that silently returns nothing.
+    assert answer.json()["values"] == ["ACME", "Globex"]
+    # One view was asked, not both.
+    assert [s for s in seen if s[0] == "query"].__len__() == 1
+
+
+def test_values_for_a_members_own_field_go_to_that_member(client, db, monkeypatch):
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    seen: list = []
+    _stub_snowflake(monkeypatch, [["EU"]], seen)
+
+    answer = client.get(
+        f"/api/composites/{created['id']}/values",
+        params={"field": "sales.CUSTOMER.REGION"},
+    )
+    assert answer.status_code == 200
+    assert answer.json()["values"] == ["EU"]
+    assert ("describe", "ANALYTICS", "PUBLIC", "SALES_SV") in seen
+
+
+def test_a_derived_metric_has_no_values_to_pick_from(client, db, monkeypatch):
+    # It is a number computed after the fact, not a column anybody filters
+    # on -- and saying so beats an empty list nobody can explain.
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(
+        f"/api/composites/{created['id']}",
+        json={
+            "definition": definition(
+                derivedMetrics=[
+                    {
+                        "name": "Ratio",
+                        "expr": {
+                            "op": "/",
+                            "left": {"metric": "sales:ORDERS.REVENUE"},
+                            "right": {"metric": "support:TICKETS.TICKET_COUNT"},
+                        },
+                    }
+                ]
+            )
+        },
+    )
+    refused = client.get(
+        f"/api/composites/{created['id']}/values",
+        params={"field": "Customer 360.Ratio"},
+    )
+    assert refused.status_code == 400
+    assert "values" in refused.json()["message"].lower()
+
+
+def test_values_for_an_unknown_field_are_refused(client, db):
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    refused = client.get(
+        f"/api/composites/{created['id']}/values", params={"field": "ghost.X.Y"}
+    )
+    assert refused.status_code == 400

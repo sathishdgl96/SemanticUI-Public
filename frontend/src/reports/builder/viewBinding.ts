@@ -42,6 +42,18 @@ export function queryUrl(view: ViewRef): string {
     : "/api/query/semantic";
 }
 
+/** Where the filter editor reads a field's distinct values. A model
+ *  answers from whichever member owns the field -- values are what a
+ *  person picks from, and a conformed dimension means the same thing in
+ *  every member, so there is nothing for a join to add. */
+export function valuesUrl(view: ViewRef): string {
+  return view.compositeId
+    ? `/api/composites/${encodeURIComponent(view.compositeId)}/values`
+    : `/api/semantic-views/${encodeURIComponent(view.database)}/${encodeURIComponent(
+        view.schema,
+      )}/${encodeURIComponent(view.name)}/values`;
+}
+
 /** What to call the source in a sentence. */
 export function sourceLabel(view: ViewRef): string {
   if (view.compositeId) return view.name || "a model";

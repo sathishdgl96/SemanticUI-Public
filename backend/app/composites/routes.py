@@ -19,6 +19,7 @@ from app.auth.routes import current_session
 from app.composites import service
 from app.db.base import get_db
 from app.db.models import DbSession
+from app.errors import ApiError
 from app.reports.filters import FilterList
 from app.semantic.query import OrderBy
 
@@ -313,3 +314,105 @@ def describe_composite(
         "compositeId": str(composite.id),
         "name": composite.name,
     }
+
+
+@router.get("/api/composites/{composite_id}/values")
+def composite_field_values(
+    composite_id: str,
+    field: str,
+    search: str | None = None,
+    limit: int = 10,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Distinct values of one of a model's dimensions, for the filter editor.
+
+    Answered by ONE member view, not by the join. Values are what a person
+    picks from to build a filter, and a filter on a conformed dimension
+    means the same thing in every member -- so asking the whole model
+    would pay for a join to learn what one view already knows.
+
+    For a shared dimension that is any member binding it; the values are
+    conformed by definition, which is what made it shared. For a member's
+    own field it is that member. Either way the query runs on the
+    caller's own connection through the same builder every other query
+    uses, so `field` is validated against a live DESCRIBE and never
+    interpolated.
+    """
+    from app.composites.schema import parse_definition
+    from app.config import get_settings
+    from app.semantic.query import SemanticQueryRequest, build_semantic_sql
+    from app.semantic.routes import VALUES_CAP
+    from app.snowflake import gateway
+    from app.snowflake.provider import get_cache
+    from app.xmla.composite_source import to_model_ref
+
+    composite = service.get_composite(db, sess.user_id, composite_id)
+    definition = parse_definition(composite.definition or {})
+    ref = to_model_ref(definition, field)
+
+    # Which member answers, and under what name there.
+    members = {m.alias.lower(): m for m in definition.members}
+    if ":" in ref:
+        alias, rest = ref.split(":", 1)
+        member = members.get(alias.lower())
+        if member is None:
+            raise ApiError("QUERY_ERROR", 400, f"{field} is not a field of this model.")
+        target, column = member, rest
+    else:
+        shared = next(
+            (s for s in definition.sharedDimensions if s.name.strip().lower() == ref.strip().lower()),
+            None,
+        )
+        if shared is None:
+            # A derived metric has no values to pick from; it is a number
+            # computed after the fact, not a column anybody filters on.
+            raise ApiError(
+                "QUERY_ERROR", 400,
+                f"{field} has no values to choose from. Filter on a dimension.",
+            )
+        alias = next(iter(shared.bindings))
+        member = members.get(alias.lower())
+        if member is None:
+            raise ApiError("QUERY_ERROR", 400, f"{field} is not mapped to a view.")
+        binding = shared.bindings[alias]
+        target, column = member, f"{binding.table}.{binding.column}"
+
+    page = max(1, min(limit, VALUES_CAP))
+    needle = (search or "").strip()
+    req = SemanticQueryRequest.model_validate(
+        {
+            "database": target.database,
+            "schema": target.schema_,
+            "view": target.view,
+            "dimensions": [column],
+            "filters": (
+                [{"id": "search", "field": column, "op": "contains", "value": needle}]
+                if needle
+                else []
+            ),
+            "limit": page + 1,
+        }
+    )
+
+    cache = get_cache()
+    entry = cache.acquire(db, sess)
+    with entry.lock:
+        detail = cache.describe(entry, target.database, target.schema_, target.view)
+        sql, params, effective_limit = build_semantic_sql(
+            detail, req, max_rows=get_settings().row_cap
+        )
+        result = gateway.run_query(
+            entry.conn, sql, max_rows=effective_limit, params=params
+        )
+
+    seen: set[str] = set()
+    for row in result.rows:
+        value = row[0] if row else None
+        # NULL is dropped: `IN (?)` never matches it, so offering it would
+        # build a filter that silently returns nothing.
+        if value is None:
+            continue
+        seen.add(str(value))
+    values = sorted(seen)
+    return {"values": values[:page], "truncated": len(values) > page}
