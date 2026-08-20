@@ -53,46 +53,11 @@ def apply(query: Any, model: Any, params: LibraryQuery) -> Any:
     return query
 
 
-def keep_favorites(items: list, params: LibraryQuery, favorites: set) -> list:
-    """The pinned-only facet, which SQL cannot express here: pins live
-    in a per-user table the item query does not join."""
-    if not params.favorite:
-        return items
-    return [item for item in items if item.id in favorites]
-
-
-def _stamp(value: Any) -> float:
-    """Seconds, for ordering. Tolerates None and plain numbers so the
-    ordering can be reasoned about without constructing timestamps."""
-    if value is None:
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, datetime):
-        return value.timestamp()
-    return 0.0
-
-
-def order_items(
-    items: list, params: LibraryQuery, recents: dict, favorites: set
-) -> list:
-    """Sort in Python: "recent" and "pinned" come from a per-user table
-    the item query does not join, so the database cannot order by them."""
-    if params.sort == "name":
-        return sorted(items, key=lambda item: item.name.lower())
-    if params.sort == "updated":
-        return sorted(items, key=lambda item: _stamp(item.updated_at), reverse=True)
-
-    def key(item: Any) -> tuple:
-        seen = recents.get(item.id)
-        return (
-            0 if item.id in favorites else 1,   # pinned first
-            0 if seen else 1,                   # then what you have opened
-            -_stamp(seen),                      # most recently opened first
-            -_stamp(item.updated_at),           # the rest by their own recency
-        )
-
-    return sorted(items, key=key)
+# `keep_favorites` and `order_items` lived here, filtering and ordering in
+# Python because pins and recents were read separately from the item
+# query. They join now -- see `with_user_state` below -- so the database
+# does both, and the two are gone rather than left as a second way to do
+# it that nothing calls.
 
 
 # --- pins and recents, in the database ------------------------------------

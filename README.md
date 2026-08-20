@@ -6,6 +6,11 @@ sole authority on data access.
 
 Spec: docs/superpowers/specs/2026-08-14-foundation-auth-query-gateway-design.md
 
+- **[docs/FEATURES.md](docs/FEATURES.md)** — what this offers an
+  organisation, and the guarantee behind each capability.
+- **[docs/SECURITY.md](docs/SECURITY.md)** — the threat model, the
+  controls, and the weaknesses that are known and unfixed.
+
 ## Quick start
 
 Two commands, from a fresh clone:

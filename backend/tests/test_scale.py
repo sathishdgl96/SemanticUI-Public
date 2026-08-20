@@ -357,3 +357,79 @@ def test_recently_opened_sorts_pinned_first_then_what_was_opened(client, db):
     # Pinned, then opened, then the rest.
     assert names[0] == rows[3].name
     assert names[1] == rows[1].name
+
+
+# --- the probe enforces the same rule as the gate --------------------------
+
+
+def test_the_readability_probe_agrees_with_the_gate_it_replaced(db):
+    """The optimisation that mattered most is also the one that could
+    quietly have widened access: recents and dashboard tiles stopped
+    asking `require_owned` and started reading membership directly.
+
+    Membership of the owning workspace IS the rule -- `require_owned`
+    resolves the row, finds the membership and checks the role is at
+    least viewer, and every role is. This holds the two answers together
+    across all four cases so a future change to either has to keep them
+    agreeing.
+    """
+    from app.errors import ApiError
+    from app.home import service as home
+    from app.workspaces.access import require_owned, roles_for
+
+    alice = create_session(db, account="ACME", user="ALICE", mode="dev")
+    bob = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+
+    mine = workspace(db, alice.user_id, "Mine", role="admin")
+    shared = workspace(db, bob.user_id, "Shared", role="admin")
+    db.add(WorkspaceMember(workspace_id=shared.id, user_id=alice.user_id, role="viewer"))
+    theirs = workspace(db, bob.user_id, "Theirs", role="admin")
+    db.commit()
+
+    seed_reports(db, alice.user_id, mine, 1)
+    seed_reports(db, bob.user_id, shared, 1)
+    seed_reports(db, bob.user_id, theirs, 1)
+
+    roles = roles_for(db, alice.user_id)
+    for report in db.query(Report).all():
+        probe = home._readable(report, roles)
+        try:
+            require_owned(db, alice.user_id, str(report.id), Report, need="viewer")
+            gate = True
+        except ApiError:
+            gate = False
+        assert probe is gate, f"disagreed about a report in {report.workspace_id}"
+
+    # And it is not vacuously true: one of the three was refused.
+    assert sum(home._readable(r, roles) for r in db.query(Report).all()) == 2
+
+
+def test_a_dashboard_tile_is_unavailable_to_someone_who_lost_the_report(db):
+    """The same probe, on the path that draws a dashboard."""
+    from app.dashboards import service as dashboards
+
+    alice = create_session(db, account="ACME", user="ALICE", mode="dev")
+    bob = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+    ws = workspace(db, alice.user_id, role="admin")
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=bob.user_id, role="editor"))
+    db.commit()
+    seed_reports(db, alice.user_id, ws, 1)
+    report = db.query(Report).one()
+
+    made = dashboards.create_dashboard(db, alice.user_id, "Ops", str(ws.id))
+    dashboards.add_tile(db, alice.user_id, str(made.id), str(report.id), "p1", "v1")
+    assert dashboards.detail(db, bob.user_id, made)["tiles"][0]["available"] is True
+
+    db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == ws.id,
+        WorkspaceMember.user_id == bob.user_id,
+    ).delete()
+    db.commit()
+
+    tile = dashboards.detail(db, bob.user_id, made)["tiles"][0]
+    assert tile["available"] is False
+    # And nothing of the report leaks with the refusal.
+    assert "visual" not in tile
+    assert "view" not in tile
