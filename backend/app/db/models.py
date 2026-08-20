@@ -348,3 +348,49 @@ class Announcement(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )
+
+
+class CompositeModel(Base):
+    """One model over several semantic views.
+
+    A fourth kind beside Report, Dashboard and Explore, and a sibling of
+    all three rather than a special case of any. A report reads exactly
+    one semantic view; a composite names several and declares the
+    conformed dimensions that make them answerable together, so a
+    question can span models two teams own separately.
+
+    Workspace-owned, governed by the same membership rule. It holds a
+    definition and never data: composing happens at query time on the
+    caller's own connection, so a composite cannot widen anybody's access
+    to what its members read (ADR 0001).
+    """
+
+    __tablename__ = "composite_models"
+    __table_args__ = (
+        Index(
+            "ix_composite_models_workspace_updated", "workspace_id", "updated_at"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary. Membership here decides who may read the
+    #: definition; Snowflake still decides who may read the data behind
+    #: every member view, on each caller's own connection.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    #: {"schemaVersion": 1, "name", "members": [...], "sharedDimensions":
+    #: [...], "derivedMetrics": [...], "joinType", "crossFilter"}. A
+    #: document for the same reason a dashboard's tiles are one: it is
+    #: edited and saved as a single thing, and half a saved mapping is not
+    #: a state worth being able to reach.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )

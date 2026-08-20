@@ -217,6 +217,7 @@ EXPECTED_ACTIONS = {
     "dashboard.create", "dashboard.read", "dashboard.update", "dashboard.delete",
     "dashboard.tile_add", "dashboard.tile_remove",
     "explore.create", "explore.read", "explore.update", "explore.delete",
+    "composite.create", "composite.read", "composite.update", "composite.delete",
     # who may see them
     "workspace.create", "workspace.rename", "workspace.delete",
     "workspace.member_add", "workspace.member_role", "workspace.member_remove",
