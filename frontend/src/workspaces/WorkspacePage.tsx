@@ -387,6 +387,7 @@ export default function WorkspacePage() {
         total={items.length}
       />
 
+      <div className="library-results">
       {loading && <p>Loading…</p>}
       {error && (
         <p role="alert">
@@ -416,6 +417,16 @@ export default function WorkspacePage() {
 
       {items.length > 0 && (
         <table className="content-table">
+          <colgroup>
+            <col className="col-pin" />
+            <col className="col-glyph" />
+            <col />
+            <col className="col-kind" />
+            <col className="col-detail" />
+            <col className="col-role" />
+            <col className="col-updated" />
+            <col className="col-actions" />
+          </colgroup>
           <thead>
             <tr>
               <th>
@@ -490,6 +501,7 @@ export default function WorkspacePage() {
           </tbody>
         </table>
       )}
+      </div>
 
       {pendingDelete && (
         <div className="confirm" role="dialog" aria-label="Confirm delete">

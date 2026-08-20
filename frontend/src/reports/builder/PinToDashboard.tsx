@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError } from "../../api/client";
 import { addTile, createDashboard, listDashboards } from "../../api/dashboards";
+import CloseButton from "../../ui/CloseButton";
 
 /**
  * Choose which dashboard a visual is pinned to.
@@ -62,9 +63,7 @@ export default function PinToDashboard({
     <div className="panel" role="dialog" aria-label="Pin to dashboard">
       <header className="panel-head">
         <h2>Pin “{visualTitle}”</h2>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
+        <CloseButton onClick={onClose} />
       </header>
 
       {dashboards.isLoading && <p className="tile-hint">Loading dashboards…</p>}

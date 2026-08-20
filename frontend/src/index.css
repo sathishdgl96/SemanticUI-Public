@@ -1232,9 +1232,12 @@ th {
    ========================================================================== */
 
 .reports {
-  max-width: 960px;
+  width: 100%;
+  /* Wide enough for a table with seven columns on a laptop, capped so the
+     rows do not stretch to arm's length on a 4K monitor. */
+  max-width: 1280px;
   margin: 0 auto;
-  padding: 24px 16px;
+  padding: 24px clamp(12px, 2vw, 28px);
 }
 
 .reports-head {
@@ -1851,6 +1854,12 @@ button.secondary:hover,
   font-size: 12px;
 }
 
+/* The results keep a floor, so switching to a filter that matches two rows
+   does not collapse the page to a third of its height and back. */
+.library-results {
+  min-height: 340px;
+}
+
 /* The caret on a button that opens a menu. Small and muted -- it says
    "there is more", it is not part of the label. */
 .reports-actions .cmd-primary span[aria-hidden] {
@@ -2414,8 +2423,9 @@ button.secondary:hover,
   width: 420px;
   display: flex; flex-direction: column; gap: 12px;
 }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .panel-head h3 { margin: 0; font-size: 14px; }
+.panel-head h2 { margin: 0; font-size: 15px; }
 .panel-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-secondary); }
 .panel-field textarea { font-family: var(--font-mono); font-size: 12px; min-height: 160px; }
 .panel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -2718,14 +2728,14 @@ button.secondary:hover,
 .members-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-width: min(440px, 90vw);
+  gap: 14px;
+  width: min(560px, 92vw);
 }
 
-.members-panel header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.panel-subtitle {
+  margin: 2px 0 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
 }
 
 .member-list {
@@ -2734,35 +2744,187 @@ button.secondary:hover,
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  /* Bounded so a large workspace cannot push the Add form off-screen. */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  /* Bounded so a large workspace cannot push the Add form off-screen, and
+     with the gutter reserved so appearing scrollbar does not shift the
+     rows sideways. */
   max-height: 320px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
-.member-list li {
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--grid);
+  flex-wrap: wrap;
+}
+
+.member-row:last-child { border-bottom: none; }
+
+/* Initials rather than a picture: there is no profile image anywhere in
+   this app, and a grey silhouette says less than two letters. */
+.member-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.member-you {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* What the role LETS someone do, not the word again. A dropdown of three
+   nouns tells the reader nothing. */
+.member-meaning {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.member-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.member-controls select {
+  min-height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+/* Removing someone is confirmed in the row it is about, rather than in a
+   dialog that has to name them again. */
+.member-confirm {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  min-height: 24px;
-}
-
-.member-name {
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-
-.member-role {
-  color: var(--ink-muted);
-  font-size: 0.8125rem;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(164, 38, 44, 0.06);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 12px;
 }
 
 .member-add {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.member-add-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.member-add-row {
+  display: flex;
   align-items: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.member-add-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.member-add-row .field label {
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.member-add-row input,
+.member-add-row select {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.member-add-row button[type="submit"] { height: 30px; }
+
+.member-note {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* --- the one way to close a panel ---------------------------------------- */
+
+.panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+}
+
+.panel-close:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
 }
 
 @media (max-width: 768px) {
@@ -2770,10 +2932,10 @@ button.secondary:hover,
     align-items: stretch;
     flex-direction: column;
   }
-  .member-list li {
+  .member-row {
     align-items: flex-start;
-    flex-direction: column;
   }
+  .member-controls { width: 100%; justify-content: flex-end; }
 }
 
 .move-panel {
@@ -3154,6 +3316,11 @@ button.secondary:hover,
   display: flex;
   flex-direction: column;
   overflow: auto;
+  /* The gutter is reserved whether or not there is anything to scroll.
+     Without it, a filter that shortens the list removes the scrollbar,
+     the scroll box gets ~15px wider, and the centred page under it jumps
+     sideways -- which reads as the whole page resizing. */
+  scrollbar-gutter: stable;
 }
 
 /* The builder manages its own scrolling regions. */
@@ -3278,11 +3445,33 @@ button.secondary:hover,
 
 .content-table {
   width: 100%;
+  /* Fixed, so the columns keep their widths when the filter changes what
+     is in them. Under `auto` every switch between Reports and Dashboards
+     re-measured all seven and the table visibly jumped. */
+  table-layout: fixed;
   border-collapse: collapse;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
+}
+
+/* Explicit widths, because `table-layout: fixed` takes them from the first
+   row and the first row is whatever the filter happened to leave. Name
+   takes what is left. */
+.content-table col.col-pin { width: 36px; }
+.content-table col.col-glyph { width: 30px; }
+.content-table col.col-kind { width: 104px; }
+.content-table col.col-detail { width: 26%; }
+.content-table col.col-role { width: 84px; }
+.content-table col.col-updated { width: 150px; }
+.content-table col.col-actions { width: 46px; }
+
+.content-table td,
+.content-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content-table th {

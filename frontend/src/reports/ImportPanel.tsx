@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ApiError } from "../api/client";
 import { importReport } from "../api/reports";
 import type { ReportDetail, ViewRef } from "../api/types";
+import CloseButton from "../ui/CloseButton";
 
 interface Props {
   onImported: (report: ReportDetail) => void;
@@ -56,9 +57,7 @@ export default function ImportPanel({ onImported, onClose }: Props) {
     <div className="panel" role="dialog" aria-label="Import report">
       <header className="panel-head">
         <h3>Import</h3>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
+        <CloseButton onClick={onClose} />
       </header>
       {error && <p role="alert">{error}</p>}
       <label className="panel-field">
@@ -82,9 +81,6 @@ export default function ImportPanel({ onImported, onClose }: Props) {
       <div className="panel-actions">
         <button type="button" onClick={submit} disabled={importMutation.isPending}>
           {importMutation.isPending ? "Importing…" : "Import"}
-        </button>
-        <button type="button" className="secondary" onClick={onClose}>
-          Close
         </button>
       </div>
     </div>

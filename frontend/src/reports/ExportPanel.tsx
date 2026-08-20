@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { exportReport } from "../api/reports";
+import CloseButton from "../ui/CloseButton";
 
 interface Props {
   reportId: string;
@@ -45,9 +46,7 @@ export default function ExportPanel({ reportId, onClose }: Props) {
     <div className="panel" role="dialog" aria-label="Export report">
       <header className="panel-head">
         <h3>Export</h3>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
+        <CloseButton onClick={onClose} />
       </header>
       {error && <p role="alert">{error}</p>}
       <label className="panel-field">
@@ -57,9 +56,6 @@ export default function ExportPanel({ reportId, onClose }: Props) {
       <div className="panel-actions">
         <button type="button" onClick={copy} disabled={text === null}>
           Copy
-        </button>
-        <button type="button" className="secondary" onClick={onClose}>
-          Close
         </button>
       </div>
       {copyMessage && <p className="notice">{copyMessage}</p>}

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createWorkspace } from "../api/workspaces";
 import { useWorkspaces } from "../workspaces/useWorkspaces";
+import CloseButton from "../ui/CloseButton";
 
 /** The PowerBI-style workspaces panel, opened from the nav rail.
  *
@@ -51,9 +52,7 @@ export default function WorkspacesFlyout({ onClose }: { onClose: () => void }) {
     >
       <header className="ws-flyout-head">
         <h2>Workspaces</h2>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
+        <CloseButton onClick={onClose} />
       </header>
 
       {workspaces.isLoading && <p className="tile-hint">Loading workspaces…</p>}

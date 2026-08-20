@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ApiError } from "../api/client";
 import { createConnectToken, downloadOdc, fetchConnectDetails } from "../api/exports";
 import type { SheetRequest } from "../api/types";
+import CloseButton from "../ui/CloseButton";
 
 interface Props {
   reportId: string;
@@ -39,9 +40,7 @@ export default function ConnectPanel({ reportId, sheets, feedVisuals = [], onClo
     <section className="connect-panel" aria-label="Connect from Excel">
       <header>
         <h3>Connect live from Excel</h3>
-        <button type="button" className="link" onClick={onClose}>
-          Close
-        </button>
+        <CloseButton onClick={onClose} />
       </header>
 
       <p className="tile-hint">

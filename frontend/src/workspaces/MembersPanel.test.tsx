@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,14 +38,17 @@ describe("MembersPanel", () => {
     wrap(<MembersPanel workspaceId="w1" myRole="admin" onClose={() => {}} />);
     expect(await screen.findByText("ALICE")).toBeInTheDocument();
     expect(screen.getByText("BOB")).toBeInTheDocument();
-    expect(screen.getByText(/\(you\)/i)).toBeInTheDocument();
+    // The marker is a badge beside the name now, not a parenthetical.
+    expect(screen.getByText("You")).toBeInTheDocument();
   });
 
   it("lets an admin add a member by Snowflake username", async () => {
     wrap(<MembersPanel workspaceId="w1" myRole="admin" onClose={() => {}} />);
     await userEvent.type(await screen.findByLabelText(/snowflake username/i), "CAROL");
     await userEvent.selectOptions(
-      screen.getByLabelText(/role for the new member/i),
+      within(screen.getByRole("form", { name: /add someone/i })).getByLabelText(
+        /^role$/i,
+      ),
       "editor",
     );
     await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
@@ -70,7 +73,12 @@ describe("MembersPanel", () => {
     wrap(<MembersPanel workspaceId="w1" myRole="admin" onClose={() => {}} />);
     expect(await screen.findByRole("button", { name: /remove ALICE/i })).toBeDisabled();
     expect(screen.getByLabelText(/role for ALICE/i)).toBeDisabled();
-    expect(screen.getByText(/last admin cannot be removed or demoted/i)).toBeInTheDocument();
+    // The reason is attached to the controls it disables rather than left
+    // as a line of prose the reader has to connect to them.
+    expect(screen.getByRole("button", { name: /remove ALICE/i })).toHaveAttribute(
+      "title",
+      expect.stringMatching(/last admin cannot be removed or demoted/i),
+    );
   });
 
   it("does not disable an admin's controls when there are two", async () => {
@@ -93,11 +101,30 @@ describe("MembersPanel", () => {
     expect(JSON.parse(patch![1].body)).toEqual({ role: "editor" });
   });
 
-  it("removes a member", async () => {
+  it("confirms before removing a member, in the row it is about", async () => {
+    // Removing somebody from a workspace takes away everything they could
+    // read in it. Asked in the row rather than in a dialog that would have
+    // to name them again.
     wrap(<MembersPanel workspaceId="w1" myRole="admin" onClose={() => {}} />);
     await userEvent.click(await screen.findByRole("button", { name: /remove BOB/i }));
+    expect(
+      fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE"),
+    ).toBeUndefined();
+
+    const confirm = screen.getByRole("group", { name: /confirm remove/i });
+    await userEvent.click(within(confirm).getByRole("button", { name: /^remove$/i }));
     const del = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
     expect(del![0]).toBe("/api/workspaces/w1/members/u1");
+  });
+
+  it("backs out of a remove without doing it", async () => {
+    wrap(<MembersPanel workspaceId="w1" myRole="admin" onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: /remove BOB/i }));
+    await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(screen.queryByRole("group", { name: /confirm remove/i })).toBeNull();
+    expect(
+      fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE"),
+    ).toBeUndefined();
   });
 
   it("surfaces a rejected add rather than failing silently", async () => {
