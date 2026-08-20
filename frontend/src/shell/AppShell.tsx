@@ -90,6 +90,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span className="rail-label">Home</span>
           </NavLink>
           <NavLink
+            to="/dashboards"
+            className="rail-item"
+            title="Dashboards"
+            onClick={() => setWorkspacesOpen(false)}
+          >
+            <span className="rail-glyph" aria-hidden="true">
+              ▩
+            </span>
+            <span className="rail-label">Dashboards</span>
+          </NavLink>
+          <NavLink
             to="/reports"
             className="rail-item"
             title="Reports"

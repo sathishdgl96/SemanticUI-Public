@@ -29,6 +29,8 @@ export default function BuilderCanvasColumn({
   onLayoutChange,
   onSwitchPage,
   onPageOp,
+  onDeleteVisual,
+  onPinVisual,
 }: {
   definition: ReportDefinition;
   activePage: Page;
@@ -42,6 +44,8 @@ export default function BuilderCanvasColumn({
   onLayoutChange: (next: Record<string, VisualLayout>) => void;
   onSwitchPage: (pageId: string) => void;
   onPageOp: (result: pageOps.PageOpResult) => void;
+  onDeleteVisual?: (visualId: string) => void;
+  onPinVisual?: (visualId: string) => void;
 }) {
   // The model takes the whole surface: it is a different way of looking
   // at the same view, not something to squeeze beside the pages.
@@ -82,6 +86,8 @@ export default function BuilderCanvasColumn({
           factRefs={factRefs}
           slicerSelections={ui.slicerSelections}
           onSlicerChange={ui.onSlicerChange}
+          onDeleteVisual={onDeleteVisual}
+          onPinVisual={onPinVisual}
         />
       )}
       <PageBar

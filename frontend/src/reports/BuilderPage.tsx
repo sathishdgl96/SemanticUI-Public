@@ -1,6 +1,6 @@
 import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import { useMutation } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { downloadXlsx } from "../api/exports";
@@ -23,6 +23,7 @@ import BuilderDataPane from "./builder/BuilderDataPane";
 import BuilderHeader from "./builder/BuilderHeader";
 import BuilderOverlays from "./builder/BuilderOverlays";
 import MovePanel from "./builder/MovePanel";
+import PinToDashboard from "./builder/PinToDashboard";
 import VisualizationsPane from "./builder/VisualizationsPane";
 import { resolveDrop } from "./builder/dragDrop";
 import type { PageOpResult } from "./builder/pageOps";
@@ -59,6 +60,8 @@ export default function BuilderPage() {
   //: mutation is declared before that point and would otherwise close over a
   //: variable in its temporal dead zone.
   const exportSheetsRef = useRef<() => SheetRequest[]>(() => []);
+  //: The visual whose "Pin to dashboard" dialog is open, or null.
+  const [pinning, setPinning] = useState<string | null>(null);
   const exportExcel = useMutation({
     mutationFn: () =>
       downloadXlsx(
@@ -162,6 +165,17 @@ export default function BuilderPage() {
     ui.setSelectedId(visualId || null);
     const visual = activePage.visuals.find((v) => v.id === visualId);
     if (visual) ui.setSelectedType(visual.type as VisualType);
+  };
+
+  /** Remove a visual from the page. Nothing else has to be cleaned up: a
+   *  dashboard tile naming it resolves to "no longer on the report" on its
+   *  next read, which is the honest answer and needs no bookkeeping. */
+  const deleteVisual = (visualId: string) => {
+    replacePage({
+      ...activePage,
+      visuals: activePage.visuals.filter((v) => v.id !== visualId),
+    });
+    if (ui.selectedId === visualId) ui.setSelectedId(null);
   };
 
   const addVisual = (type: VisualType) => {
@@ -345,6 +359,8 @@ export default function BuilderPage() {
               onLayoutChange={onLayoutChange}
               onSwitchPage={switchPage}
               onPageOp={applyPageOp}
+              onDeleteVisual={canEdit ? deleteVisual : undefined}
+              onPinVisual={setPinning}
             />
             {/* The rail acts on the report: filters, the visual being
                 edited, the fields going into it. In model view there is no
@@ -370,9 +386,6 @@ export default function BuilderPage() {
               </Pane>
               <VisualizationsPane
                 isSheet={activePage.kind === "sheet"}
-                reportId={reportId || undefined}
-                pageId={activePage.id}
-                dirty={doc.dirty}
                 selected={selected}
                 selectedType={ui.selectedType}
                 onTypeChange={onTypeChange}
@@ -409,6 +422,21 @@ export default function BuilderPage() {
             )}
           </div>
         </DndContext>
+      )}
+      {pinning && doc.report.data && (
+        <div className="panel-overlay">
+          <PinToDashboard
+            reportId={reportId}
+            workspaceId={doc.report.data.workspaceId}
+            pageId={activePage.id}
+            visualId={pinning}
+            visualTitle={
+              visualTitle(activePage.visuals.find((v) => v.id === pinning) ?? selected!) ||
+              "this visual"
+            }
+            onClose={() => setPinning(null)}
+          />
+        </div>
       )}
       <BuilderOverlays
         panel={ui.panel}

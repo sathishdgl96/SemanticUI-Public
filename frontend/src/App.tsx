@@ -13,6 +13,8 @@ import { useMe } from "./auth/useMe";
 import AppShell from "./shell/AppShell";
 import ExplorerPage from "./explorer/ExplorerPage";
 import HomePage from "./home/HomePage";
+import DashboardListPage from "./dashboards/DashboardListPage";
+import DashboardPage from "./dashboards/DashboardPage";
 import BuilderPage from "./reports/BuilderPage";
 import ReportListPage from "./reports/ReportListPage";
 
@@ -71,6 +73,26 @@ export default function App() {
               <RequireAuth>
                 <AppShell>
                   <ExplorerPage />
+                </AppShell>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboards"
+            element={
+              <RequireAuth>
+                <AppShell>
+                  <DashboardListPage />
+                </AppShell>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboards/:id"
+            element={
+              <RequireAuth>
+                <AppShell>
+                  <DashboardPage />
                 </AppShell>
               </RequireAuth>
             }

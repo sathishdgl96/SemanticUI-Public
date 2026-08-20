@@ -12,6 +12,7 @@ import type {
 } from "../api/types";
 import type { CrossFilter, DrillState } from "./filters";
 import VisualTile from "./VisualTile";
+import ContextMenu, { useContextMenu, type MenuItem } from "../ui/ContextMenu";
 
 interface Props {
   visuals: Visual[];
@@ -34,6 +35,10 @@ interface Props {
   onSlicerChange?: (field: string, values: string[]) => void;
   /** Refs the view exposes as raw FACTS. */
   factRefs?: string[];
+  /** Right-click actions on a visual. Absent in read-only contexts, where
+   *  there is nothing to pin from and nothing to delete. */
+  onDeleteVisual?: (visualId: string) => void;
+  onPinVisual?: (visualId: string) => void;
 }
 
 /** Width is measured rather than assumed so the grid tracks the pane it sits in. */
@@ -96,8 +101,11 @@ export default function CanvasGrid({
   reportFilters = [], pageFilters = [], hierarchies = [], drill = {}, onDrill,
   crossFilter = null, onCrossFilter,
   slicerSelections = {}, onSlicerChange, factRefs = [],
+  onDeleteVisual, onPinVisual,
 }: Props) {
   const { ref, width } = useMeasuredWidth();
+  const menu = useContextMenu();
+  const [menuTarget, setMenuTarget] = useState<Visual | null>(null);
 
   if (visuals.length === 0) {
     return (
@@ -112,6 +120,36 @@ export default function CanvasGrid({
   const stacked = width < STACK_BELOW;
 
   const layout = layoutFor(visuals, stacked);
+
+  /** What right-clicking a visual offers. An action the caller did not
+   *  supply is absent rather than dead: on a read-only report there is
+   *  nothing to pin from and nothing to delete. */
+  const contextItems = (visual: Visual): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (onPinVisual) {
+      items.push({
+        id: "pin",
+        label: "Pin to dashboard…",
+        icon: "pin",
+        disabledReason: readOnly
+          ? "Save the report first — a tile names the saved report."
+          : undefined,
+        onSelect: () => onPinVisual(visual.id),
+      });
+    }
+    if (onDeleteVisual) {
+      items.push({
+        id: "delete",
+        label: "Delete visual",
+        icon: "trash",
+        danger: true,
+        separatorBefore: items.length > 0,
+        disabledReason: readOnly ? "You cannot edit this report." : undefined,
+        onSelect: () => onDeleteVisual(visual.id),
+      });
+    }
+    return items;
+  };
 
   return (
     <div
@@ -151,7 +189,16 @@ export default function CanvasGrid({
         }}
       >
         {visuals.map((visual) => (
-          <div key={visual.id}>
+          <div
+            key={visual.id}
+            onContextMenu={(event) => {
+              // Selecting first, so the menu's actions and the panes on the
+              // right are talking about the same visual.
+              onSelect(visual.id);
+              setMenuTarget(visual);
+              menu.open(event);
+            }}
+          >
             <VisualTile
               visual={visual}
               view={view}
@@ -171,6 +218,14 @@ export default function CanvasGrid({
           </div>
         ))}
       </GridLayout>
+
+      {menu.at && menuTarget && (
+        <ContextMenu
+          at={menu.at}
+          items={contextItems(menuTarget)}
+          onClose={menu.close}
+        />
+      )}
     </div>
   );
 }

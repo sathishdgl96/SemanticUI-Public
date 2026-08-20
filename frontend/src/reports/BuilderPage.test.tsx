@@ -29,12 +29,16 @@ vi.mock("./CanvasGrid", () => ({
     onDrill,
     onCrossFilter,
     factRefs,
+    onDeleteVisual,
+    onPinVisual,
   }: {
     visuals: { id: string }[];
     onSelect: (id: string) => void;
     onDrill?: (id: string, next: unknown) => void;
     onCrossFilter?: (next: unknown) => void;
     factRefs?: string[];
+    onDeleteVisual?: (id: string) => void;
+    onPinVisual?: (id: string) => void;
   }) => (
     <div>
       {/* Surfaced so a test can prove the builder actually hands the canvas
@@ -60,6 +64,14 @@ vi.mock("./CanvasGrid", () => ({
               })
             }
           >{`drill ${v.id}`}</button>
+          {/* The real canvas raises these from its right-click menu; the
+              builder only has to route them. */}
+          {onDeleteVisual && (
+            <button onClick={() => onDeleteVisual(v.id)}>{`delete ${v.id}`}</button>
+          )}
+          {onPinVisual && (
+            <button onClick={() => onPinVisual(v.id)}>{`pin ${v.id}`}</button>
+          )}
         </div>
       ))}
     </div>
@@ -129,6 +141,11 @@ const detail2 = {
     hierarchies: [],
   },
 };
+
+/** The command bar's Save. */
+function newReportSave() {
+  return screen.getByRole("button", { name: /^save$/i });
+}
 
 function renderBuilder() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -808,6 +825,37 @@ describe("BuilderPage Excel export", () => {
 
 describe("BuilderPage PBI panes", () => {
   beforeEach(() => stubApi());
+
+  it("deletes a visual and drops it from the saved document", async () => {
+    // Until this existed there was no way to remove a visual at all: the
+    // canvas could add and rearrange, and nothing could take away.
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /^delete v1$/ }));
+    await userEvent.click(newReportSave());
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const saved = updateMock.mock.lastCall?.[1] as {
+      pages: { visuals: { id: string }[] }[];
+    };
+    expect(saved.pages[0].visuals.map((v) => v.id)).not.toContain("v1");
+  });
+
+  it("does not offer delete to someone who may only read the report", async () => {
+    getMock.mockResolvedValue({ ...detail, myRole: "viewer" } as never);
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    expect(screen.queryByRole("button", { name: /^delete v1$/ })).toBeNull();
+  });
+
+  it("opens the pin dialog for the visual that was right-clicked", async () => {
+    renderBuilder();
+    await screen.findByDisplayValue("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /^pin v1$/ }));
+    expect(
+      await screen.findByRole("dialog", { name: /pin to dashboard/i }),
+    ).toBeInTheDocument();
+  });
 
   it("gives the model view the whole surface", async () => {
     // The rail acts on the report: filters, the visual being edited, the

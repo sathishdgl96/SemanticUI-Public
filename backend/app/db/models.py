@@ -44,6 +44,14 @@ class User(Base):
     #: account's default warehouse apply instead.
     last_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Which dashboard this user opens on Home. Per-user because it is a
+    #: preference, not a property of the dashboard -- two people in the
+    #: same workspace reasonably start their day on different ones. No
+    #: foreign key: the dashboard may be deleted or become unreadable, and
+    #: both cases resolve to "no dashboard chosen" rather than to an error.
+    home_dashboard_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, nullable=True
+    )
 
 
 class DbSession(Base):
@@ -232,45 +240,43 @@ class UserItemState(Base):
     )
 
 
-class HomeWidget(Base):
-    """One visual a user has pinned to their home page.
+class Dashboard(Base):
+    """Visuals from several reports, gathered on one canvas.
 
-    A REFERENCE, not a copy: the report, page and visual are named and
-    resolved at read time. Snapshotting the visual's definition would
-    have meant a widget quietly drifting from the report it came from,
-    and -- worse -- a copy of a definition that no access check governs.
-    Naming it means every load re-resolves the report through the same
-    gate everything else does, so losing access to the report loses the
-    widget with it.
+    A sibling of Report, not a special case of one. A report is bound to
+    exactly one semantic view and owns the visuals on it; a dashboard owns
+    no visuals at all -- every tile NAMES one that lives on a report, so a
+    single dashboard can draw from as many reports as the workspace holds.
+    Modelling it as a report with a null view would have meant every report
+    code path asking whether it was really a dashboard.
 
-    Position and size live here rather than in a single JSON blob per
-    user because a widget is added and removed one at a time, and a blob
-    would make two browsers open at once overwrite each other's grid.
+    Workspace-owned, exactly like a report, and governed by the same
+    membership rule: what a dashboard shows is what its tiles' reports
+    show, so putting it anywhere else would have created a second way to
+    reach a report's data with a different answer about who may.
     """
 
-    __tablename__ = "home_widgets"
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id", "report_id", "page_id", "visual_id", name="uq_home_widget"
-        ),
-    )
+    __tablename__ = "dashboards"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    #: Not a foreign key on purpose -- see forget_item in library/state.py.
-    #: Reports are deleted through a path that cleans up polymorphic
-    #: references explicitly, and this one is cleaned there too.
-    report_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
-    #: Ids WITHIN the report document, so they are strings, not rows.
-    page_id: Mapped[str] = mapped_column(String(64))
-    visual_id: Mapped[str] = mapped_column(String(64))
-    #: The caller's own title, when they renamed it on the way in. Null
-    #: means "whatever the visual is called now", which is usually right.
-    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    x: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    y: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    w: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
-    h: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc
+    #: Provenance only -- who created this. It is NOT the access check.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary, and the boundary tiles may not cross: a tile
+    #: names a report in THIS workspace, so every member who can open the
+    #: dashboard can open what is on it.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    #: {"schemaVersion": 1, "tiles": [{id, reportId, pageId, visualId,
+    #: title, layout}]}. A document rather than a tiles table for the same
+    #: reason a report's visuals are a document: it is edited and saved as
+    #: one thing, and half a saved layout is not a state worth being able
+    #: to reach.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )

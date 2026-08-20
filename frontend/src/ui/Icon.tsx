@@ -94,6 +94,25 @@ const PATHS = {
       <path d="M8 13h8" />
     </>
   ),
+  pin: (
+    <>
+      <path d="M12 17v5" />
+      <path d="M9 3h6l-1 6 3 3v2H7v-2l3-3Z" />
+    </>
+  ),
+  dashboard: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </>
+  ),
+  open: (
+    <>
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+    </>
+  ),
   model: (
     <>
       <circle cx="6" cy="5" r="2.5" />

@@ -7,16 +7,22 @@ import HomePage from "./HomePage";
 import type { HomePayload } from "../api/home";
 
 const getHomeMock = vi.hoisted(() => vi.fn());
-const unpinMock = vi.hoisted(() => vi.fn());
-const rearrangeMock = vi.hoisted(() => vi.fn());
+const listDashboardsMock = vi.hoisted(() => vi.fn());
+const setHomeDashboardMock = vi.hoisted(() => vi.fn());
+const removeTileMock = vi.hoisted(() => vi.fn());
+const updateDashboardMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../api/home", () => ({
-  getHome: getHomeMock,
-  unpinWidget: unpinMock,
-  rearrangeWidgets: rearrangeMock,
-  pinVisual: vi.fn(),
+vi.mock("../api/home", () => ({ getHome: getHomeMock }));
+vi.mock("../api/dashboards", () => ({
+  listDashboards: listDashboardsMock,
+  setHomeDashboard: setHomeDashboardMock,
+  removeTile: removeTileMock,
+  updateDashboard: updateDashboardMock,
+  addTile: vi.fn(),
+  createDashboard: vi.fn(),
+  deleteDashboard: vi.fn(),
+  getDashboard: vi.fn(),
 }));
-
 vi.mock("../api/library", () => ({ recordView: vi.fn().mockResolvedValue({ ok: true }) }));
 
 // The tile runs a real query against the semantic gateway; the home page's
@@ -27,18 +33,16 @@ vi.mock("../reports/VisualTile", () => ({
   ),
 }));
 
-function liveWidget(overrides: Record<string, unknown> = {}) {
+function tile(overrides: Record<string, unknown> = {}) {
   return {
-    id: "w1",
+    id: "t1",
     reportId: "r1",
     pageId: "p1",
     visualId: "v1",
     layout: { x: 0, y: 0, w: 4, h: 4 },
     title: null,
-    available: true as const,
+    available: true,
     reportName: "Sales overview",
-    workspaceName: "Team",
-    myRole: "editor",
     view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
     visual: {
       id: "v1",
@@ -52,6 +56,20 @@ function liveWidget(overrides: Record<string, unknown> = {}) {
     reportFilters: [],
     pageFilters: [],
     hierarchies: [],
+    ...overrides,
+  };
+}
+
+function dashboard(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "d1",
+    name: "Ops",
+    workspaceId: "w0",
+    workspaceName: "Team",
+    myRole: "editor",
+    tileCount: 1,
+    updatedAt: new Date().toISOString(),
+    tiles: [tile()],
     ...overrides,
   };
 }
@@ -74,7 +92,7 @@ function payload(overrides: Partial<HomePayload> = {}): HomePayload {
         lastViewedAt: new Date().toISOString(),
       },
     ],
-    widgets: [liveWidget()],
+    dashboard: dashboard(),
     ...overrides,
   } as HomePayload;
 }
@@ -94,15 +112,17 @@ describe("HomePage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getHomeMock.mockResolvedValue(payload());
-    unpinMock.mockResolvedValue(undefined);
-    rearrangeMock.mockResolvedValue({ ok: true });
+    listDashboardsMock.mockResolvedValue({ dashboards: [] });
+    setHomeDashboardMock.mockResolvedValue({ dashboardId: null });
+    removeTileMock.mockResolvedValue(undefined);
+    updateDashboardMock.mockResolvedValue(dashboard());
   });
 
   it("shows what was opened lately, reports and explores together", async () => {
     renderHome();
     await screen.findByTestId("tile");
-    // The widget's source link is also called "Sales overview", so the
-    // recents assertion has to say which list it means.
+    // The tile's own menu also names the report, so the recents assertion
+    // has to say which list it means.
     const recents = document.querySelector(".recent-list") as HTMLElement;
     expect(
       within(recents).getByRole("link", { name: /sales overview/i }),
@@ -112,61 +132,78 @@ describe("HomePage", () => {
     ).toHaveAttribute("href", "/explore?explore=e1");
   });
 
-  it("draws each pinned visual, and says which report it came from", async () => {
+  it("draws the chosen dashboard, and links to it", async () => {
     renderHome();
     expect(await screen.findByTestId("tile")).toHaveTextContent("Revenue by region");
-    // Two things are called "Sales overview" -- a recent item and the
-    // widget's source link -- so scope to the widget.
-    const footer = document.querySelector(".widget-footer") as HTMLElement;
-    expect(within(footer).getByRole("link", { name: "Sales overview" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Ops" })).toHaveAttribute(
       "href",
-      "/reports/r1",
+      "/dashboards/d1",
     );
   });
 
-  it("unpins a widget and refetches", async () => {
+  it("offers a dashboard to choose when none is set", async () => {
+    // The same state as never having chosen, the chosen one being deleted,
+    // and losing access to its workspace -- all three mean "pick one".
+    getHomeMock.mockResolvedValue(payload({ dashboard: null }));
+    listDashboardsMock.mockResolvedValue({
+      dashboards: [
+        {
+          id: "d2",
+          name: "Finance",
+          workspaceId: "w0",
+          workspaceName: "Team",
+          myRole: "viewer",
+          tileCount: 3,
+          updatedAt: null,
+        },
+      ],
+    });
+    renderHome();
+    await userEvent.click(await screen.findByRole("button", { name: /finance/i }));
+    await waitFor(() => expect(setHomeDashboardMock).toHaveBeenCalledWith("d2"));
+  });
+
+  it("points at creating one when there are no dashboards at all", async () => {
+    getHomeMock.mockResolvedValue(payload({ dashboard: null }));
+    renderHome();
+    expect(await screen.findByText(/no dashboards yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /create one/i })).toHaveAttribute(
+      "href",
+      "/dashboards",
+    );
+  });
+
+  it("clears the choice so another can be picked", async () => {
     renderHome();
     await screen.findByTestId("tile");
-    await userEvent.click(screen.getByRole("button", { name: /unpin/i }));
-    await waitFor(() => expect(unpinMock).toHaveBeenCalledWith("w1"));
-    await waitFor(() => expect(getHomeMock).toHaveBeenCalledTimes(2));
+    await userEvent.click(screen.getByRole("button", { name: /change/i }));
+    await waitFor(() => expect(setHomeDashboardMock).toHaveBeenCalledWith(null));
   });
 
-  it("says what a widget with nothing behind it any more is, and offers to remove it", async () => {
-    // Not an error state: the frame is still yours, it is the thing inside
-    // that went away.
+  it("removes a tile from the right-click menu", async () => {
+    renderHome();
+    const cell = (await screen.findByTestId("tile")).closest(".tile-cell") as HTMLElement;
+    await userEvent.pointer({ keys: "[MouseRight]", target: cell });
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: /remove from dashboard/i }),
+    );
+    await waitFor(() => expect(removeTileMock).toHaveBeenCalledWith("d1", "t1"));
+  });
+
+  it("does not offer to remove a tile to someone who may only read it", async () => {
     getHomeMock.mockResolvedValue(
-      payload({
-        widgets: [
-          {
-            id: "w2",
-            reportId: "r9",
-            pageId: "p1",
-            visualId: "v1",
-            layout: { x: 0, y: 0, w: 4, h: 4 },
-            title: null,
-            available: false,
-            reason: "This report is no longer available.",
-          },
-        ],
-      }),
+      payload({ dashboard: dashboard({ myRole: "viewer" }) as never }),
     );
     renderHome();
+    const cell = (await screen.findByTestId("tile")).closest(".tile-cell") as HTMLElement;
+    await userEvent.pointer({ keys: "[MouseRight]", target: cell });
     expect(
-      await screen.findByText(/this report is no longer available/i),
-    ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /remove/i }));
-    await waitFor(() => expect(unpinMock).toHaveBeenCalledWith("w2"));
-  });
-
-  it("invites a first pin rather than showing an empty grid", async () => {
-    getHomeMock.mockResolvedValue(payload({ widgets: [] }));
-    renderHome();
-    expect(await screen.findByText(/nothing pinned yet/i)).toBeInTheDocument();
+      await screen.findByRole("menuitem", { name: /remove from dashboard/i }),
+    ).toBeDisabled();
   });
 
   it("says so when nothing has been opened", async () => {
-    getHomeMock.mockResolvedValue(payload({ recent: [], widgets: [] }));
+    getHomeMock.mockResolvedValue(payload({ recent: [] }));
     renderHome();
     expect(await screen.findByText(/nothing opened yet/i)).toBeInTheDocument();
   });
