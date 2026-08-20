@@ -3934,18 +3934,23 @@ body {
    so every rule below states its intent rather than a hex code. */
 .model-tab {
   --m-ground: #1c2027;
-  --m-grid: #262b33;
+  --m-grid: #333a45;
   --m-card: #2b313b;
-  --m-card-head: #333a45;
+  --m-card-head: #363e4a;
   --m-ink: #ffffff;
   --m-ink-dim: #c7cdd6;
-  --m-line: #7d8896;
+  --m-line: #8d98a6;
   --m-fact: #6aa2e8;
   --m-dim: #6fc39a;
   --m-key: #e8c46a;
+  --m-metric: #e6a3c8;
 
   display: flex;
   align-items: stretch;
+  /* Both, because the parent is itself a flex item: `flex` is what makes
+     this fill the column, and `height` is what gives React Flow a box to
+     measure rather than one that sizes to its own content. */
+  flex: 1 1 auto;
   height: 100%;
   min-height: 0;
   border: 1px solid var(--border);
@@ -3960,142 +3965,139 @@ body {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  background-color: var(--m-ground);
-  background-image:
-    linear-gradient(var(--m-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--m-grid) 1px, transparent 1px);
-  background-size: 26px 26px;
+  background: var(--m-ground);
 }
 
-.model-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  background: var(--m-card-head);
-  border-bottom: 1px solid var(--m-grid);
-}
-
-.model-toolbar button {
-  min-width: 28px;
-  min-height: 28px;
-  padding: 0 8px;
-  background: var(--m-card);
-  border: 1px solid var(--m-line);
-  border-radius: 4px;
-  color: var(--m-ink);
-  font-weight: 400;
-  line-height: 1;
-}
-
-.model-toolbar button:hover {
-  border-color: var(--m-fact);
-  color: var(--m-fact);
-}
-
-.model-zoom-level {
-  min-width: 46px;
-  color: var(--m-ink-dim);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.model-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  color: var(--m-ink-dim);
-  font-size: 12px;
-}
-
-.model-legend-note {
-  margin-left: 8px;
-  font-family: var(--font-mono);
-}
-
-.model-swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-}
-
-.model-swatch.kind-fact { background: var(--m-fact); }
-.model-swatch.kind-dimension { background: var(--m-dim); }
-
+/* React Flow measures this box to decide what "fit" means, so it has to
+   have a height of its own -- a flex child that only sizes to its
+   content measures as zero and the diagram never appears. */
 .model-pane {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
-  cursor: grab;
-  touch-action: none;
 }
 
-.model-pane.grabbing { cursor: grabbing; }
+/* Marker definitions only. Zero-sized so it takes no layout, but not
+   `display: none` -- a hidden subtree's markers do not render. */
+.model-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
 
-.model-svg {
+/* --- the canvas React Flow draws ------------------------------------ */
+
+.model-pane .react-flow__background {
+  background: var(--m-ground);
+}
+
+.model-pane .react-flow__background-pattern {
+  color: var(--m-grid);
+}
+
+.model-pane .react-flow__controls-button {
+  background: var(--m-card-head);
+  border-bottom: 1px solid var(--m-ground);
+  fill: var(--m-ink);
+}
+
+.model-pane .react-flow__controls-button:hover {
+  background: var(--m-fact);
+}
+
+.model-pane .react-flow__minimap {
+  background: var(--m-card);
+  border: 1px solid var(--m-grid);
+  border-radius: 4px;
+}
+
+.model-pane .react-flow__minimap-node {
+  fill: var(--m-line);
+}
+
+.model-pane .react-flow__attribution {
+  background: transparent;
+  color: var(--m-ink-dim);
+  font-size: 9px;
+}
+
+.model-pane .react-flow__attribution a {
+  color: var(--m-ink-dim);
+}
+
+/* --- table cards ----------------------------------------------------- */
+
+/* The row heights below are the ones graph.ts hands dagre. Change one
+   without the other and the cards no longer fill the space they were
+   laid out into. */
+.model-node {
   width: 100%;
   height: 100%;
-  display: block;
-}
-
-/* Drawn through foreignObject so a card is a real button: focusable,
-   announced, and keyboard-operable without reimplementing any of that on
-   an SVG shape. */
-.model-node {
   display: flex;
   flex-direction: column;
-  gap: 0;
-  width: 100%;
-  height: 100%;
-  padding: 0;
   background: var(--m-card);
-  border: 1px solid var(--m-line);
+  border: 1px solid var(--m-grid);
   border-radius: 6px;
-  color: var(--m-ink);
-  font-weight: 400;
-  text-align: left;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
   overflow: hidden;
-  cursor: grab;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  color: var(--m-ink);
 }
 
 .model-node-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 8px 11px;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
   background: var(--m-card-head);
-  /* The table's role, as a bar across the top of its card. */
+  border: none;
   border-top: 3px solid var(--m-line);
-  font-weight: 600;
-  font-size: 14.5px;
-  letter-spacing: 0.01em;
+  border-radius: 0;
+  color: var(--m-ink);
+  cursor: pointer;
+  text-align: left;
 }
 
 .model-node.kind-fact .model-node-head { border-top-color: var(--m-fact); }
 .model-node.kind-dimension .model-node-head { border-top-color: var(--m-dim); }
 
 .model-node-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.model-node-count {
-  flex: 0 0 auto;
+.model-node-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--m-ink-dim);
-  font-size: 11px;
-  font-weight: 400;
+}
+
+.model-node-count {
+  padding: 1px 6px;
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
 .model-node-columns {
-  display: flex;
-  flex-direction: column;
-  padding: 0;
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+}
+
+/* Relative, so a join key's handles anchor to the row rather than to the
+   card -- which is what puts the crow's foot on the column the join is
+   actually declared on. */
+.model-column-row {
+  position: relative;
+  height: 26px;
 }
 
 .model-column {
@@ -4103,75 +4105,154 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 23px;
-  padding: 0 11px;
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
   color: var(--m-ink);
   font-size: 13px;
-  line-height: 23px;
+  text-align: left;
+}
+
+button.model-column { cursor: pointer; }
+
+button.model-column:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.model-column.selected {
+  background: var(--m-fact);
+  color: #10151c;
+  font-weight: 600;
 }
 
 .model-column-name {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* A join key is what the relationships in this diagram are drawn on, so
-   it is the one column worth picking out of the list. */
-.model-column.is-key {
-  color: var(--m-key);
-  font-weight: 700;
-  background: rgba(232, 196, 106, 0.08);
-}
+.model-column.kind-key { color: var(--m-key); font-weight: 600; }
+.model-column.kind-metric .model-column-name { color: var(--m-metric); }
+.model-column.kind-fact .model-column-name { color: var(--m-metric); }
 
-.model-key {
-  color: var(--m-key);
-  font-size: 12px;
-}
+.model-key { font-size: 11px; }
 
 .model-column-type {
   flex: 0 0 auto;
   color: var(--m-ink-dim);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
 }
 
-.model-column.more {
+.model-column.selected .model-column-type { color: #10151c; }
+
+.model-node-more {
+  height: 22px;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--m-grid);
+  border-radius: 0;
   color: var(--m-ink-dim);
-  font-style: italic;
-  font-size: 11.5px;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
 }
 
-.model-node:hover { border-color: var(--m-fact); }
+.model-node-more:hover { color: var(--m-ink); }
 
 .model-node.selected {
   border-color: var(--m-fact);
-  box-shadow: 0 0 0 2px rgba(106, 162, 232, 0.35), 0 4px 10px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px var(--m-fact);
 }
 
-.model-edge {
+/* Handles exist to anchor edges, not to be connected to. */
+.model-node .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* --- what a selection emphasises ------------------------------------- */
+
+/* Four states, not a highlighted/dimmed pair: in a star schema everything
+   connects to everything, so a binary would light the whole diagram up.
+   What varies is HOW -- on a join path, only through a bridge, or not at
+   all. */
+.model-node.state-self { border-color: var(--m-fact); }
+.model-node.state-bridged { opacity: 0.72; }
+.model-node.state-none { opacity: 0.34; }
+
+/* --- edges ----------------------------------------------------------- */
+
+.model-edge .react-flow__edge-path {
   stroke: var(--m-line);
-  stroke-width: 1.5;
-  fill: none;
+  stroke-width: 1.6px;
 }
 
-/* Markers do not inherit the line's stroke, so they carry their own. */
-.model-marker {
-  stroke: var(--m-line);
-  stroke-width: 1.5;
-  fill: none;
-  stroke-linecap: round;
-}
-
-/* The joins of the selected table, lifted out of the rest. */
-.model-edge-group.on .model-edge,
-.model-edge-group.on .model-marker {
+.model-edge.on .react-flow__edge-path {
   stroke: var(--m-fact);
-  stroke-width: 2.25;
+  stroke-width: 2.4px;
 }
+
+.model-edge.off .react-flow__edge-path {
+  stroke: var(--m-line);
+  opacity: 0.25;
+}
+
+.model-edge .react-flow__edge-text {
+  fill: var(--m-ink);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.model-edge .react-flow__edge-textbg {
+  fill: var(--m-ground);
+}
+
+.model-marker {
+  fill: none;
+  stroke: var(--m-line);
+  stroke-width: 1.6px;
+}
+
+.model-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--m-card-head);
+  border-top: 1px solid var(--m-grid);
+  color: var(--m-ink-dim);
+  font-size: 11px;
+}
+
+.model-legend-note { color: var(--m-ink-dim); }
+
+.model-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 2px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.model-swatch.kind-fact { background: var(--m-fact); }
+.model-swatch.kind-dimension { background: var(--m-dim); }
 
 .model-canvas .tile-hint {
   color: var(--m-ink-dim);
@@ -4179,20 +4260,51 @@ body {
   margin: 0;
 }
 
-/* The detail panel stays in the app's light palette: it is a document
-   about the selection, and it sits outside the canvas. */
+/* --- the detail panel ------------------------------------------------ */
+
+/* Stays in the app's light palette: it is a document about the selection,
+   and it sits outside the canvas. */
 .model-detail {
   flex: 0 0 auto;
-  width: 260px;
+  width: 300px;
   padding: 12px;
   background: var(--surface);
   border-left: 1px solid var(--border);
   overflow-y: auto;
 }
 
-.model-detail-title { margin: 0 0 2px; font-size: 14px; }
+.model-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-detail-title {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 2px;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.model-detail-table {
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.model-detail-summary {
+  margin: 4px 0 10px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
 
 .model-detail-group {
+  display: flex;
+  flex-direction: column;
   margin: 12px 0 4px;
   color: var(--ink-secondary);
   font-size: 11px;
@@ -4201,20 +4313,100 @@ body {
   letter-spacing: 0.04em;
 }
 
+.model-relation {
+  padding: 8px 0 8px 10px;
+  border-left: 3px solid var(--border);
+}
+
+/* A table nothing reaches is worth spotting at a glance; one that only a
+   bridge reaches is worth a second look. */
+.model-relation.link-none { border-left-color: var(--danger, #c0392b); }
+.model-relation.link-bridged { border-left-color: var(--warning, #d99b28); }
+.model-relation.link-same { border-left-color: var(--accent); }
+
+.model-relation-how {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.model-path {
+  margin: 4px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.model-path li {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+.model-path-ends {
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.model-path-on {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.model-path-on.muted { font-style: italic; font-family: inherit; }
+
 .model-detail-fields { margin: 0; padding: 0; list-style: none; }
 
 .model-detail-fields li {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 3px 0;
+  flex-direction: column;
+  padding: 2px 0;
   font-size: 12px;
 }
+
+.model-field-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  margin-left: -4px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-field-button:hover { background: var(--surface-hover, rgb(0 0 0 / 0.05)); }
+
+.model-field-name.kind-metric,
+.model-field-name.kind-fact { color: var(--accent); }
 
 .model-field-type {
   color: var(--ink-muted);
   font-family: var(--font-mono);
   font-size: 10px;
+}
+
+/* Not greyed out: the field is still there and still worth reading, it
+   just cannot go in the same query. The reason says which. */
+.model-detail-fields li.blocked .model-field-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-muted);
+}
+
+.model-field-blocked {
+  padding: 0 4px 2px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .model-join { padding: 4px 0; font-size: 12px; }

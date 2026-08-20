@@ -10,12 +10,19 @@ import type { FieldInfo, SemanticViewDetail } from "../api/types";
 export default function TableDetail({
   detail,
   table,
+  onSelectField,
 }: {
   detail: SemanticViewDetail;
   table: string | null;
+  onSelectField?: (ref: string) => void;
 }) {
   if (!table) {
-    return <p className="tile-hint">Select a table to see its fields and joins.</p>;
+    return (
+      <p className="tile-hint">
+        Select a table for its fields and joins, or a column to see everything it
+        relates to.
+      </p>
+    );
   }
 
   const groups: { label: string; fields: FieldInfo[] }[] = [
@@ -42,9 +49,25 @@ export default function TableDetail({
           <ul className="model-detail-fields">
             {group.fields.map((field) => (
               <li key={field.name}>
-                <span className="model-field-name">{field.name}</span>
-                {field.dataType && (
-                  <span className="model-field-type">{field.dataType}</span>
+                {onSelectField ? (
+                  <button
+                    type="button"
+                    className="model-field-button"
+                    onClick={() => onSelectField(`${field.table}.${field.name}`)}
+                    title="Show everything this field relates to"
+                  >
+                    <span className="model-field-name">{field.name}</span>
+                    {field.dataType && (
+                      <span className="model-field-type">{field.dataType}</span>
+                    )}
+                  </button>
+                ) : (
+                  <>
+                    <span className="model-field-name">{field.name}</span>
+                    {field.dataType && (
+                      <span className="model-field-type">{field.dataType}</span>
+                    )}
+                  </>
                 )}
               </li>
             ))}

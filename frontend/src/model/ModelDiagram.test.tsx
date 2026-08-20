@@ -5,81 +5,126 @@ import ModelDiagram from "./ModelDiagram";
 import type { SemanticViewDetail } from "../api/types";
 
 const DETAIL: SemanticViewDetail = {
-  tables: [{ name: "ORDERS" }, { name: "CUSTOMERS" }],
-  relationships: [{ name: "cust_fk", table: "ORDERS", refTable: "CUSTOMERS" }],
-  dimensions: [{ table: "ORDERS", name: "STATUS", dataType: "TEXT" }],
-  metrics: [{ table: "ORDERS", name: "REVENUE", dataType: "NUMBER" }],
+  tables: [{ name: "ORDERS" }, { name: "CUSTOMER" }],
+  relationships: [
+    {
+      name: "ORDER_TO_CUST",
+      table: "ORDERS",
+      refTable: "CUSTOMER",
+      foreignKey: ["O_CUSTKEY"],
+      refKey: ["C_CUSTKEY"],
+    },
+  ],
+  dimensions: [
+    { table: "ORDERS", name: "STATUS", dataType: "VARCHAR(16777216)" },
+    { table: "CUSTOMER", name: "SEGMENT", dataType: "TEXT" },
+  ],
+  metrics: [{ table: "ORDERS", name: "REVENUE", dataType: "NUMBER(38,2)" }],
   facts: [],
 };
 
+function draw(props: Partial<React.ComponentProps<typeof ModelDiagram>> = {}) {
+  return render(
+    <ModelDiagram
+      detail={DETAIL}
+      selectedRef={null}
+      selectedTable={null}
+      onSelectField={() => {}}
+      onSelectTable={() => {}}
+      {...props}
+    />,
+  );
+}
+
 describe("ModelDiagram", () => {
-  it("draws every table", () => {
-    render(<ModelDiagram detail={DETAIL} selected={null} onSelect={() => {}} />);
-    expect(screen.getByRole("button", { name: /ORDERS/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /CUSTOMERS/ })).toBeInTheDocument();
+  it("draws a card per table, naming its fields", () => {
+    draw();
+    expect(screen.getByText("ORDERS")).toBeInTheDocument();
+    expect(screen.getByText("CUSTOMER")).toBeInTheDocument();
+    expect(screen.getByText("STATUS")).toBeInTheDocument();
+    expect(screen.getByText("SEGMENT")).toBeInTheDocument();
   });
 
-  it("draws one edge per declared relationship", () => {
-    const { container } = render(
-      <ModelDiagram detail={DETAIL} selected={null} onSelect={() => {}} />,
-    );
-    expect(container.querySelectorAll("[data-edge]")).toHaveLength(1);
-    // Named on hover rather than on the canvas: a label over every edge
-    // buries the diagram it is meant to explain.
-    expect(container.querySelector("[data-edge] title")?.textContent).toBe("cust_fk");
+  it("shows the join keys as columns of their own", () => {
+    // They are physical columns, not modelled fields, so nothing else in
+    // the app would ever mention them -- and they are what the edges are
+    // actually drawn on.
+    draw();
+    expect(screen.getByText("O_CUSTKEY")).toBeInTheDocument();
+    expect(screen.getByText("C_CUSTKEY")).toBeInTheDocument();
   });
 
-  it("names the join on the canvas once its table is selected", () => {
-    const { container } = render(
-      <ModelDiagram detail={DETAIL} selected="ORDERS" onSelect={() => {}} />,
-    );
-    // A drawn label, not just the hover title every edge already carries.
-    expect(container.querySelector("text.model-edge-label")?.textContent).toBe(
-      "cust_fk",
-    );
+  it("shortens a type to its family", () => {
+    draw();
+    expect(screen.getByText("VARCHAR")).toBeInTheDocument();
+    expect(screen.queryByText("VARCHAR(16777216)")).not.toBeInTheDocument();
   });
 
-  it("leaves the canvas unlabelled while nothing is selected", () => {
-    const { container } = render(
-      <ModelDiagram detail={DETAIL} selected={null} onSelect={() => {}} />,
-    );
-    expect(container.querySelector("text.model-edge-label")).toBeNull();
+  it("selects a field when its column is clicked", async () => {
+    const onSelectField = vi.fn();
+    draw({ onSelectField });
+    await userEvent.click(screen.getByRole("button", { name: /STATUS/ }));
+    expect(onSelectField).toHaveBeenCalledWith("ORDERS.STATUS");
   });
 
-  it("selects a table when it is clicked", async () => {
-    const onSelect = vi.fn();
-    render(<ModelDiagram detail={DETAIL} selected={null} onSelect={onSelect} />);
+  it("offers no selection on a join key", async () => {
+    // A key names a column of the underlying table, so there is no field
+    // to select and no query it could go into.
+    draw();
+    expect(
+      screen.queryByRole("button", { name: /O_CUSTKEY/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("selects a table when its header is clicked", async () => {
+    const onSelectTable = vi.fn();
+    draw({ onSelectTable });
     await userEvent.click(screen.getByRole("button", { name: /ORDERS/ }));
-    expect(onSelect).toHaveBeenCalledWith("ORDERS");
+    expect(onSelectTable).toHaveBeenCalledWith("ORDERS");
   });
 
-  it("marks the selected table for assistive technology", () => {
-    render(<ModelDiagram detail={DETAIL} selected="ORDERS" onSelect={() => {}} />);
-    expect(screen.getByRole("button", { name: /ORDERS/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+  it("marks the selected column", () => {
+    const { container } = draw({ selectedRef: "ORDERS.STATUS" });
+    expect(container.querySelector(".model-column.selected")).toHaveTextContent(
+      "STATUS",
     );
   });
 
-  it("says so when the model declares no joins", () => {
-    render(
-      <ModelDiagram
-        detail={{ ...DETAIL, relationships: [] }}
-        selected={null}
-        onSelect={() => {}}
-      />,
-    );
+  it("defines both cardinality markers once", () => {
+    const { container } = draw();
+    expect(container.querySelector("#model-many")).toBeInTheDocument();
+    expect(container.querySelector("#model-one")).toBeInTheDocument();
+  });
+
+  it("says so when a view declares no tables", () => {
+    draw({ detail: { ...DETAIL, tables: [], relationships: [] } });
+    expect(screen.getByText(/no tables/i)).toBeInTheDocument();
+  });
+
+  it("says so when a model declares no joins", () => {
+    draw({ detail: { ...DETAIL, relationships: [] } });
     expect(screen.getByText(/no joins/i)).toBeInTheDocument();
   });
+});
 
-  it("says so when the view has no tables", () => {
-    render(
-      <ModelDiagram
-        detail={{ ...DETAIL, tables: [], relationships: [] }}
-        selected={null}
-        onSelect={() => {}}
-      />,
-    );
-    expect(screen.getByText(/no tables/i)).toBeInTheDocument();
+describe("wide tables", () => {
+  const wide: SemanticViewDetail = {
+    ...DETAIL,
+    dimensions: Array.from({ length: 14 }, (_, i) => ({
+      table: "ORDERS",
+      name: `D${i}`,
+      dataType: "TEXT",
+    })),
+    metrics: [],
+  };
+
+  it("offers to show the fields that did not fit", async () => {
+    draw({ detail: wide });
+    const more = screen.getByRole("button", { name: /\+4 more/ });
+    expect(screen.queryByText("D13")).not.toBeInTheDocument();
+
+    await userEvent.click(more);
+    expect(screen.getByText("D13")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show fewer/i })).toBeInTheDocument();
   });
 });
