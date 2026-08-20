@@ -5,14 +5,14 @@ import type { ReportDefinition, ReportDetail, ReportSummary, ViewRef } from "./t
 export function listReports(
   workspaceId?: string,
   params: LibraryParams = {},
-): Promise<{ reports: ReportSummary[] }> {
+): Promise<{ reports: ReportSummary[]; truncated?: boolean }> {
   const browse = libraryQueryString(params);
   // The workspace joins whatever the browse controls already asked for,
   // so it is "&" once anything else is there and "?" when it is first.
   const scope = workspaceId
     ? `${browse ? `${browse}&` : "?"}workspace=${encodeURIComponent(workspaceId)}`
     : browse;
-  return apiFetch<{ reports: ReportSummary[] }>(`/api/reports${scope}`);
+  return apiFetch<{ reports: ReportSummary[]; truncated?: boolean }>(`/api/reports${scope}`);
 }
 
 export function getReport(id: string): Promise<ReportDetail> {

@@ -82,7 +82,13 @@ def list_dashboards(db: Session, user_id: uuid.UUID, workspace_id: str | None) -
         if key is None:
             return []
         query = query.where(Dashboard.workspace_id == key)
-    rows = db.scalars(query.order_by(Dashboard.updated_at.desc())).all()
+    # Bounded like the other two: one workspace with thousands of these
+    # must not become a slow page.
+    from app.library.search import MAX_ROWS
+
+    rows = db.scalars(
+        query.order_by(Dashboard.updated_at.desc()).limit(MAX_ROWS + 1)
+    ).all()
     # Pins and recents work the same on a dashboard as on anything else,
     # so one browse list can hold all three kinds and sort them together.
     favorites = state.favorite_ids(db, user_id, "dashboard")

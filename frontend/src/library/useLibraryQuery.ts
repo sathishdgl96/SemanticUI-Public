@@ -18,26 +18,22 @@ export const ITEM_FILTERS: { value: ItemFilter; label: string }[] = [
 /** The browse state for one list: what is typed, what is filtered, how it is
  *  sorted. Kept out of the page components so the reports and explores lists
  *  cannot drift into browsing differently. */
+/** `kind` is NOT held here: it lives in the URL, so a filtered list is a
+ *  link somebody can be sent. Two sources of truth for one filter is how
+ *  they drift. */
 export function useLibraryQuery(initialRole?: string) {
   const [params, setParams] = useState<LibraryParams>({
     sort: "recent",
     role: initialRole,
   });
-  const [kind, setKind] = useState<ItemFilter>("all");
 
   const activeFacets = useMemo<Facet[]>(() => {
     const facets: Facet[] = [];
-    if (kind !== "all") {
-      facets.push({
-        key: "kind",
-        label: ITEM_FILTERS.find((f) => f.value === kind)?.label ?? kind,
-      });
-    }
     if (params.role) facets.push({ key: "role", label: `Role: ${params.role}` });
     if (params.favorite) facets.push({ key: "favorite", label: "Pinned only" });
     if (params.q?.trim()) facets.push({ key: "q", label: `“${params.q.trim()}”` });
     return facets;
-  }, [params, kind]);
+  }, [params]);
 
   const setSearch = useCallback((q: string) => {
     setParams((previous) => ({ ...previous, q }));
@@ -56,7 +52,6 @@ export function useLibraryQuery(initialRole?: string) {
   }, []);
 
   const clearFacet = useCallback((key: string) => {
-    if (key === "kind") setKind("all");
     setParams((previous) => ({
       ...previous,
       role: key === "role" ? undefined : previous.role,
@@ -66,14 +61,11 @@ export function useLibraryQuery(initialRole?: string) {
   }, []);
 
   const clearAll = useCallback(() => {
-    setKind("all");
     setParams((previous) => ({ sort: previous.sort }));
   }, []);
 
   return {
     params,
-    kind,
-    setKind,
     activeFacets,
     setSearch,
     setSort,

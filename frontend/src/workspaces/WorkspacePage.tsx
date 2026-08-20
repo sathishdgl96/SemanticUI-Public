@@ -10,7 +10,11 @@ import type { ReportDefinition, ReportDetail } from "../api/types";
 import { FacetChips } from "../library/FacetChips";
 import { FavoriteStar } from "../library/FavoriteStar";
 import { SearchBar } from "../library/SearchBar";
-import { ITEM_FILTERS, useLibraryQuery } from "../library/useLibraryQuery";
+import {
+  ITEM_FILTERS,
+  useLibraryQuery,
+  type ItemFilter,
+} from "../library/useLibraryQuery";
 import {
   nextSort,
   sortRows,
@@ -129,12 +133,22 @@ export default function WorkspacePage() {
   const scope = selectedId || undefined;
 
   const browse = useLibraryQuery();
+  // The kind lives in the URL beside the workspace, so "show me the
+  // dashboards" is a link somebody can be sent -- which is what Home's
+  // own Dashboards and Reports entries are.
+  const kind = (searchParams.get("kind") ?? "all") as ItemFilter;
+  const setKind = (next: ItemFilter) => {
+    const params: Record<string, string> = {};
+    if (selectedId) params.workspace = selectedId;
+    if (next !== "all") params.kind = next;
+    setSearchParams(params);
+  };
   // Ordering is done here rather than by the server: three lists are being
   // merged, so only one of the three could have been ordered remotely.
   // That also means a sort costs no refetch.
   const [sort, setSort] = useState<SortState>({ key: "recent", direction: "desc" });
   const columns = useTableColumns("semanticui.workspace.columns");
-  const wants = (kind: ItemType) => browse.kind === "all" || browse.kind === kind;
+  const wants = (want: ItemType) => kind === "all" || kind === want;
   // Enabled once the workspace list has answered -- not once one is
   // CHOSEN. Waiting for a choice is what used to make Browse blank until
   // a personal workspace was found for it.
@@ -224,7 +238,16 @@ export default function WorkspacePage() {
 
     return sortRows(out, sort);
     // `wants` closes over browse.kind, which is in the list.
-  }, [reports.data, dashboards.data, explores.data, browse.kind, sort]);
+  }, [reports.data, dashboards.data, explores.data, kind, sort]);
+
+  // Any of the three saying it was cut short means the merged list is
+  // incomplete, and a list that is silently a fraction of the truth is
+  // worse than a slow one.
+  const truncated = Boolean(
+    (wants("report") && reports.data?.truncated) ||
+      (wants("dashboard") && dashboards.data?.truncated) ||
+      (wants("explore") && explores.data?.truncated),
+  );
 
   const loading =
     (wants("report") && reports.isLoading) ||
@@ -404,7 +427,10 @@ export default function WorkspacePage() {
             value={selectedId}
             onChange={(event) => {
               const next = event.target.value;
-              setSearchParams(next ? { workspace: next } : {});
+              const params: Record<string, string> = {};
+              if (next) params.workspace = next;
+              if (kind !== "all") params.kind = kind;
+              setSearchParams(params);
             }}
           >
             <option value="">All workspaces</option>
@@ -420,9 +446,9 @@ export default function WorkspacePage() {
             <button
               key={filter.value}
               type="button"
-              aria-pressed={browse.kind === filter.value}
-              className={browse.kind === filter.value ? "kind-tab on" : "kind-tab"}
-              onClick={() => browse.setKind(filter.value)}
+              aria-pressed={kind === filter.value}
+              className={kind === filter.value ? "kind-tab on" : "kind-tab"}
+              onClick={() => setKind(filter.value)}
             >
               {filter.label}
             </button>
@@ -460,6 +486,13 @@ export default function WorkspacePage() {
         shown={items.length}
         total={items.length}
       />
+
+      {truncated && (
+        <p className="tile-hint">
+          Showing the first {items.length}. Search, or pick a workspace, to
+          narrow it.
+        </p>
+      )}
 
       <div className="library-results">
       {loading && <p>Loading…</p>}

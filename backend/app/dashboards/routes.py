@@ -46,7 +46,10 @@ def list_dashboards(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    return {"dashboards": service.list_dashboards(db, sess.user_id, workspace)}
+    from app.library.search import MAX_ROWS
+
+    rows = service.list_dashboards(db, sess.user_id, workspace)
+    return {"dashboards": rows[:MAX_ROWS], "truncated": len(rows) > MAX_ROWS}
 
 
 @router.post("/api/dashboards", status_code=201)

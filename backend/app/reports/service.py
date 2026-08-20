@@ -34,7 +34,6 @@ def list_reports(
         select(Report)
         .join(WorkspaceMember, WorkspaceMember.workspace_id == Report.workspace_id)
         .where(WorkspaceMember.user_id == user_id)
-        .order_by(Report.updated_at.desc())
     )
     if workspace_id:
         # Through require_workspace, so a bogus or unauthorised id is a 404
@@ -46,12 +45,16 @@ def list_reports(
     # may not.
     params = params or LibraryQuery()
     query = search.apply(query, Report, params)
-    items = list(db.scalars(query))
-    favorites = state.favorite_ids(db, user_id, "report")
-    recents = state.recent_order(db, user_id, "report")
-    items = search.keep_favorites(items, params, favorites)
-    return search.order_items(items, params, recents, favorites)
-    return list(db.scalars(query))
+    # Pins and recents join in rather than being read separately and
+    # applied afterwards: "pinned only" used to load every report in the
+    # workspace and then discard most of them in Python, and "recently
+    # opened first" could not be expressed in SQL at all.
+    query, user_state = search.with_user_state(query, Report, user_id, "report")
+    query = search.only_favorites(query, user_state, params)
+    query = search.order_by(query, Report, user_state, params)
+    # One more than the cap, so the caller can say "there are more"
+    # without counting the whole workspace.
+    return list(db.scalars(query.limit(search.MAX_ROWS + 1)))
 
 
 def personal_workspace_id(db: Session, user_id: uuid.UUID) -> uuid.UUID:

@@ -7,7 +7,7 @@ export function listExplores(workspaceId?: string, params: LibraryParams = {}) {
   const scope = workspaceId
     ? `${browse ? `${browse}&` : "?"}workspace=${encodeURIComponent(workspaceId)}`
     : browse;
-  return apiFetch<{ explores: ExploreSummary[] }>(`/api/explores${scope}`);
+  return apiFetch<{ explores: ExploreSummary[]; truncated?: boolean }>(`/api/explores${scope}`);
 }
 
 export function getExplore(id: string) {

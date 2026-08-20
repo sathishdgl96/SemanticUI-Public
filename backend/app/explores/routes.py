@@ -8,6 +8,7 @@ from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession, SavedExplore, Workspace
 from app.library import provenance, state
+from app.library import search as search_module
 from app.library.search import LibraryQuery
 from app.explores import service
 from app.explores.schema import parse_definition, to_export_document
@@ -73,6 +74,8 @@ def list_explores(
     favorites = state.favorite_ids(db, sess.user_id, "explore")
     recents = state.recent_order(db, sess.user_id, "explore")
     rows = service.list_explores(db, sess.user_id, workspace, params)
+    truncated = len(rows) > search_module.MAX_ROWS
+    rows = rows[: search_module.MAX_ROWS]
     creators = provenance.creator_names(db, [e.owner_user_id for e in rows])
     roles = roles_for(db, sess.user_id)
     spaces = workspaces_by_id(db, [e.workspace_id for e in rows])
@@ -90,7 +93,7 @@ def list_explores(
         seen = recents.get(explore.id)
         summary["lastViewedAt"] = seen.isoformat() if seen else None
         out.append(summary)
-    return {"explores": out}
+    return {"explores": out, "truncated": truncated}
 
 
 @router.post("/api/explores", status_code=201)

@@ -60,7 +60,7 @@ function DashboardPicker() {
   if (listed.length === 0) {
     return (
       <p className="tile-hint">
-        No dashboards yet. <Link to="/dashboards">Create one</Link>, then pin
+        No dashboards yet. <Link to="/reports?kind=dashboard">Create one</Link>, then pin
         visuals to it by right-clicking them on any report in its workspace.
       </p>
     );
@@ -114,6 +114,15 @@ export default function HomePage() {
     // the whole page on a drag that changed nothing but position.
   });
 
+  const announce = useMutation({
+    mutationFn: (announcement: string | null) =>
+      updateDashboard(dashboard?.id as string, {
+        ...definitionOf(dashboard as DashboardDetail),
+        announcement,
+      }),
+    onSuccess: invalidate,
+  });
+
   const clearChoice = useMutation({
     mutationFn: () => setHomeDashboard(null),
     onSuccess: invalidate,
@@ -126,11 +135,14 @@ export default function HomePage() {
     <main className="home">
       <header className="home-head">
         <h1 className="page-title">Home</h1>
+        {/* Into the FILTERED list, not the whole of it: an entry called
+            Dashboards that lands on everything is a link that did not do
+            what it said. */}
         <span className="home-head-actions">
-          <Link className="button secondary" to="/dashboards">
+          <Link className="button secondary" to="/reports?kind=dashboard">
             Dashboards
           </Link>
-          <Link className="button secondary" to="/reports">
+          <Link className="button secondary" to="/reports?kind=report">
             Reports
           </Link>
         </span>
@@ -170,7 +182,16 @@ export default function HomePage() {
         </h2>
         {home.isLoading ? null : dashboard ? (
           <>
-          <Announcement text={dashboard.announcement} canEdit={false} onChange={() => {}} />
+          {/* Editable here too. It is the reader's own dashboard and
+              this is where they look at it; making them open the
+              dashboard to write a note about it was a restriction with
+              nothing behind it. */}
+          <Announcement
+            text={dashboard.announcement}
+            canEdit={canEdit}
+            saving={announce.isPending}
+            onChange={(next) => announce.mutate(next)}
+          />
           <TileGrid
             tiles={dashboard.tiles}
             canEdit={canEdit}

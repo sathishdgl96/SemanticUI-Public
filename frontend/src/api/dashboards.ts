@@ -78,6 +78,7 @@ export interface DashboardDefinition {
 
 export function listDashboards(workspaceId?: string): Promise<{
   dashboards: DashboardSummary[];
+  truncated?: boolean;
 }> {
   const query = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
   return apiFetch(`/api/dashboards${query}`);

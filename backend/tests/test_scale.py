@@ -289,3 +289,71 @@ def test_the_security_board_costs_the_same_at_any_volume(db):
     )
     db.commit()
     assert statements() == small
+
+
+# --- bounds ----------------------------------------------------------------
+
+
+def test_a_listing_is_bounded_and_says_when_it_was(client, db):
+    """Not pagination: the merged browse draws from three sources at once
+    and a page number across three lists means nothing. A bound and an
+    honest "there are more" is the useful half."""
+    from app.auth.sessions import SESSION_COOKIE
+    from app.library.search import MAX_ROWS
+
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    client.cookies.set(SESSION_COOKIE, sess.id)
+    ws = workspace(db, sess.user_id)
+    seed_reports(db, sess.user_id, ws, MAX_ROWS + 5)
+
+    body = client.get("/api/reports").json()
+    assert len(body["reports"]) == MAX_ROWS
+    assert body["truncated"] is True
+
+
+def test_a_listing_within_the_bound_does_not_claim_to_be_cut_short(client, db):
+    from app.auth.sessions import SESSION_COOKIE
+
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    client.cookies.set(SESSION_COOKIE, sess.id)
+    ws = workspace(db, sess.user_id)
+    seed_reports(db, sess.user_id, ws, 3)
+
+    body = client.get("/api/reports").json()
+    assert len(body["reports"]) == 3
+    assert body["truncated"] is False
+
+
+def test_pinned_only_filters_in_the_database(client, db):
+    """It used to load every report in the workspace and then discard the
+    unpinned ones in Python."""
+    from app.auth.sessions import SESSION_COOKIE
+    from app.library import state
+
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    client.cookies.set(SESSION_COOKIE, sess.id)
+    ws = workspace(db, sess.user_id)
+    seed_reports(db, sess.user_id, ws, 40)
+    pinned = db.query(Report).order_by(Report.name).first()
+    state.set_favorite(db, sess.user_id, "report", pinned.id, True)
+
+    body = client.get("/api/reports?favorite=true").json()
+    assert [r["name"] for r in body["reports"]] == [pinned.name]
+
+
+def test_recently_opened_sorts_pinned_first_then_what_was_opened(client, db):
+    from app.auth.sessions import SESSION_COOKIE
+    from app.library import state
+
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    client.cookies.set(SESSION_COOKIE, sess.id)
+    ws = workspace(db, sess.user_id)
+    seed_reports(db, sess.user_id, ws, 4)
+    rows = db.query(Report).order_by(Report.name).all()
+    state.set_favorite(db, sess.user_id, "report", rows[3].id, True)
+    state.record_view(db, sess.user_id, "report", rows[1].id)
+
+    names = [r["name"] for r in client.get("/api/reports").json()["reports"]]
+    # Pinned, then opened, then the rest.
+    assert names[0] == rows[3].name
+    assert names[1] == rows[1].name

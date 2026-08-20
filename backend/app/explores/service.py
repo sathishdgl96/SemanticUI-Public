@@ -35,7 +35,6 @@ def list_explores(
             WorkspaceMember.workspace_id == SavedExplore.workspace_id,
         )
         .where(WorkspaceMember.user_id == user_id)
-        .order_by(SavedExplore.updated_at.desc())
     )
     if workspace_id:
         # Through require_workspace, so a bogus or unauthorised id is a 404
@@ -45,11 +44,15 @@ def list_explores(
     # Narrowing only, and only after the membership join above.
     params = params or LibraryQuery()
     query = search.apply(query, SavedExplore, params)
-    items = list(db.scalars(query))
-    favorites = state.favorite_ids(db, user_id, "explore")
-    recents = state.recent_order(db, user_id, "explore")
-    items = search.keep_favorites(items, params, favorites)
-    return search.order_items(items, params, recents, favorites)
+    # Same as reports: the pins and recents join in, so the database does
+    # the filtering and the ordering rather than Python doing both after
+    # loading every row.
+    query, user_state = search.with_user_state(
+        query, SavedExplore, user_id, "explore"
+    )
+    query = search.only_favorites(query, user_state, params)
+    query = search.order_by(query, SavedExplore, user_state, params)
+    return list(db.scalars(query.limit(search.MAX_ROWS + 1)))
 
 
 def _target(db: Session, user_id: uuid.UUID, workspace_id: str | None) -> uuid.UUID:

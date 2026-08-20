@@ -93,3 +93,71 @@ def order_items(
         )
 
     return sorted(items, key=key)
+
+
+# --- pins and recents, in the database ------------------------------------
+
+#: The most rows one listing will build. Not pagination: the merged browse
+#: draws from three sources at once and a page number across three lists
+#: means nothing. A bound and an honest "there are more" is the useful
+#: half -- it stops one workspace with thousands of reports from being a
+#: slow page, and tells the reader to narrow rather than silently showing
+#: them a fraction.
+MAX_ROWS = 200
+
+
+def with_user_state(query: Any, model: Any, user_id: Any, item_type: str):
+    """LEFT JOIN this user's pins and recents onto an item query.
+
+    They used to be read separately and applied in Python, which meant
+    "pinned only" and "recently opened first" could not be expressed in
+    SQL -- so every row a workspace held was loaded before the filter that
+    would discard most of them ran. Joined here, the database does both.
+
+    Returns (query, state) so the caller can order by the joined columns.
+    """
+    from sqlalchemy import and_
+    from sqlalchemy.orm import aliased
+
+    from app.db.models import UserItemState
+
+    state = aliased(UserItemState)
+    return (
+        query.outerjoin(
+            state,
+            and_(
+                state.item_id == model.id,
+                state.user_id == user_id,
+                state.item_type == item_type,
+            ),
+        ),
+        state,
+    )
+
+
+def order_by(query: Any, model: Any, state: Any, params: LibraryQuery):
+    """Apply the chosen ordering to a state-joined query.
+
+    NULLS FIRST/LAST is spelled differently by SQLite and PostgreSQL and
+    differs again between ASC and DESC, so absence is expressed as a CASE
+    the two agree on rather than left to the dialect.
+    """
+    from sqlalchemy import case
+
+    if params.sort == "name":
+        return query.order_by(func.lower(model.name).asc())
+    if params.sort == "updated":
+        return query.order_by(model.updated_at.desc())
+    # "Recent": pinned first, then what you have opened, newest first,
+    # then everything else by when it last changed.
+    return query.order_by(
+        case((state.favorite.is_(True), 0), else_=1).asc(),
+        case((state.last_viewed_at.is_(None), 1), else_=0).asc(),
+        state.last_viewed_at.desc(),
+        model.updated_at.desc(),
+    )
+
+
+def only_favorites(query: Any, state: Any, params: LibraryQuery):
+    """The pinned-only facet, as a WHERE rather than a list comprehension."""
+    return query.where(state.favorite.is_(True)) if params.favorite else query

@@ -12,6 +12,7 @@ from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession, Report, Workspace
 from app.library import provenance, state
+from app.library import search as search_module
 from app.library.search import LibraryQuery
 from app.reports import service
 from app.workspaces.access import (
@@ -97,6 +98,10 @@ def list_reports(
 ) -> dict:
     params = LibraryQuery(q=q, favorite=favorite, role=role, sort=sort)
     reports = service.list_reports(db, sess.user_id, workspace, params)
+    # The service asks for one more than the cap so this can tell the
+    # difference between "exactly the cap" and "there are more".
+    truncated = len(reports) > search_module.MAX_ROWS
+    reports = reports[: search_module.MAX_ROWS]
     favorites = state.favorite_ids(db, sess.user_id, "report")
     recents = state.recent_order(db, sess.user_id, "report")
     creators = provenance.creator_names(db, [r.owner_user_id for r in reports])
@@ -119,7 +124,7 @@ def list_reports(
         seen = recents.get(report.id)
         summary["lastViewedAt"] = seen.isoformat() if seen else None
         out.append(summary)
-    return {"reports": out}
+    return {"reports": out, "truncated": truncated}
 
 
 @router.post("/api/reports", status_code=201)

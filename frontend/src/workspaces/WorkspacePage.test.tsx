@@ -244,6 +244,60 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("Explore")).toBeInTheDocument();
   });
 
+  it("says when the list was cut short rather than showing a fraction quietly", async () => {
+    listMock.mockResolvedValue({ reports: [summary()], truncated: true });
+    renderPage();
+    await screen.findByText("Sales overview");
+    expect(screen.getByText(/showing the first/i)).toBeInTheDocument();
+  });
+
+  it("says nothing when the whole list fits", async () => {
+    listMock.mockResolvedValue({ reports: [summary()], truncated: false });
+    renderPage();
+    await screen.findByText("Sales overview");
+    expect(screen.queryByText(/showing the first/i)).toBeNull();
+  });
+
+  it("opens already narrowed when the URL names a kind", async () => {
+    // Which is what Home's own Dashboards entry is: a link into the
+    // filtered list rather than to the whole of it.
+    listMock.mockResolvedValue({ reports: [summary()] });
+    dashboardsMock.mockResolvedValue({
+      dashboards: [
+        {
+          id: "d1",
+          name: "Ops",
+          workspaceId: "w0",
+          workspaceName: "My reports",
+          myRole: "admin",
+          tileCount: 2,
+          announcement: null,
+          updatedAt: "2026-08-19T10:00:00Z",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+    });
+    renderPageAt("/reports?kind=dashboard");
+
+    expect(await screen.findByText("Ops")).toBeInTheDocument();
+    expect(screen.queryByText("Sales overview")).toBeNull();
+    expect(screen.getByRole("button", { name: /^dashboards$/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("keeps the workspace when the kind changes, and the kind when the workspace does", async () => {
+    listMock.mockResolvedValue({ reports: [summary()] });
+    renderPageAt("/reports?workspace=w0&kind=report");
+    await screen.findByText("Sales overview");
+
+    await userEvent.click(screen.getByRole("button", { name: /^all$/i }));
+    // Still scoped to the workspace it was opened in.
+    await waitFor(() => expect(listMock).toHaveBeenLastCalledWith("w0", expect.anything()));
+  });
+
   it("narrows to one kind, and does not fetch the others", async () => {
     listMock.mockResolvedValue({ reports: [summary()] });
     dashboardsMock.mockResolvedValue({
