@@ -173,11 +173,23 @@ def build_semantic_sql(
     max_rows: int,
     today: date | None = None,
     include_combos: list[tuple[list[str], list[list]]] | None = None,
+    as_branch: bool = False,
 ) -> tuple[str, list[Any], int]:
     """Return (sql, params, effective_limit).
 
     `params` is positional and must be handed to the cursor as-is: it holds
     every filter VALUE, none of which appears anywhere in `sql`.
+
+    `as_branch` compiles this query to sit inside a composite model's
+    stitched statement rather than to be run on its own. Three
+    differences, each because a branch is an intermediate result:
+    ORDER BY is dropped (only the outer query's ordering is meaningful),
+    and every selected field is projected under a positional alias
+    `c0, c1, ...` in `dimensions + metrics + facts` order -- so the
+    stitcher can reference columns without knowing the model, and two
+    fields whose bare names collide cannot silently become one column.
+    The single-view path is untouched: with `as_branch` false this
+    function emits exactly the SQL it always did.
 
     `include_combos` is an INTERNAL extension (the XMLA engine's, not the
     API's): each ([field, ...], [[value, ...], ...]) entry keeps only rows
@@ -281,7 +293,11 @@ def build_semantic_sql(
     }
 
     order_sql = ""
-    if req.order_by:
+    if req.order_by and as_branch:
+        # A branch feeds a join; ordering it decides nothing and costs a
+        # sort. The composite's own ORDER BY is applied once, outside.
+        pass
+    elif req.order_by:
         clauses = []
         for ob in req.order_by:
             if "." in ob.field:
@@ -315,7 +331,47 @@ def build_semantic_sql(
     # The projection. Without aggregations this stays "SELECT *", byte for
     # byte what it always was -- an aggregation-free query must not change
     # shape just because the feature exists.
-    if req.aggregations:
+    if as_branch:
+        # Positional aliases, in the order the caller asked. Bare names
+        # are checked for collision first: `SELECT "NAME"` when both
+        # CUSTOMER.NAME and PRODUCT.NAME are selected is ambiguous, and
+        # picking one silently is how a composite reports the wrong
+        # column under the right heading.
+        clashes = sorted(
+            {
+                name
+                for name, hits in by_bare_name.items()
+                if len(hits) > 1
+            }
+        )
+        if clashes:
+            raise ApiError(
+                "QUERY_ERROR",
+                400,
+                "Two fields selected here share the name "
+                f"{', '.join(clashes)}. In a model over several views a "
+                "column has to be identifiable, so select one of them or "
+                "rename it in the view.",
+            )
+        projected = []
+        for index, (_table, name) in enumerate(dims + mets):
+            projected.append(
+                f"{quote_ident(name)} AS {quote_ident(f'c{index}')}"
+            )
+        start = len(dims) + len(mets)
+        for offset, (_table, name) in enumerate(facts):
+            column = quote_ident(name)
+            if req.aggregations:
+                template = AGGREGATE_SQL[req.aggregations[offset].fn]
+                column = template.format(col=quote_ident(name))
+            projected.append(f"{column} AS {quote_ident(f'c{start + offset}')}")
+        select_sql = ", ".join(projected)
+        group_sql = (
+            " GROUP BY " + ", ".join(quote_ident(name) for _, name in dims)
+            if dims and req.aggregations
+            else ""
+        )
+    elif req.aggregations:
         projected = [quote_ident(name) for _, name in dims]
         for aggregation, (_, name) in zip(req.aggregations, facts):
             template = AGGREGATE_SQL[aggregation.fn]
