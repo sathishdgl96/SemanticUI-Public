@@ -136,9 +136,15 @@ export default function LoginPage() {
           </a>
         </div>
       )}
+      {/* Single sign-on is the way in. The direct-credential form below is
+          offered only where a deployment named a method explicitly, or in
+          dev auth mode, which exists to have a way in without an IdP --
+          see Settings.login_methods(). */}
       {directLoginMethods.length > 0 && (
         <>
-          <p>Sign in with your own Snowflake credentials.</p>
+          <p className="login-alternative">
+            Or sign in with your own Snowflake credentials.
+          </p>
           <form onSubmit={submit}>
             <label>
               Account

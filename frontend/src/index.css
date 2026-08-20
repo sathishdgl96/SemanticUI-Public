@@ -2003,6 +2003,104 @@ button.secondary:hover,
 
 .content-table .confirm-row [role="alert"] { color: var(--error); }
 
+/* --- a dashboard's announcement ------------------------------------------ */
+
+/* A note from whoever maintains the dashboard, above the tiles. Part of
+   the dashboard rather than a per-user message -- "Q3 is provisional
+   until the 5th" is a fact about the numbers, and everyone reading them
+   needs it. Not dismissible for the same reason: a caveat you can turn
+   off is a caveat half the readers will not have. */
+.announcement {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 clamp(12px, 2vw, 20px);
+  padding: 10px 12px;
+  background: var(--accent-wash);
+  border: 1px solid rgba(0, 120, 212, 0.28);
+  border-radius: var(--radius-pane);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.announcement > .icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.announcement p {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.announcement-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.announcement.editing {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.announcement textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.announcement-count {
+  margin-right: auto;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Offered, not insisted on: an empty dashboard should not open with a
+   banner-shaped hole in it. */
+.announcement-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin: 0 clamp(12px, 2vw, 20px);
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.announcement-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: transparent;
+}
+
+.home .announcement,
+.home .announcement-add { margin: 0 0 10px; }
+
+/* The direct-credential form is the alternative, not the offer. */
+.login-alternative {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
 /* ==========================================================================
    Context menu — the browser's own is suppressed only where this replaces it
    ========================================================================== */

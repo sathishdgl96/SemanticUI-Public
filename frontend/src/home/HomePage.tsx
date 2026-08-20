@@ -10,6 +10,7 @@ import {
 } from "../api/dashboards";
 import { getHome } from "../api/home";
 import { atLeast } from "../api/workspaces";
+import Announcement from "../dashboards/Announcement";
 import TileGrid from "../dashboards/TileGrid";
 import RecentItems from "./RecentItems";
 
@@ -23,6 +24,7 @@ function definitionOf(
   return {
     schemaVersion: 1,
     name: dashboard.name,
+    announcement: dashboard.announcement,
     tiles: dashboard.tiles.map((tile) => {
       const next = moved.get(tile.id);
       return {
@@ -167,12 +169,15 @@ export default function HomePage() {
           )}
         </h2>
         {home.isLoading ? null : dashboard ? (
+          <>
+          <Announcement text={dashboard.announcement} canEdit={false} onChange={() => {}} />
           <TileGrid
             tiles={dashboard.tiles}
             canEdit={canEdit}
             onRemove={(tileId) => unpin.mutate(tileId)}
             onRearrange={(layouts) => rearrange.mutate(layouts)}
           />
+          </>
         ) : (
           <DashboardPicker />
         )}

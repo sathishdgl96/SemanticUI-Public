@@ -217,7 +217,7 @@ def config() -> dict:
     settings = get_settings()
     return {
         "authMode": settings.auth_mode,
-        "directLoginMethods": settings.direct_login_methods,
+        "directLoginMethods": settings.login_methods(),
         # Labels and identifiers only -- nothing here is secret,
         # and the login page needs it before anyone is signed in.
         "accounts": [c.model_dump() for c in settings.account_choices()],

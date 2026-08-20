@@ -48,7 +48,10 @@ def dev_login(
             "RATE_LIMITED", 429,
             "Too many sign-in attempts; wait a minute and try again.",
         )
-    if req.authenticator not in settings.direct_login_methods:
+    # The resolved list, not the raw setting: unconfigured means single
+    # sign-on only, and the endpoint must refuse what the login page is
+    # not offering.
+    if req.authenticator not in settings.login_methods():
         raise ApiError(
             "AUTH_FAILED", 400, f"Login method '{req.authenticator}' is not enabled"
         )

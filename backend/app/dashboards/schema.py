@@ -25,6 +25,9 @@ MAX_TILES = 40
 MAX_DEFINITION_BYTES = 65536
 #: Ids inside a report document, which the report schema bounds at 64.
 MAX_ID = 64
+#: Long enough for a caveat, short enough that it stays a banner rather
+#: than becoming the dashboard.
+ANNOUNCEMENT_MAX = 500
 
 
 class _Strict(BaseModel):
@@ -55,6 +58,12 @@ class Tile(_Strict):
 class DashboardDefinition(_Strict):
     schemaVersion: int = SCHEMA_VERSION
     name: str = Field(max_length=200)
+    #: A note from whoever maintains this dashboard, shown above the tiles
+    #: to everyone who opens it: what the numbers mean, when they refresh,
+    #: which of them are provisional. Part of the document rather than a
+    #: per-user message -- it is a property of the dashboard, and everyone
+    #: reading it needs the same caveat.
+    announcement: str | None = Field(default=None, max_length=ANNOUNCEMENT_MAX)
     tiles: list[Tile] = Field(default_factory=list, max_length=MAX_TILES)
 
 
@@ -98,4 +107,9 @@ def parse_definition(raw: dict) -> DashboardDefinition:
 
 
 def blank(name: str) -> dict:
-    return {"schemaVersion": SCHEMA_VERSION, "name": name, "tiles": []}
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "name": name,
+        "announcement": None,
+        "tiles": [],
+    }

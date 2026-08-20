@@ -108,11 +108,21 @@ class Settings(BaseSettings):
     # SPA from the same origin as this backend.
     post_login_redirect_url: str = "/"
 
-    direct_login_methods: list[Literal["externalbrowser", "password", "keypair"]] = [
-        "externalbrowser",
-        "password",
-        "keypair",
-    ]
+    #: Direct Snowflake credentials the login page may offer. None means
+    #: "not configured", which is NOT the same as an empty list: single
+    #: sign-on is the way in, so an unconfigured deployment offers nothing
+    #: else -- while dev auth mode, which exists precisely to have a way in
+    #: without an IdP, still offers all three. Set it explicitly to opt a
+    #: deployment back in; production may only ever name "keypair".
+    direct_login_methods: (
+        list[Literal["externalbrowser", "password", "keypair"]] | None
+    ) = None
+
+    def login_methods(self) -> list[str]:
+        """What the login page may actually offer beside single sign-on."""
+        if self.direct_login_methods is not None:
+            return list(self.direct_login_methods)
+        return ["externalbrowser", "password", "keypair"] if self.auth_mode == "dev" else []
 
     def account_choices(self) -> list[AccountChoice]:
         """What the login page may offer, single-account included."""
@@ -176,7 +186,7 @@ class Settings(BaseSettings):
                     "external IdP (oauth_authorize_url) is configured"
                 )
         if self.environment == "production":
-            disallowed = [m for m in self.direct_login_methods if m != "keypair"]
+            disallowed = [m for m in self.login_methods() if m != "keypair"]
             if disallowed:
                 raise ValueError(
                     f"in production, direct_login_methods may contain only 'keypair'; got {disallowed}"

@@ -33,9 +33,26 @@ def test_oauth_mode_valid_when_configured():
     assert s.oauth_redirect_uri == "http://localhost:8000/auth/callback"
 
 
-def test_direct_login_methods_default_development():
-    s = Settings(_env_file=None)
-    assert set(s.direct_login_methods) == {"externalbrowser", "password", "keypair"}
+def test_dev_auth_mode_still_has_a_way_in():
+    """Dev mode exists precisely to sign in without an IdP."""
+    s = Settings(_env_file=None, auth_mode="dev")
+    assert set(s.login_methods()) == {"externalbrowser", "password", "keypair"}
+
+
+def test_single_sign_on_is_the_only_way_in_unless_asked_otherwise():
+    """Unconfigured is not the same as empty: an oauth deployment offers
+    nothing beside SSO until it names something explicitly."""
+    oauth = dict(
+        _env_file=None,
+        auth_mode="oauth",
+        snowflake_account="a",
+        oauth_client_id="b",
+        oauth_client_secret="c",
+    )
+    assert Settings(**oauth).login_methods() == []
+    assert Settings(**oauth, direct_login_methods=["keypair"]).login_methods() == [
+        "keypair"
+    ]
 
 
 def test_production_allows_only_keypair_direct_login():

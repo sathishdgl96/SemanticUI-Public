@@ -271,6 +271,79 @@ def test_removing_a_tile_that_is_not_there_is_a_404(db):
     assert raised.value.status == 404
 
 
+def test_an_announcement_is_part_of_the_dashboard_everyone_reads(db):
+    """A property of the dashboard, not a per-user message: everyone
+    opening it needs the same caveat about what the numbers mean."""
+    alice = create_session(db, account="ACME", user="ALICE", mode="dev")
+    bob = create_session(db, account="ACME", user="BOB", mode="dev")
+    db.commit()
+    ws = workspace(db, alice.user_id)
+    db.add(WorkspaceMember(workspace_id=ws.id, user_id=bob.user_id, role="viewer"))
+    db.commit()
+    made = dashboard(db, alice.user_id, ws)
+
+    service.update_dashboard(
+        db,
+        alice.user_id,
+        str(made.id),
+        {
+            "schemaVersion": 1,
+            "name": "Ops",
+            "announcement": "Q3 figures are provisional until the 5th.",
+            "tiles": [],
+        },
+    )
+    assert service.detail(db, bob.user_id, made)["announcement"] == (
+        "Q3 figures are provisional until the 5th."
+    )
+
+
+def test_a_new_dashboard_has_no_announcement(db):
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    ws = workspace(db, sess.user_id)
+    assert service.detail(db, sess.user_id, dashboard(db, sess.user_id, ws))[
+        "announcement"
+    ] is None
+
+
+def test_pinning_does_not_lose_the_announcement(db):
+    """add_tile rebuilds the document, and a rebuild that drops a field is
+    how a saved note quietly disappears."""
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    ws = workspace(db, sess.user_id)
+    row = report(db, sess.user_id, ws)
+    made = dashboard(db, sess.user_id, ws)
+    service.update_dashboard(
+        db,
+        sess.user_id,
+        str(made.id),
+        {"schemaVersion": 1, "name": "Ops", "announcement": "Refreshed at 6am.", "tiles": []},
+    )
+    service.add_tile(db, sess.user_id, str(made.id), str(row.id), "p1", "v1")
+    assert service.detail(db, sess.user_id, made)["announcement"] == "Refreshed at 6am."
+
+
+def test_an_announcement_longer_than_a_banner_is_refused(db):
+    from app.dashboards.schema import ANNOUNCEMENT_MAX
+
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    ws = workspace(db, sess.user_id)
+    made = dashboard(db, sess.user_id, ws)
+    with pytest.raises(ApiError) as raised:
+        service.update_dashboard(
+            db,
+            sess.user_id,
+            str(made.id),
+            {
+                "schemaVersion": 1,
+                "name": "Ops",
+                "announcement": "x" * (ANNOUNCEMENT_MAX + 1),
+                "tiles": [],
+            },
+        )
+    assert raised.value.code == "DASHBOARD_INVALID"
+
+
 # --- what happens when the source moves ------------------------------------
 
 
