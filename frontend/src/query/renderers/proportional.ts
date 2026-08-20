@@ -111,6 +111,9 @@ export function funnelOption(
         // stack of unrelated bars.
         sort: "descending",
         gap: 2,
+        // Pixels, and scaled with the tile by responsiveOption: 16 and 40
+        // are more than half the height of a short tile before a single
+        // stage is drawn.
         top: 16,
         bottom: 40,
         data,
@@ -158,6 +161,11 @@ export function gaugeOption(
         type: "gauge",
         min: 0,
         max,
+        // Percentages, so the dial is a fraction of whatever it is given
+        // rather than a fixed size inside it. Centred low because the arc
+        // opens downwards and the top half is mostly empty.
+        radius: "88%",
+        center: ["50%", "58%"],
         progress: { show: true, width: 14 },
         axisLine: { lineStyle: { width: 14, color: [[1, CHART_INK.grid]] } },
         axisLabel: { show: target !== null, color: CHART_INK.muted, distance: 18 },
@@ -165,11 +173,18 @@ export function gaugeOption(
         splitLine: { show: false },
         pointer: { show: false },
         itemStyle: { color: SERIES_COLORS[0] },
+        // ECharts draws `data[].name` as a gauge title, and its default
+        // position is a hair below the detail -- so the measure's name and
+        // its value were painted across each other. The tile header already
+        // says what this is measuring.
+        title: { show: false },
         detail: {
           valueAnimation: false,
           color: CHART_INK.secondary,
           fontSize: 22,
-          offsetCenter: [0, "10%"],
+          // Dead centre of the dial. It used to sit at 10% below, which
+          // put it on the arc itself once the arc shrank.
+          offsetCenter: [0, "0%"],
           formatter: (n: number) => new Intl.NumberFormat("en-US").format(n),
         },
         data: [{ value, name: fieldName(valueRef), itemStyle: {} }],

@@ -118,6 +118,28 @@ class Settings(BaseSettings):
         list[Literal["externalbrowser", "password", "keypair"]] | None
     ) = None
 
+    #: Snowflake usernames allowed into the admin area: operations,
+    #: the activity log, and the security board. Deliberately from the
+    #: environment rather than a database role -- the people who may read
+    #: everyone's activity are decided by whoever deploys the app, not by
+    #: anybody inside it, and a table row that grants it would be a row
+    #: somebody could grant themselves.
+    app_admins: list[str] = []
+
+    #: Behind the sign-in card. A URL the browser can reach, or empty for
+    #: the built-in gradient.
+    login_background_url: str = ""
+    #: Shown under the brand on the sign-in page. Empty for none.
+    login_tagline: str = ""
+
+    def is_app_admin(self, snowflake_user: str | None) -> bool:
+        """Snowflake usernames are case-insensitive and stored upper-cased;
+        an admin list typed in any case has to match anyway."""
+        if not snowflake_user:
+            return False
+        wanted = snowflake_user.strip().upper()
+        return any(name.strip().upper() == wanted for name in self.app_admins)
+
     def login_methods(self) -> list[str]:
         """What the login page may actually offer beside single sign-on."""
         if self.direct_login_methods is not None:

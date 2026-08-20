@@ -2,7 +2,7 @@ import * as echarts from "echarts";
 import { useEffect, useRef } from "react";
 import type { EChartsOptionLike } from "./renderers/categorical";
 import { buildChartOption, type ChartSeries } from "./buildChartOption";
-import { scaleOption } from "./responsiveText";
+import { scaleOption } from "./responsiveOption";
 
 interface Props {
   kind: "bar" | "line";

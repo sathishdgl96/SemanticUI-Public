@@ -141,7 +141,14 @@ def create_app() -> FastAPI:
         logo = current.app_logo_url
         if not logo and current.app_logo_file:
             logo = "/api/branding/logo"
-        return {"name": current.app_name, "logoUrl": logo}
+        return {
+            "name": current.app_name,
+            "logoUrl": logo,
+            # The sign-in page's own dressing. Empty means the built-in
+            # gradient, which is what an unconfigured deployment gets.
+            "loginBackgroundUrl": current.login_background_url,
+            "loginTagline": current.login_tagline,
+        }
 
     @app.get("/api/branding/logo")
     def branding_logo():
@@ -164,6 +171,7 @@ def create_app() -> FastAPI:
     from app.library.routes import router as library_router
     from app.home.routes import router as home_router
     from app.dashboards.routes import router as dashboards_router
+    from app.admin.routes import router as admin_router
     from app.session.routes import router as session_router
     from app.reports.routes import router as reports_router
     from app.workspaces.routes import router as workspaces_router
@@ -181,6 +189,7 @@ def create_app() -> FastAPI:
     app.include_router(library_router)
     app.include_router(home_router)
     app.include_router(dashboards_router)
+    app.include_router(admin_router)
     app.include_router(session_router)
     app.include_router(workspaces_router)
     app.include_router(ask_router)

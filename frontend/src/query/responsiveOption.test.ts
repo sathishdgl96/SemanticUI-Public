@@ -5,7 +5,7 @@ import {
   REFERENCE,
   scaleOption,
   textScale,
-} from "./responsiveText";
+} from "./responsiveOption";
 
 describe("textScale", () => {
   it("leaves a reference-sized tile alone", () => {
@@ -84,6 +84,90 @@ describe("scaleOption", () => {
   it("leaves a roomy tile's legend showing", () => {
     const out = scaleOption({ legend: { show: true } }, { width: 600, height: 420 });
     expect(out.legend).toMatchObject({ show: true });
+  });
+
+  it("brings the plot's own margins in with the tile", () => {
+    // On a short tile a 16px top and a 48px bottom are two thirds of the
+    // height before anything is drawn.
+    const out = scaleOption(
+      { grid: { left: 56, right: 16, top: 16, bottom: 48 } },
+      small,
+    );
+    expect(out.grid.left).toBeLessThan(56);
+    expect(out.grid.bottom).toBeLessThan(48);
+    expect(out.grid.right).toBeGreaterThanOrEqual(8);
+  });
+
+  it("leaves a margin given as a percentage alone", () => {
+    // Those already adapt; scaling them would shrink twice.
+    const out = scaleOption({ grid: { left: "10%", bottom: 40 } }, small);
+    expect(out.grid.left).toBe("10%");
+  });
+
+  it("shrinks a gauge's band, its label distance and its marker", () => {
+    // A gauge's arc is a percentage and its band is pixels, so shrinking
+    // the tile shrank the arc and left the band lying across it.
+    const out = scaleOption(
+      {
+        series: [
+          {
+            type: "gauge",
+            progress: { show: true, width: 14 },
+            axisLine: { lineStyle: { width: 14, color: [[1, "#eee"]] } },
+            axisLabel: { show: true, distance: 18 },
+          },
+        ],
+      },
+      small,
+    );
+    const gauge = out.series[0];
+    expect(gauge.progress.width).toBeLessThan(14);
+    expect(gauge.axisLine.lineStyle.width).toBeLessThan(14);
+    expect(gauge.axisLabel.distance).toBeLessThan(18);
+    // Everything else about the series survives.
+    expect(gauge.axisLine.lineStyle.color).toEqual([[1, "#eee"]]);
+    expect(gauge.progress.show).toBe(true);
+  });
+
+  it("keeps a gauge's band thick enough to see", () => {
+    const out = scaleOption(
+      { series: [{ type: "gauge", progress: { width: 6 } }] },
+      { width: 40, height: 40 },
+    );
+    expect(out.series[0].progress.width).toBeGreaterThanOrEqual(4);
+  });
+
+  it("brings a funnel's margins in too", () => {
+    const out = scaleOption(
+      { series: [{ type: "funnel", top: 16, bottom: 40 }] },
+      small,
+    );
+    expect(out.series[0].top).toBeLessThanOrEqual(16);
+    expect(out.series[0].bottom).toBeLessThan(40);
+  });
+
+  it("shrinks a scatter marker but never to a smudge", () => {
+    expect(scaleOption({ series: [{ symbolSize: 9 }] }, small).series[0].symbolSize)
+      .toBeLessThan(9);
+    expect(
+      scaleOption({ series: [{ symbolSize: 5 }] }, { width: 30, height: 30 }).series[0]
+        .symbolSize,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it("leaves a series that carries no pixel geometry untouched", () => {
+    const out = scaleOption(
+      { series: [{ type: "pie", radius: ["45%", "70%"], data: [{ value: 1 }] }] },
+      small,
+    );
+    expect(out.series[0].radius).toEqual(["45%", "70%"]);
+    expect(out.series[0].data).toEqual([{ value: 1 }]);
+  });
+
+  it("adds no grid or series to an option that declared none", () => {
+    const out: Record<string, unknown> = scaleOption({ legend: { show: true } }, small);
+    expect("grid" in out).toBe(false);
+    expect("series" in out).toBe(false);
   });
 
   it("does not mutate what it was given", () => {

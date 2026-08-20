@@ -87,6 +87,38 @@ describe("proportional renderers", () => {
     expect(axisLabel.show).toBe(false);
   });
 
+  it("does not draw the measure's name across its own reading", () => {
+    // ECharts draws data[].name as a gauge title, and its default sits a
+    // hair below the detail -- so the name and the value were painted over
+    // each other. The tile header already says what is being measured.
+    const single: QueryResponse = {
+      ...BY_REGION,
+      columns: [{ name: "REV", type: "NUMBER" }],
+      rows: [[42]],
+    };
+    const series = pieish(visual("gauge", { value: ["A.REV"] }), single).series[0];
+    expect(series.title as { show: boolean }).toMatchObject({ show: false });
+    // Dead centre of the dial: at 10% below it landed on the arc itself
+    // once the arc shrank.
+    expect((series.detail as { offsetCenter: unknown[] }).offsetCenter).toEqual([
+      0,
+      "0%",
+    ]);
+  });
+
+  it("sizes the dial as a fraction of the tile rather than a fixed radius", () => {
+    const single: QueryResponse = {
+      ...BY_REGION,
+      columns: [{ name: "REV", type: "NUMBER" }],
+      rows: [[42]],
+    };
+    const series = pieish(visual("gauge", { value: ["A.REV"] }), single).series[0];
+    expect(series.radius).toBe("88%");
+    // Low, because the arc opens downwards and the top half is mostly
+    // empty.
+    expect(series.center).toEqual(["50%", "58%"]);
+  });
+
   it("gives a donut the same option as a pie with the hole set", () => {
     const donut = pieish(visual("donut", ONE_BY_ONE), BY_REGION);
     const pie = pieish(visual("pie", ONE_BY_ONE, { donut: true }), BY_REGION);
