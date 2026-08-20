@@ -26,7 +26,14 @@ from app.errors import ApiError
 from app.library import provenance, state
 from app.reports.migrate import migrate_definition
 from app.reports.service import personal_workspace_id
-from app.workspaces.access import as_uuid, membership, require_owned, require_workspace
+from app.workspaces.access import (
+    as_uuid,
+    membership,
+    require_owned,
+    require_workspace,
+    roles_for,
+    workspaces_by_id,
+)
 
 #: Dashboard tiles are wider than a report's because a dashboard is read at
 #: arm's length rather than authored.
@@ -81,11 +88,18 @@ def list_dashboards(db: Session, user_id: uuid.UUID, workspace_id: str | None) -
     favorites = state.favorite_ids(db, user_id, "dashboard")
     recents = state.recent_order(db, user_id, "dashboard")
     creators = provenance.creator_names(db, [row.owner_user_id for row in rows])
+    # Prefetched rather than per row: `_context` costs two queries a
+    # dashboard, which is one round trip for the list and eighty more for
+    # forty dashboards.
+    roles = roles_for(db, user_id)
+    spaces = workspaces_by_id(db, [row.workspace_id for row in rows])
     out = []
     for row in rows:
-        workspace, role = _context(db, user_id, row)
         summary = _summary(
-            row, workspace=workspace, role=role, creator=creators.get(row.owner_user_id, "")
+            row,
+            workspace=spaces.get(row.workspace_id),
+            role=roles.get(row.workspace_id, ""),
+            creator=creators.get(row.owner_user_id, ""),
         )
         summary["favorite"] = row.id in favorites
         seen = recents.get(row.id)
@@ -266,8 +280,21 @@ def remove_tile(db: Session, user_id: uuid.UUID, dashboard_id: str, tile_id: str
     db.commit()
 
 
-def resolve(db: Session, user_id: uuid.UUID, dashboard: Dashboard, tile: dict) -> dict:
-    """One tile, with everything needed to draw it -- or the reason not to."""
+def resolve(
+    db: Session,
+    user_id: uuid.UUID,
+    dashboard: Dashboard,
+    tile: dict,
+    *,
+    roles: dict | None = None,
+    reports: dict | None = None,
+) -> dict:
+    """One tile, with everything needed to draw it -- or the reason not to.
+
+    `roles` and `reports` are the maps a whole dashboard is resolved with.
+    Absent, they are read here -- which is what a single-tile caller
+    (pinning one) actually wants.
+    """
     base = {
         "id": tile.get("id"),
         "reportId": tile.get("reportId"),
@@ -278,15 +305,18 @@ def resolve(db: Session, user_id: uuid.UUID, dashboard: Dashboard, tile: dict) -
     }
 
     key = as_uuid(tile.get("reportId") or "")
-    report = db.get(Report, key) if key else None
-    readable = False
-    if report is not None:
-        try:
-            require_owned(db, user_id, str(report.id), Report, need="viewer")
-            readable = True
-        except ApiError:
-            readable = False
-    if report is None or not readable:
+    if key is None:
+        report = None
+    elif reports is not None:
+        report = reports.get(key)
+    else:
+        report = db.get(Report, key)
+    # A readability PROBE, not an authorization decision. Running it
+    # through the gate that DECIDES cost two queries a tile and wrote an
+    # audit denial -- committed -- for every tile whose report the reader
+    # had lost access to, every time the page was drawn.
+    membership_roles = roles if roles is not None else roles_for(db, user_id)
+    if report is None or report.workspace_id not in membership_roles:
         # One answer for both. Distinguishing "deleted" from "not yours"
         # would tell a former member that a report still exists.
         return {**base, "available": False, "reason": "This report is no longer available."}
@@ -320,6 +350,21 @@ def detail(db: Session, user_id: uuid.UUID, dashboard: Dashboard) -> dict:
     workspace, role = _context(db, user_id, dashboard)
     definition = dashboard.definition or {}
     creators = provenance.creator_names(db, [dashboard.owner_user_id])
+    tiles = definition.get("tiles") or []
+    # Read once for the whole dashboard rather than once per tile: forty
+    # tiles meant forty authorization decisions, each with its own lookups
+    # and its own possible audit write, to draw one page.
+    roles = roles_for(db, user_id)
+    keys = {as_uuid(tile.get("reportId") or "") for tile in tiles}
+    keys.discard(None)
+    reports = (
+        {
+            report.id: report
+            for report in db.scalars(select(Report).where(Report.id.in_(keys)))
+        }
+        if keys
+        else {}
+    )
     return {
         **_summary(
             dashboard,
@@ -328,8 +373,8 @@ def detail(db: Session, user_id: uuid.UUID, dashboard: Dashboard) -> dict:
             creator=creators.get(dashboard.owner_user_id, ""),
         ),
         "tiles": [
-            resolve(db, user_id, dashboard, tile)
-            for tile in (definition.get("tiles") or [])
+            resolve(db, user_id, dashboard, tile, roles=roles, reports=reports)
+            for tile in tiles
         ],
     }
 

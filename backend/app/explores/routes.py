@@ -11,7 +11,7 @@ from app.library import provenance, state
 from app.library.search import LibraryQuery
 from app.explores import service
 from app.explores.schema import parse_definition, to_export_document
-from app.workspaces.access import membership
+from app.workspaces.access import membership, roles_for, workspaces_by_id
 from app.audit import record
 
 router = APIRouter()
@@ -74,9 +74,12 @@ def list_explores(
     recents = state.recent_order(db, sess.user_id, "explore")
     rows = service.list_explores(db, sess.user_id, workspace, params)
     creators = provenance.creator_names(db, [e.owner_user_id for e in rows])
+    roles = roles_for(db, sess.user_id)
+    spaces = workspaces_by_id(db, [e.workspace_id for e in rows])
     out = []
     for explore in rows:
-        workspace_row, member_role = _context(db, sess.user_id, explore)
+        workspace_row = spaces.get(explore.workspace_id)
+        member_role = roles.get(explore.workspace_id, "")
         summary = _summary(
             explore,
             workspace=workspace_row,

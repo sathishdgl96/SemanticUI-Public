@@ -14,7 +14,12 @@ from app.db.models import DbSession, Report, Workspace
 from app.library import provenance, state
 from app.library.search import LibraryQuery
 from app.reports import service
-from app.workspaces.access import membership, require_access
+from app.workspaces.access import (
+    membership,
+    require_access,
+    roles_for,
+    workspaces_by_id,
+)
 from app.reports.migrate import migrate_definition
 from app.reports.schema import parse_definition, to_export_document
 
@@ -95,9 +100,15 @@ def list_reports(
     favorites = state.favorite_ids(db, sess.user_id, "report")
     recents = state.recent_order(db, sess.user_id, "report")
     creators = provenance.creator_names(db, [r.owner_user_id for r in reports])
+    # Prefetched rather than looked up per row: `_context` costs two
+    # queries a report, which is one round trip for the list and two
+    # hundred more for a hundred reports.
+    roles = roles_for(db, sess.user_id)
+    spaces = workspaces_by_id(db, [r.workspace_id for r in reports])
     out = []
     for report in reports:
-        workspace_row, member_role = _context(db, sess.user_id, report)
+        workspace_row = spaces.get(report.workspace_id)
+        member_role = roles.get(report.workspace_id, "")
         summary = _summary(
             report,
             workspace=workspace_row,

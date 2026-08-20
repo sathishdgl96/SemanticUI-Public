@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Index,
     ForeignKey,
     Integer,
     JSON,
@@ -108,6 +109,10 @@ class WorkspaceMember(Base):
     __tablename__ = "workspace_members"
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_workspace_members"),
+        #: "Which workspaces am I in" runs on every listing and filters on
+        #: BOTH columns. The unique constraint above leads with the wrong
+        #: one for that direction.
+        Index("ix_workspace_members_user_workspace", "user_id", "workspace_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -122,6 +127,8 @@ class WorkspaceMember(Base):
 
 class Report(Base):
     __tablename__ = "reports"
+    #: Every listing is scoped to a workspace and ordered by updated_at.
+    __table_args__ = (Index("ix_reports_workspace_updated", "workspace_id", "updated_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     #: Provenance only -- who created this. It is NOT the access check; see
@@ -157,6 +164,13 @@ class AuditEvent(Base):
     shapes (counts, flags), never data values or resource names."""
 
     __tablename__ = "audit_events"
+    #: The activity log filters by action OR by user and always orders by
+    #: time; a single-column index serves the filter or the order, never
+    #: both.
+    __table_args__ = (
+        Index("ix_audit_action_ts", "action", "ts"),
+        Index("ix_audit_user_ts", "user_id", "ts"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     ts: Mapped[datetime] = mapped_column(
@@ -186,6 +200,9 @@ class SavedExplore(Base):
     """
 
     __tablename__ = "saved_explores"
+    __table_args__ = (
+        Index("ix_explores_workspace_updated", "workspace_id", "updated_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     #: Provenance only -- who created this. It is NOT the access check; see
@@ -228,6 +245,13 @@ class UserItemState(Base):
         UniqueConstraint(
             "user_id", "item_type", "item_id", name="uq_user_item_state"
         ),
+        #: "What have I opened lately" reads this triple.
+        Index(
+            "ix_user_item_state_user_type_seen",
+            "user_id",
+            "item_type",
+            "last_viewed_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -257,6 +281,9 @@ class Dashboard(Base):
     """
 
     __tablename__ = "dashboards"
+    __table_args__ = (
+        Index("ix_dashboards_workspace_updated", "workspace_id", "updated_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     #: Provenance only -- who created this. It is NOT the access check.

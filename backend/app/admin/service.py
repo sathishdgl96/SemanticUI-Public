@@ -14,10 +14,9 @@ contents of anybody's report.
 
 import os
 import time
-from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import AuditEvent, Dashboard, Report, SavedExplore, User, Workspace
@@ -240,38 +239,64 @@ def _known_actions(db: Session) -> list[str]:
 def security(db: Session, hours: int = DEFAULT_WINDOW_HOURS) -> dict:
     """What an operator should look at, derived from the same trail.
 
+    Counted in SQL rather than in Python. The first version read every
+    event in the window into memory to produce six numbers and fifty rows
+    -- fine on a laptop with a hundred events, and tens of thousands of
+    rows a day once five hundred people are running queries.
+
     Alerts, not raw counts: "seventeen sign-in failures" is a number, and
     "seventeen sign-in failures from four sessions" is the thing worth
     waking up for. Each alert says what it counted and over what window,
     because an alert you cannot check is an alert you learn to ignore.
     """
     since = _now() - timedelta(hours=hours)
-    rows = list(
-        db.scalars(
-            select(AuditEvent)
-            .where(AuditEvent.ts >= since)
-            .order_by(AuditEvent.ts.desc())
-        )
-    )
+    window = AuditEvent.ts >= since
 
-    failures = [r for r in rows if r.action == FAILED_LOGIN]
-    throttled = [r for r in rows if r.action == RATE_LIMITED]
-    denials = [
-        r for r in rows if r.action in DENIAL_ACTIONS or r.outcome in BAD_OUTCOMES
-    ]
-    names = _names(db, [r.user_id for r in denials])
+    # One row per action, not one row per event.
+    tallies = dict(
+        db.execute(
+            select(AuditEvent.action, func.count())
+            .where(window)
+            .group_by(AuditEvent.action)
+        ).all()
+    )
+    failures = tallies.get(FAILED_LOGIN, 0)
+    throttled = tallies.get(RATE_LIMITED, 0)
+
+    #: Everything that means somebody was refused, except a failed sign-in
+    #: -- which gets its own alert because it is about who is knocking
+    #: rather than about what a signed-in person reached for.
+    refusal_filter = or_(
+        AuditEvent.action.in_(DENIAL_ACTIONS - {FAILED_LOGIN}),
+        AuditEvent.outcome.in_(BAD_OUTCOMES),
+    )
+    refusals = int(
+        db.scalar(
+            select(func.count()).select_from(AuditEvent).where(window, refusal_filter)
+        )
+        or 0
+    )
 
     alerts: list[dict] = []
     if failures:
-        sessions = len({r.session_ref for r in failures if r.session_ref})
+        sessions = int(
+            db.scalar(
+                select(func.count(func.distinct(AuditEvent.session_ref))).where(
+                    window,
+                    AuditEvent.action == FAILED_LOGIN,
+                    AuditEvent.session_ref.is_not(None),
+                )
+            )
+            or 0
+        )
         alerts.append(
             {
                 "id": "auth-failures",
-                "severity": "high" if len(failures) >= 10 else "info",
+                "severity": "high" if failures >= 10 else "info",
                 "title": "Failed sign-ins",
-                "count": len(failures),
+                "count": failures,
                 "detail": (
-                    f"{len(failures)} in the last {hours}h"
+                    f"{failures} in the last {hours}h"
                     + (f", from {sessions} session(s)" if sessions else "")
                 ),
             }
@@ -282,26 +307,37 @@ def security(db: Session, hours: int = DEFAULT_WINDOW_HOURS) -> dict:
                 "id": "rate-limited",
                 "severity": "high",
                 "title": "Sign-in throttling engaged",
-                "count": len(throttled),
+                "count": throttled,
                 "detail": (
-                    f"{len(throttled)} attempt(s) refused for rate in the last {hours}h"
+                    f"{throttled} attempt(s) refused for rate in the last {hours}h"
                 ),
             }
         )
 
-    refusals = [r for r in denials if r.action != FAILED_LOGIN]
     if refusals:
-        by_user = Counter(names.get(r.user_id, "") or "unknown" for r in refusals)
-        worst, worst_count = by_user.most_common(1)[0]
+        # The worst offender, from the database rather than by counting a
+        # list in memory.
+        worst = db.execute(
+            select(AuditEvent.user_id, func.count().label("n"))
+            .where(window, refusal_filter, AuditEvent.action != FAILED_LOGIN)
+            .group_by(AuditEvent.user_id)
+            .order_by(func.count().desc())
+            .limit(1)
+        ).first()
+        worst_name = "unknown"
+        worst_count = 0
+        if worst is not None:
+            worst_count = int(worst[1])
+            worst_name = _names(db, [worst[0]]).get(worst[0], "") or "unknown"
         alerts.append(
             {
                 "id": "access-denied",
                 "severity": "medium" if worst_count >= 5 else "info",
                 "title": "Access refused",
-                "count": len(refusals),
+                "count": refusals,
                 "detail": (
-                    f"{len(refusals)} refusal(s) in the last {hours}h; "
-                    f"most by {worst} ({worst_count})"
+                    f"{refusals} refusal(s) in the last {hours}h; "
+                    f"most by {worst_name} ({worst_count})"
                 ),
             }
         )
@@ -317,6 +353,17 @@ def security(db: Session, hours: int = DEFAULT_WINDOW_HOURS) -> dict:
             }
         )
 
+    # Only the page that is shown, and only its columns.
+    recent = list(
+        db.scalars(
+            select(AuditEvent)
+            .where(window, refusal_filter)
+            .order_by(AuditEvent.ts.desc())
+            .limit(50)
+        )
+    )
+    names = _names(db, [row.user_id for row in recent])
+
     return {
         "windowHours": hours,
         "alerts": alerts,
@@ -330,22 +377,28 @@ def security(db: Session, hours: int = DEFAULT_WINDOW_HOURS) -> dict:
                 "resourceType": r.resource_type,
                 "requestId": r.request_id,
             }
-            for r in denials[:50]
+            for r in recent
         ],
-        "activity": _per_hour(rows, hours),
+        "activity": _per_hour(db, window, hours),
     }
 
 
-def _per_hour(rows, hours: int) -> list[dict]:
+def _per_hour(db: Session, window, hours: int) -> list[dict]:
     """Events per hour across the window, oldest first.
+
+    One column, not whole rows: bucketing needs the timestamp and nothing
+    else, and an event row carries a JSON detail blob it would otherwise
+    drag along. Bucketed in Python because SQLite and PostgreSQL spell
+    hour-truncation differently, and a portable expression for it is more
+    machinery than a list of timestamps is worth.
 
     Every hour is present, including the empty ones: a sparse series drawn
     as a line implies activity across a gap where there was none.
     """
     now = _now().replace(minute=0, second=0, microsecond=0)
     buckets = {now - timedelta(hours=offset): 0 for offset in range(hours)}
-    for row in rows:
-        hour = row.ts.replace(minute=0, second=0, microsecond=0)
+    for (stamp,) in db.execute(select(AuditEvent.ts).where(window)).all():
+        hour = stamp.replace(minute=0, second=0, microsecond=0)
         if hour.tzinfo is None:
             hour = hour.replace(tzinfo=timezone.utc)
         if hour in buckets:

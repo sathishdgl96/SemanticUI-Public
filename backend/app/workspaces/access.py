@@ -108,3 +108,38 @@ def require_access(
 ) -> Report:
     """Resolve report -> workspace -> membership, or raise."""
     return require_owned(db, user_id, report_id, Report, need=need)
+
+
+def roles_for(db: Session, user_id: uuid.UUID) -> dict[uuid.UUID, str]:
+    """{workspace id: this user's role} for every workspace they are in.
+
+    One query instead of one per row. `membership()` answers the same
+    question for a single workspace, which is right when a request touches
+    one thing and wrong the moment it renders a list: a listing that calls
+    it per row costs one round trip for the rows and another for each of
+    them, which is invisible at ten rows and is the whole page at five
+    hundred.
+
+    Read-only, and it audits nothing. That distinction matters: deciding
+    whether somebody may ACT is `require_owned`, and it records a refusal.
+    Deciding whether to draw a row they can no longer open is a different
+    question, and answering it through the acting gate wrote an audit row
+    -- and committed it -- every time a page merely rendered.
+    """
+    rows = db.execute(
+        select(WorkspaceMember.workspace_id, WorkspaceMember.role).where(
+            WorkspaceMember.user_id == user_id
+        )
+    ).all()
+    return {workspace_id: role for workspace_id, role in rows}
+
+
+def workspaces_by_id(db: Session, ids) -> dict[uuid.UUID, Workspace]:
+    """The workspaces behind a page of rows, in one query."""
+    keys = {key for key in ids if key is not None}
+    if not keys:
+        return {}
+    return {
+        workspace.id: workspace
+        for workspace in db.scalars(select(Workspace).where(Workspace.id.in_(keys)))
+    }
