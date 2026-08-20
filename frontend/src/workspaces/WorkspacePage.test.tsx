@@ -47,7 +47,7 @@ import { ApiError } from "../api/client";
 import { setFavorite, recordView } from "../api/library";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportSummary } from "../api/types";
-import { listDashboards } from "../api/dashboards";
+import { createDashboard, listDashboards } from "../api/dashboards";
 import { listExplores } from "../api/explores";
 import WorkspacePage from "./WorkspacePage";
 
@@ -111,7 +111,47 @@ beforeEach(() => {
   exploresMock.mockReset().mockResolvedValue({ explores: [] });
 });
 
+/** Open the Create menu and choose a kind. One button offers all four, so
+ *  making anything takes two clicks -- and a test has to make both. */
+async function createA(kind: RegExp) {
+  await userEvent.click(screen.getByRole("button", { name: /^create/i }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: kind }));
+}
+
 describe("WorkspacePage", () => {
+  it("does not ask again which workspace this is", async () => {
+    // You chose one to get here, from the rail's flyout. A switcher in the
+    // header is the same decision asked twice.
+    listMock.mockResolvedValue({ reports: [summary()] });
+    renderPage();
+    await screen.findByText("Sales overview");
+    expect(screen.queryByRole("combobox", { name: /workspace/i })).toBeNull();
+  });
+
+  it("offers every kind behind one Create button", async () => {
+    listMock.mockResolvedValue({ reports: [summary()] });
+    renderPage();
+    await screen.findByText("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /^create/i }));
+
+    for (const kind of [/^report$/i, /^dashboard$/i, /^explore$/i, /import a report/i]) {
+      expect(await screen.findByRole("menuitem", { name: kind })).toBeInTheDocument();
+    }
+  });
+
+  it("creates a dashboard from the same menu", async () => {
+    listMock.mockResolvedValue({ reports: [] });
+    renderPage();
+    await waitFor(() => expect(listMock).toHaveBeenCalled());
+    await createA(/^dashboard$/i);
+    await waitFor(() =>
+      expect(vi.mocked(createDashboard)).toHaveBeenCalledWith(
+        "Untitled dashboard",
+        "w0",
+      ),
+    );
+  });
+
   it("lists reports, dashboards and explores together, with the kind on each", async () => {
     // One list with a filter rather than a menu per kind: all three live in
     // a workspace, are governed by the same membership, and browse the same
@@ -268,7 +308,7 @@ describe("WorkspacePage", () => {
     );
     renderPage();
     await screen.findByText(/nothing here yet/i);
-    await userEvent.click(screen.getByRole("button", { name: /new report/i }));
+    await createA(/^report$/i);
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
@@ -395,7 +435,7 @@ describe("WorkspacePage workspaces", () => {
     });
     renderPage();
     await waitFor(() => expect(listMock).toHaveBeenCalled());
-    await userEvent.click(screen.getByRole("button", { name: /new report/i }));
+    await createA(/^report$/i);
     expect(createMock).toHaveBeenCalledWith(expect.anything(), "w0");
   });
 });

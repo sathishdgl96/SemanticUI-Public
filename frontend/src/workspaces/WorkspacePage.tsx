@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createDashboard, deleteDashboard, listDashboards } from "../api/dashboards";
@@ -13,8 +13,9 @@ import { SearchBar } from "../library/SearchBar";
 import { ITEM_FILTERS, useLibraryQuery } from "../library/useLibraryQuery";
 import ImportPanel from "../reports/ImportPanel";
 import MembersPanel from "./MembersPanel";
-import WorkspaceSwitcher from "./WorkspaceSwitcher";
 import { useWorkspaces } from "./useWorkspaces";
+import ContextMenu, { useContextMenu, type MenuItem } from "../ui/ContextMenu";
+import Icon from "../ui/Icon";
 import { atLeast } from "../api/workspaces";
 
 function blankDefinition(name: string): ReportDefinition {
@@ -71,9 +72,11 @@ export default function WorkspacePage() {
   const [pendingDelete, setPendingDelete] = useState<Item | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
-  // Selection lives in the URL, so the rail's workspaces flyout and this
-  // page share one source of truth and a workspace view is linkable.
-  const [searchParams, setSearchParams] = useSearchParams();
+  // Selection lives in the URL and is set from the rail's workspaces
+  // flyout. There is no switcher on this page: you chose a workspace to
+  // get here, and a second control to choose again is the same decision
+  // asked twice.
+  const [searchParams] = useSearchParams();
   const workspaceId = searchParams.get("workspace");
   const [showMembers, setShowMembers] = useState(false);
 
@@ -208,6 +211,8 @@ export default function WorkspacePage() {
   });
 
   const [createError, setCreateError] = useState<string | null>(null);
+  const create = useContextMenu();
+  const createButton = useRef<HTMLButtonElement>(null);
 
   const createTheReport = useMutation({
     mutationFn: () =>
@@ -228,6 +233,54 @@ export default function WorkspacePage() {
       ),
   });
 
+  const creating = createTheReport.isPending || createTheDashboard.isPending;
+
+  /** What "Create" offers. Read-only in this workspace disables the two
+   *  that write to it, with the reason attached -- an action that vanishes
+   *  reads as a bug, one that says why does not. */
+  const createItems = (): MenuItem[] => {
+    const blocked = canCreateHere
+      ? undefined
+      : `Your access to ${selected?.name ?? "this workspace"} is read-only.`;
+    return [
+      {
+        id: "report",
+        label: "Report",
+        icon: "report",
+        disabledReason: blocked,
+        onSelect: () => {
+          setCreateError(null);
+          createTheReport.mutate();
+        },
+      },
+      {
+        id: "dashboard",
+        label: "Dashboard",
+        icon: "dashboard",
+        disabledReason: blocked,
+        onSelect: () => {
+          setCreateError(null);
+          createTheDashboard.mutate();
+        },
+      },
+      {
+        id: "explore",
+        // An explore is SAVED from the explorer rather than created empty:
+        // there is nothing to open until a query exists.
+        label: "Explore",
+        icon: "compass",
+        onSelect: () => navigate("/explore"),
+      },
+      {
+        id: "import",
+        label: "Import a report…",
+        icon: "upload",
+        separatorBefore: true,
+        onSelect: () => setShowImport(true),
+      },
+    ];
+  };
+
   function onImported(report: ReportDetail) {
     setShowImport(false);
     navigate(`/reports/${report.id}`);
@@ -244,37 +297,35 @@ export default function WorkspacePage() {
             </p>
           )}
         </div>
-        <WorkspaceSwitcher
-          value={selectedId}
-          onChange={(id) => setSearchParams({ workspace: id })}
-          onCreated={(id) => setSearchParams({ workspace: id })}
-          onManageMembers={() => setShowMembers(true)}
-        />
         <div className="reports-actions">
-          <Link className="button secondary" to="/explore">
-            New explore
-          </Link>
+          {/* A personal workspace has no membership to manage -- that is
+              what makes it personal -- so the control is absent rather
+              than disabled. */}
+          {selected?.kind === "shared" && (
+            <button
+              type="button"
+              className="cmd"
+              onClick={() => setShowMembers(true)}
+            >
+              <Icon name="grid" />
+              Members ({selected.memberCount})
+            </button>
+          )}
+          {/* One button, four things to make. Four buttons in a row makes
+              the reader choose before they have been told what the choices
+              are; a menu tells them first. */}
           <button
-            className="secondary"
-            onClick={() => {
-              setCreateError(null);
-              createTheDashboard.mutate();
-            }}
-            disabled={createTheDashboard.isPending || !canCreateHere}
+            ref={createButton}
+            type="button"
+            className="cmd-primary"
+            aria-haspopup="menu"
+            aria-expanded={Boolean(create.at)}
+            disabled={creating}
+            onClick={() => create.openUnder(createButton.current)}
           >
-            {createTheDashboard.isPending ? "Creating…" : "New dashboard"}
-          </button>
-          <button className="secondary" onClick={() => setShowImport(true)}>
-            Import
-          </button>
-          <button
-            onClick={() => {
-              setCreateError(null);
-              createTheReport.mutate();
-            }}
-            disabled={createTheReport.isPending || !canCreateHere}
-          >
-            {createTheReport.isPending ? "Creating..." : "New report"}
+            <Icon name="plus" />
+            {creating ? "Creating…" : "Create"}
+            <span aria-hidden="true">▾</span>
           </button>
         </div>
       </header>
@@ -460,6 +511,10 @@ export default function WorkspacePage() {
             Cancel
           </button>
         </div>
+      )}
+
+      {create.at && (
+        <ContextMenu at={create.at} items={createItems()} onClose={create.close} />
       )}
 
       {showImport && (

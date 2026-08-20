@@ -128,5 +128,12 @@ export function useContextMenu() {
     event.stopPropagation();
     setAt({ x: event.clientX, y: event.clientY });
   };
-  return { at, open, close: () => setAt(null) };
+  /** Open under a button rather than at a pointer, for a dropdown. The
+   *  same menu either way -- a dropdown IS a context menu whose context is
+   *  the control it hangs from. */
+  const openUnder = (element: HTMLElement | null) => {
+    const box = element?.getBoundingClientRect();
+    setAt(box ? { x: box.left, y: box.bottom + 4 } : { x: 0, y: 0 });
+  };
+  return { at, open, openUnder, close: () => setAt(null) };
 }

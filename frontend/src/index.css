@@ -1851,6 +1851,13 @@ button.secondary:hover,
   font-size: 12px;
 }
 
+/* The caret on a button that opens a menu. Small and muted -- it says
+   "there is more", it is not part of the label. */
+.reports-actions .cmd-primary span[aria-hidden] {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
 /* ==========================================================================
    Context menu — the browser's own is suppressed only where this replaces it
    ========================================================================== */
