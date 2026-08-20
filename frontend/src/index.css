@@ -740,22 +740,27 @@ button:disabled {
 }
 
 /* Two halves of one control: the caret is a continuation of the button beside
-   it, not a second button that happens to sit close. */
+   it, not a second button that happens to sit close. A hairline between them
+   is what says the caret does its own thing -- without it the pair reads as
+   one button with a decoration on the end. */
 .split-button {
   display: inline-flex;
+  align-items: center;
 }
 
 .split-button > button:first-child {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+  padding-right: 7px;
 }
 
 .split-button > .split-more {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   border-left: none;
-  padding-left: 6px;
+  padding-left: 5px;
   padding-right: 6px;
+  box-shadow: inset 1px 0 0 var(--border);
 }
 
 .viz-picker {
@@ -1704,8 +1709,8 @@ button.secondary:hover,
 
 .builder { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .builder-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  flex: 0 0 auto; padding: 8px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex: 0 0 auto; min-height: 46px; padding: 7px 16px;
   background: var(--surface); border-bottom: 1px solid var(--border);
   /* The header now carries Save, Move, Ask, Excel, Connect live, Export and
      Import. Without wrapping it overflows below ~430px, which the 390px
@@ -1713,24 +1718,89 @@ button.secondary:hover,
   flex-wrap: wrap;
 }
 
-.builder-actions { display: flex; gap: 8px; flex: 0 1 auto; flex-wrap: wrap; }
+.builder-actions { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; flex-wrap: wrap; }
 .builder-body { display: flex; flex: 1; min-height: 0; }
 
 /* --- Command bar --------------------------------------------------------- */
 
+/* The report's name is the heading of the page, so it is typeset as one --
+   the input chrome is what appears when you go to change it, not before. */
 .command-bar .report-title {
   border-color: transparent;
-  font-size: 14px;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 15px;
   font-weight: 600;
-  max-width: 320px;
+  letter-spacing: -0.01em;
+  max-width: 340px;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
-.command-bar .report-title:hover,
+.command-bar .report-title:hover {
+  background: var(--ink-wash);
+}
 .command-bar .report-title:focus {
-  border-color: var(--border);
+  background: var(--surface);
+  border-color: var(--accent);
 }
+
+/* A ghost command. Fluent's command bar and every enterprise tool that
+   followed it: no chrome at rest, a wash on hover, an accent wash while it
+   holds a panel open. Six outlined boxes in a row read as six unrelated
+   decisions; these read as one bar with one filled action in it. */
+.cmd {
+  height: 30px;
+  padding: 0 10px;
+  gap: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.cmd:hover:not(:disabled) { background: var(--ink-wash); }
+.cmd:active:not(:disabled) { background: rgba(37, 36, 35, 0.09); }
+.cmd:disabled { opacity: 0.4; }
+
+/* A command that is holding something open is in a state, not merely
+   hovered -- so it keeps its wash when the pointer leaves. */
+.cmd[aria-pressed="true"],
+.cmd[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Quieter than the label at rest: the word is what you read, the glyph is
+   what you find it by. */
+.cmd .icon { flex: 0 0 auto; opacity: 0.72; }
+.cmd:hover .icon,
+.cmd[aria-pressed="true"] .icon { opacity: 1; }
+
+/* The one command that changes the report is the one that wears a colour.
+   Disabled it goes flat rather than translucent: a washed-out yellow reads
+   as a rendering fault, a grey one reads as "nothing to save". */
+.cmd-primary {
+  height: 30px;
+  padding: 0 14px;
+  gap: 7px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.cmd-primary .icon { opacity: 0.85; }
+.cmd-primary:disabled {
+  opacity: 1;
+  background: var(--chrome);
+  border-color: var(--border);
+  color: var(--ink-muted);
+}
+
 .cmd-sep {
   width: 1px;
-  height: 20px;
+  height: 18px;
+  margin: 0 6px;
   background: var(--border);
   align-self: center;
 }
@@ -2513,11 +2583,6 @@ button.secondary:hover,
 .chat-compose input {
   flex: 1;
   min-width: 0;
-}
-
-.chat-open span {
-  font-size: 13px;
-  line-height: 1;
 }
 
 .ask-panel {
@@ -4450,29 +4515,49 @@ button.model-column:hover {
   font-size: 10px;
 }
 
-/* A segmented control: one border around both, so it reads as a single
-   choice rather than two unrelated buttons. */
+/* A segmented control: a recessed track with the chosen segment raised out
+   of it, so the choice reads as a position rather than as which of two
+   buttons happens to be coloured in. */
 .mode-switch {
   display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--chrome);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  border-radius: 6px;
 }
 
 .mode-switch button {
-  padding: 4px 12px;
-  background: var(--surface);
+  height: 24px;
+  padding: 0 11px;
+  gap: 6px;
+  background: transparent;
   border: none;
-  border-radius: 0;
+  border-radius: 4px;
   color: var(--ink-secondary);
-  font-weight: 400;
-  font-size: 13px;
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.mode-switch button .icon { opacity: 0.7; }
+
+.mode-switch button:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
 }
 
 .mode-switch button[aria-pressed="true"] {
-  background: var(--accent);
-  color: #ffffff;
+  background: var(--surface);
+  color: var(--ink);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
-.mode-switch button:disabled { opacity: 0.5; }
+.mode-switch button[aria-pressed="true"] .icon {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.mode-switch button:disabled { opacity: 0.45; }
