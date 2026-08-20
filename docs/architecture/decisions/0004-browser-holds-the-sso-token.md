@@ -1,6 +1,12 @@
 # 0004 — The browser holds the SSO token; the server persists nothing for it
 
-Status: Accepted (server-side PKCE landed; SPA public-client flow is plan item S2)
+Status: Superseded by [0010](0010-confidential-client-server-side-tokens.md)
+
+**Never implemented.** Server-side PKCE landed as the first step; the SPA
+public-client flow that the rest of this record describes did not, and
+0010 decided against it. What ships is a confidential client that holds
+encrypted tokens server-side — the opposite of the Decision below. This
+record is kept for the reasoning, which 0010 answers point by point.
 
 ## Context
 
