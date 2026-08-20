@@ -3,7 +3,7 @@ import { Fragment, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createDashboard, deleteDashboard, listDashboards } from "../api/dashboards";
-import { listExplores } from "../api/explores";
+import { deleteExplore, listExplores } from "../api/explores";
 import { recordView, type ItemType } from "../api/library";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportDefinition, ReportDetail } from "../api/types";
@@ -263,9 +263,17 @@ export default function WorkspacePage() {
     queryClient.invalidateQueries({ queryKey: ["home"] });
   };
 
+  // Dispatch on all three kinds explicitly. A two-way `dashboard ? … : …`
+  // sent explores to deleteReport, which answers 404 for an id that is not
+  // a report -- a delete that looks like a missing item.
+  const removeByKind = (item: Item) => {
+    if (item.kind === "dashboard") return deleteDashboard(item.id);
+    if (item.kind === "explore") return deleteExplore(item.id);
+    return deleteReport(item.id);
+  };
+
   const remove = useMutation({
-    mutationFn: (item: Item) =>
-      item.kind === "dashboard" ? deleteDashboard(item.id) : deleteReport(item.id),
+    mutationFn: removeByKind,
     onSuccess: () => {
       setPendingDelete(null);
       setDeleteError(null);
@@ -650,21 +658,20 @@ export default function WorkspacePage() {
                 <td className="cell-actions row-actions">
                   {/* An icon, and a red one: "Delete" repeated down every
                       row is the loudest word on the page, and the one
-                      action there you least want to invite. An explore is
-                      deleted from the explorer that owns it. */}
-                  {item.kind !== "explore" && (
-                    <button
-                      className="icon-button danger"
-                      aria-label={`Delete ${item.name}`}
-                      title={`Delete ${item.name}`}
-                      onClick={() => {
-                        setPendingDelete(item);
-                        setDeleteError(null);
-                      }}
-                    >
-                      <span aria-hidden="true">🗑</span>
-                    </button>
-                  )}
+                      action there you least want to invite. Offered for
+                      every kind -- this list is the only place an explore
+                      can be deleted from. */}
+                  <button
+                    className="icon-button danger"
+                    aria-label={`Delete ${item.name}`}
+                    title={`Delete ${item.name}`}
+                    onClick={() => {
+                      setPendingDelete(item);
+                      setDeleteError(null);
+                    }}
+                  >
+                    <span aria-hidden="true">🗑</span>
+                  </button>
                 </td>
               </tr>
               {pendingDelete?.id === item.id && (

@@ -18,6 +18,7 @@ vi.mock("../api/dashboards", () => ({
 }));
 vi.mock("../api/explores", () => ({
   listExplores: vi.fn().mockResolvedValue({ explores: [] }),
+  deleteExplore: vi.fn(),
 }));
 vi.mock("../api/library", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/library")>()),
@@ -48,7 +49,7 @@ import { setFavorite, recordView } from "../api/library";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportSummary } from "../api/types";
 import { createDashboard, listDashboards } from "../api/dashboards";
-import { listExplores } from "../api/explores";
+import { deleteExplore, listExplores } from "../api/explores";
 import WorkspacePage from "./WorkspacePage";
 
 const listMock = vi.mocked(listReports);
@@ -58,6 +59,23 @@ const favoriteMock = vi.mocked(setFavorite);
 const viewMock = vi.mocked(recordView);
 const dashboardsMock = vi.mocked(listDashboards);
 const exploresMock = vi.mocked(listExplores);
+const deleteExploreMock = vi.mocked(deleteExplore);
+
+/** An explore summary as the list reads one. */
+function exploreRow(over: Record<string, unknown> = {}) {
+  return {
+    id: "e1",
+    name: "Churn",
+    view: { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" },
+    updatedAt: "2026-08-18T10:00:00Z",
+    workspaceId: "w0",
+    workspaceName: "My reports",
+    myRole: "admin" as const,
+    favorite: false,
+    lastViewedAt: null,
+    ...over,
+  };
+}
 
 /** A report summary with every field the list reads, so a test only has to
  *  state what it is actually about. */
@@ -108,6 +126,7 @@ beforeEach(() => {
   // is only about reports.
   dashboardsMock.mockReset().mockResolvedValue({ dashboards: [] });
   exploresMock.mockReset().mockResolvedValue({ explores: [] });
+  deleteExploreMock.mockReset();
 });
 
 /** Open the Create menu and choose a kind. One button offers all four, so
@@ -372,6 +391,34 @@ describe("WorkspacePage", () => {
     await userEvent.click(screen.getByRole("button", { name: /delete Sales overview/i }));
     await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("r1"));
+  });
+
+  it("deletes an explore after confirmation", async () => {
+    // This list is the only place an explore can be deleted from: the
+    // explorer that saved it offers no way to remove one.
+    listMock.mockResolvedValue({ reports: [] });
+    exploresMock.mockResolvedValue({ explores: [exploreRow()] });
+    deleteExploreMock.mockResolvedValue(undefined);
+    renderPage();
+    await screen.findByText("Churn");
+    await userEvent.click(screen.getByRole("button", { name: /delete Churn/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    await waitFor(() => expect(deleteExploreMock).toHaveBeenCalledWith("e1"));
+  });
+
+  it("deletes an explore through the explore endpoint, not the report one", async () => {
+    // The dispatch was `dashboard ? deleteDashboard : deleteReport`, so an
+    // explore went to DELETE /api/reports/<explore id> and came back 404 --
+    // a delete that reads to the user as a vanished item.
+    listMock.mockResolvedValue({ reports: [] });
+    exploresMock.mockResolvedValue({ explores: [exploreRow()] });
+    deleteExploreMock.mockResolvedValue(undefined);
+    renderPage();
+    await screen.findByText("Churn");
+    await userEvent.click(screen.getByRole("button", { name: /delete Churn/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    await waitFor(() => expect(deleteExploreMock).toHaveBeenCalled());
+    expect(deleteMock).not.toHaveBeenCalled();
   });
 
   it("surfaces a load failure instead of rendering an empty list", async () => {
