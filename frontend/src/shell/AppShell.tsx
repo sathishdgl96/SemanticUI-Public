@@ -4,6 +4,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useMe } from "../auth/useMe";
+import { ProfileMenu } from "../session/ProfileMenu";
 import WorkspacesFlyout from "./WorkspacesFlyout";
 
 /** The PowerBI-style frame every authenticated page sits in: near-black top
@@ -53,9 +54,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {branding.name}
         </span>
         <span className="topbar-right">
-          <span className="identity">
-            {me.data ? `${me.data.snowflakeUser} @ ${me.data.snowflakeAccount}` : ""}
-          </span>
+          {me.data ? (
+            <ProfileMenu
+              user={me.data.snowflakeUser}
+              account={me.data.snowflakeAccount}
+            />
+          ) : (
+            <span className="identity" />
+          )}
           <button type="button" className="link topbar-link" onClick={logout}>
             Log out
           </button>

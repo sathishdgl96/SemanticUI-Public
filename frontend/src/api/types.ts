@@ -1,6 +1,13 @@
+export interface AccountChoice {
+  label: string;
+  account: string;
+}
+
 export interface Config {
   authMode: "oauth" | "dev";
   directLoginMethods: ("externalbrowser" | "password" | "keypair")[];
+  /** What the account dropdown may offer. Always at least one. */
+  accounts: AccountChoice[];
 }
 
 export interface Me {

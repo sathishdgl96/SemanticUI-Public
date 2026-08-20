@@ -3742,3 +3742,125 @@ body {
 .saved-explore-row .star-on {
   opacity: 1;
 }
+
+/* --- Profile menu: identity plus the context queries run as --------- */
+
+.profile {
+  position: relative;
+  display: inline-flex;
+}
+
+.profile-trigger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font-weight: 400;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.profile-trigger:hover,
+.profile-trigger[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.profile-identity {
+  color: #d2d0ce;
+  font-size: 12px;
+}
+
+/* The role and warehouse sit on the trigger, not inside the menu: the
+   same report returns different rows under a different role, so this is
+   never something to click to find out. */
+.profile-context {
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.profile-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 260px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.profile-menu-hint {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.profile-field select {
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.profile-field select:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.profile-menu-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 12px;
+}
+
+/* --- Account choice on the login page ------------------------------- */
+
+.sso-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  text-align: left;
+}
+
+.login-field select {
+  padding: 6px 8px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}

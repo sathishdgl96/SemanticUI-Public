@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import type { Config } from "../api/types";
+import { AccountPicker } from "./AccountPicker";
 
 type Authenticator = "externalbrowser" | "password" | "keypair";
 
@@ -25,6 +26,9 @@ export default function LoginPage() {
     queryFn: () => apiFetch<Config>("/api/config"),
   });
   const [account, setAccount] = useState("");
+  // Separate from `account` above, which is typed into the dev-login
+  // form: this one is chosen from the configured list for SSO.
+  const [ssoAccount, setSsoAccount] = useState("");
   const [user, setUser] = useState("");
   const [authenticator, setAuthenticator] = useState<Authenticator>("externalbrowser");
   const [password, setPassword] = useState("");
@@ -37,6 +41,8 @@ export default function LoginPage() {
   if (config.isError || !config.data) return <p>Cannot reach the backend.</p>;
 
   const { authMode, directLoginMethods } = config.data;
+  const accounts = config.data.accounts ?? [];
+  const chosenAccount = ssoAccount || accounts[0]?.account || "";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -112,9 +118,23 @@ export default function LoginPage() {
       </h1>
       {redirectReason && <p className="notice">{redirectReason}</p>}
       {authMode === "oauth" && (
-        <a className="button" href="/auth/login">
-          Sign in with Snowflake
-        </a>
+        <div className="sso-signin">
+          <AccountPicker
+            accounts={accounts}
+            value={chosenAccount}
+            onChange={setSsoAccount}
+          />
+          <a
+            className="button"
+            href={
+              chosenAccount
+                ? `/auth/login?account=${encodeURIComponent(chosenAccount)}`
+                : "/auth/login"
+            }
+          >
+            Sign in with Snowflake
+          </a>
+        </div>
       )}
       {directLoginMethods.length > 0 && (
         <>
