@@ -370,6 +370,9 @@ export default function BuilderPage() {
               </Pane>
               <VisualizationsPane
                 isSheet={activePage.kind === "sheet"}
+                reportId={reportId || undefined}
+                pageId={activePage.id}
+                dirty={doc.dirty}
                 selected={selected}
                 selectedType={ui.selectedType}
                 onTypeChange={onTypeChange}

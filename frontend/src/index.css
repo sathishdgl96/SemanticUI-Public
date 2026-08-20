@@ -1704,6 +1704,168 @@ button.secondary:hover,
 }
 
 /* ==========================================================================
+   Home — what you were last working on, and what you chose to keep in view
+   ========================================================================== */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.home-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-section-title {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- recents ------------------------------------------------------------- */
+
+/* Cards in a wrapping row rather than a table: ten items is a shortcut,
+   and a shortcut you scan beats a list you read. */
+.recent-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.recent-item:hover {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.recent-kind {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.recent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.recent-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* --- pinned widgets ------------------------------------------------------ */
+
+.widget-grid {
+  min-height: 40px;
+}
+
+.widget-empty {
+  padding: 24px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-pane);
+}
+
+/* The tile fills the cell and the footer sits under it, so a widget is the
+   report's own visual plus one line saying where it came from. */
+.widget-cell {
+  display: flex;
+}
+
+.widget-frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.widget-frame > .tile {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.widget-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 0;
+}
+
+.widget-source {
+  color: var(--ink-muted);
+  font-size: 11px;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-source:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* A widget with nothing behind it any more. Dashed, because the frame is
+   still yours -- it is the thing inside that went away. */
+.widget-dead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  border-style: dashed;
+}
+
+.widget-dead .tile-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* ==========================================================================
    Builder shell
    ========================================================================== */
 

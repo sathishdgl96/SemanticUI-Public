@@ -12,6 +12,7 @@ import LoginPage from "./auth/LoginPage";
 import { useMe } from "./auth/useMe";
 import AppShell from "./shell/AppShell";
 import ExplorerPage from "./explorer/ExplorerPage";
+import HomePage from "./home/HomePage";
 import BuilderPage from "./reports/BuilderPage";
 import ReportListPage from "./reports/ReportListPage";
 
@@ -44,7 +45,16 @@ export default function App() {
         <AuthExpiredBridge />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<Navigate to="/reports" replace />} />
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <AppShell>
+                  <HomePage />
+                </AppShell>
+              </RequireAuth>
+            }
+          />
           <Route
             path="/reports"
             element={

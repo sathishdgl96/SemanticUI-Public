@@ -13,6 +13,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     JSON,
     LargeBinary,
     String,
@@ -228,4 +229,48 @@ class UserItemState(Base):
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_viewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class HomeWidget(Base):
+    """One visual a user has pinned to their home page.
+
+    A REFERENCE, not a copy: the report, page and visual are named and
+    resolved at read time. Snapshotting the visual's definition would
+    have meant a widget quietly drifting from the report it came from,
+    and -- worse -- a copy of a definition that no access check governs.
+    Naming it means every load re-resolves the report through the same
+    gate everything else does, so losing access to the report loses the
+    widget with it.
+
+    Position and size live here rather than in a single JSON blob per
+    user because a widget is added and removed one at a time, and a blob
+    would make two browsers open at once overwrite each other's grid.
+    """
+
+    __tablename__ = "home_widgets"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "report_id", "page_id", "visual_id", name="uq_home_widget"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    #: Not a foreign key on purpose -- see forget_item in library/state.py.
+    #: Reports are deleted through a path that cleans up polymorphic
+    #: references explicitly, and this one is cleaned there too.
+    report_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    #: Ids WITHIN the report document, so they are strings, not rows.
+    page_id: Mapped[str] = mapped_column(String(64))
+    visual_id: Mapped[str] = mapped_column(String(64))
+    #: The caller's own title, when they renamed it on the way in. Null
+    #: means "whatever the visual is called now", which is usually right.
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    x: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    y: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    w: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    h: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
     )

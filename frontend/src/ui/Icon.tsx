@@ -56,6 +56,44 @@ const PATHS = {
       <rect x="3" y="14" width="7" height="7" rx="1" />
     </>
   ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <path d="M19 6v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" />
+      <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  star: (
+    <path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.8l6.5-.9Z" />
+  ),
+  home: (
+    <>
+      <path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      <path d="M9 21v-7h6v7" />
+    </>
+  ),
+  compass: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m15.5 8.5-2 5-5 2 2-5Z" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  library: (
+    <>
+      <path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z" />
+      <path d="M8 13h8" />
+    </>
+  ),
   model: (
     <>
       <circle cx="6" cy="5" r="2.5" />
@@ -69,14 +107,24 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
-export default function Icon({ name, size = 15 }: { name: IconName; size?: number }) {
+export default function Icon({
+  name,
+  size = 15,
+  filled = false,
+}: {
+  name: IconName;
+  size?: number;
+  /** Fill the glyph as well as stroke it. Only meaningful for a closed
+   *  shape -- a pinned star is the reason this exists. */
+  filled?: boolean;
+}) {
   return (
     <svg
-      className="icon"
+      className={filled ? "icon filled" : "icon"}
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth="1.7"
       strokeLinecap="round"

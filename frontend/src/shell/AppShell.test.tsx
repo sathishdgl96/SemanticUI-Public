@@ -90,7 +90,10 @@ describe("AppShell", () => {
   it("frames the page with the brand, nav rail and content", async () => {
     renderShell();
     expect(screen.getByText("SemanticUI")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /home/i })).toHaveAttribute(
+    // Home and the report library are separate destinations: home is what
+    // you pinned and last opened, /reports is the whole list.
+    expect(screen.getByRole("link", { name: /home/i })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: /^reports$/i })).toHaveAttribute(
       "href",
       "/reports",
     );
@@ -100,6 +103,18 @@ describe("AppShell", () => {
     );
     expect(screen.getByText("Reports content")).toBeInTheDocument();
     expect(await screen.findByText("ALICE @ ACME")).toBeInTheDocument();
+  });
+
+  it("closes the workspaces flyout on the way to another page", async () => {
+    // The flyout is a way of GETTING somewhere, so arriving anywhere ends
+    // it. It used to stay open over the page it had just navigated to, and
+    // over every page reached from the rail afterwards.
+    renderShell();
+    await userEvent.click(screen.getByRole("button", { name: /workspaces/i }));
+    expect(screen.getByRole("dialog", { name: /workspaces/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("link", { name: /explore/i }));
+    expect(screen.queryByRole("dialog", { name: /workspaces/i })).toBeNull();
   });
 
   it("opens the workspaces flyout and navigates to the chosen workspace", async () => {

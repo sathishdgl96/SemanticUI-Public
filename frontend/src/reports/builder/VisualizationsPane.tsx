@@ -3,6 +3,7 @@ import { CATALOG, type VisualType } from "../catalog";
 import ColorField from "../ColorField";
 import FormatPane from "../FormatPane";
 import Pane from "../../shell/Pane";
+import PinToHome from "./PinToHome";
 import VisualPicker from "../VisualPicker";
 import VisualWells from "../VisualWells";
 
@@ -22,6 +23,9 @@ export default function VisualizationsPane({
   fields,
   canvasBackground,
   onCanvasBackground,
+  reportId,
+  pageId,
+  dirty,
 }: {
   isSheet: boolean;
   selected: Visual | null;
@@ -35,6 +39,12 @@ export default function VisualizationsPane({
   fields: FieldInfo[];
   canvasBackground: string | null | undefined;
   onCanvasBackground: (hex: string | null) => void;
+  /** Undefined on a report that has not been created yet. */
+  reportId?: string;
+  pageId: string;
+  /** Unsaved changes: a widget resolves against the SAVED document, so
+   *  pinning is offered only once what you see is what the server has. */
+  dirty: boolean;
 }) {
   return (
     <Pane title="Visualizations">
@@ -90,6 +100,16 @@ export default function VisualizationsPane({
             <VisualWells visual={selected} onChange={onChangeVisual} factRefs={factRefs} />
           ) : (
             <FormatPane visual={selected} onChange={onChangeVisual} fields={fields} />
+          )}
+          {/* Under Format rather than Build: pinning is about where the
+              visual APPEARS, not about what it measures. */}
+          {paneTab === "format" && (
+            <PinToHome
+              reportId={reportId}
+              pageId={pageId}
+              visualId={selected.id}
+              saved={!dirty}
+            />
           )}
         </>
       ) : (

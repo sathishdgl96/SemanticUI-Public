@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Report, Workspace, WorkspaceMember
 from app.errors import ApiError
+from app.home import service as home_service
 from app.library import provenance, search, state
 from app.library.search import LibraryQuery
 from app.reports.schema import ReportDefinition, parse_definition
@@ -120,6 +121,10 @@ def delete_report(db: Session, user_id: uuid.UUID, report_id: str) -> None:
     # Polymorphic reference: the database cannot cascade it, and a
     # pin outliving its report resurfaces as a phantom row.
     state.forget_item(db, "report", report.id)
+    # Same reason, same absence of a foreign key: a widget naming a
+    # deleted report would render as "no longer available" forever
+    # rather than going away with it.
+    home_service.forget_report(db, report.id)
     db.delete(report)
     db.commit()
 
