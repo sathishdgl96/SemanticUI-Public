@@ -162,6 +162,7 @@ def create_app() -> FastAPI:
     from app.auth.dev import router as dev_router
     from app.explores.routes import router as explores_router
     from app.library.routes import router as library_router
+    from app.session.routes import router as session_router
     from app.reports.routes import router as reports_router
     from app.workspaces.routes import router as workspaces_router
     from app.cortex.routes import router as ask_router
@@ -176,6 +177,7 @@ def create_app() -> FastAPI:
     app.include_router(reports_router)
     app.include_router(explores_router)
     app.include_router(library_router)
+    app.include_router(session_router)
     app.include_router(workspaces_router)
     app.include_router(ask_router)
     app.include_router(xmla_router)
