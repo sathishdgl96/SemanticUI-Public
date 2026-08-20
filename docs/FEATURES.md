@@ -117,7 +117,9 @@ unaudited before anybody noticed the log looked thin.
   them, in one file. Formula injection is neutralised on the way out.
 - **Live connection** — Excel's Analysis Services connector speaks to the
   app's XMLA endpoint over a scoped, revocable connect token that rides on
-  one session, with its own lifetime.
+  one session, with its own lifetime. **Models over several views appear
+  as cubes too**, under a `Models` catalog, so a PivotTable can cross two
+  teams' semantic views without anybody writing SQL.
 - **Portable definitions** — every report, dashboard and explore exports
   as a document and imports again, byte-stable across two exports of the
   same thing.

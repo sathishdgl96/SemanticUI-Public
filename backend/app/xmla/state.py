@@ -51,6 +51,11 @@ class XmlaSession:
     views: list | None = None
     #: Request-scoped, set by bind() and only valid under entry.lock.
     db: Any = None
+    #: Synthetic describes for the composite models this caller can see,
+    #: keyed by the (database, schema, name) triple they are listed under.
+    #: Built once per conversation beside `views`, for the same reason.
+    _model_details: dict | None = None
+    _model_defs: dict | None = None
 
     def touch(self) -> None:
         self.last_seen = time.monotonic()
@@ -64,11 +69,90 @@ class XmlaSession:
         return self.entry.conn
 
     def list_views(self) -> list:
+        """Every cube this caller can see: Snowflake's semantic views, and
+        the composite models they are a member of.
+
+        Models come last so a client listing cubes sees the warehouse's
+        own first, and so a failure to build them cannot cost the caller
+        the views that were already working.
+        """
         if self.views is None:
-            self.views = list_semantic_views(self.conn)
+            self.views = list_semantic_views(self.conn) + self._composite_views()
         return self.views
 
+    def _composite_views(self) -> list:
+        """Composite models as cubes, with their synthetic describes.
+
+        Errors are swallowed on purpose: a model with a member the caller
+        cannot read, or a definition that no longer parses, must not take
+        Excel's whole cube list down with it.
+        """
+        from app.xmla.composite_source import (
+            member_describes,
+            synthetic_detail,
+            synthetic_view,
+        )
+
+        self._model_details = {}
+        self._model_defs = {}
+        if self.db is None:
+            return []
+        try:
+            from app.composites.schema import parse_definition
+            from app.db.models import CompositeModel, Workspace, WorkspaceMember
+
+            rows = (
+                self.db.query(CompositeModel)
+                .join(
+                    WorkspaceMember,
+                    WorkspaceMember.workspace_id == CompositeModel.workspace_id,
+                )
+                .filter(WorkspaceMember.user_id == self.user_id)
+                .all()
+            )
+        except Exception:
+            return []
+
+        out = []
+        for row in rows:
+            try:
+                definition = parse_definition(row.definition or {})
+                if not definition.members:
+                    # Nothing to query yet; a cube with no fields is worse
+                    # than no cube.
+                    continue
+                workspace = self.db.get(Workspace, row.workspace_id)
+                view = synthetic_view(row, workspace.name if workspace else "Models")
+                detail = synthetic_detail(
+                    definition, member_describes(self, definition)
+                )
+                if not detail["dimensions"] and not detail["metrics"]:
+                    continue
+                key = (view["database"], view["schema"], view["name"])
+                self._model_details[key] = detail
+                self._model_defs[key] = definition
+                out.append(view)
+            except Exception:
+                continue
+        return out
+
+    def model_definition(self, database: str, schema: str, view: str):
+        """The parsed definition behind a composite cube, or None."""
+        if self._model_defs is None:
+            self.list_views()
+        return (self._model_defs or {}).get((database, schema, view))
+
     def describe(self, database: str, schema: str, view: str) -> dict:
+        """A cube's describe: synthetic for a model, Snowflake's otherwise.
+
+        Checked before the cache because a model has no Snowflake object
+        to describe -- asking would be an error, not a cache miss.
+        """
+        if self._model_details is None and database == "Models":
+            self.list_views()
+        synthetic = (self._model_details or {}).get((database, schema, view))
+        if synthetic is not None:
+            return synthetic
         return get_cache().describe(self.entry, database, schema, view)
 
     def user_hierarchies(self, view: dict) -> list[dict]:

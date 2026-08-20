@@ -59,7 +59,21 @@ def handle_execute(session, request) -> str:
     if view is None:
         raise ApiError("XMLA_MDX", 404, f"unknown cube {q.cube!r}")
     detail = session.describe(view["database"], view["schema"], view["name"])
+    # A composite model is a cube too. Everything about MDX is the same
+    # for it; only the route from fields to SQL differs, so it subclasses
+    # the engine rather than forking it.
+    from app.xmla.composite_engine import build_engine
+    from app.xmla.composite_source import is_composite
+
+    engine = None
+    if is_composite(view):
+        definition = session.model_definition(
+            view["database"], view["schema"], view["name"]
+        )
+        engine = build_engine(session, view, detail, q, definition)
+    if engine is None:
+        engine = _Engine(session, view, detail, q)
     try:
-        return _Engine(session, view, detail, q).execute()
+        return engine.execute()
     except MdxUnsupported as exc:
         raise ApiError("XMLA_MDX", 400, f"unsupported MDX: {exc}") from exc

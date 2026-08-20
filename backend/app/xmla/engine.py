@@ -72,6 +72,35 @@ class _Engine(MemberBuilders):
         self.measures: list[str] = []
 
     # -- helpers ----------------------------------------------------------
+    def _compile(
+        self,
+        dims: list[str],
+        metrics: list[str],
+        filters: list,
+        *,
+        include_combos=None,
+    ):
+        """Fields -> (sql, params, limit), for THIS cube.
+
+        The engine's only route to SQL, so a cube backed by something
+        other than one semantic view -- a composite model -- replaces
+        exactly this and inherits the rest of the MDX machinery.
+        """
+        request = SemanticQueryRequest.model_validate({
+            "database": self.view["database"],
+            "schema": self.view["schema"],
+            "view": self.view["name"],
+            "dimensions": dims,
+            "metrics": metrics,
+            "filters": filters,
+            "orderBy": [{"field": d, "direction": "asc"} for d in dims],
+            "limit": None,
+        })
+        return build_semantic_sql(
+            self.detail, request, max_rows=get_settings().export_row_cap,
+            include_combos=include_combos,
+        )
+
     def _run(self, group_fields: list[HierSpec]) -> dict:
         """Aggregate metrics grouped by these fields; cached per grouping.
         Returns {tuple(dim values): [metric values...]}, insertion-ordered.
@@ -91,19 +120,8 @@ class _Engine(MemberBuilders):
             self._results[key] = table
             return table
         dims = [f"{s.table}.{s.hier_field}" for s in group_fields]
-        request = SemanticQueryRequest.model_validate({
-            "database": self.view["database"],
-            "schema": self.view["schema"],
-            "view": self.view["name"],
-            "dimensions": dims,
-            "metrics": self.measures,
-            "filters": self.filters,
-            "orderBy": [{"field": d, "direction": "asc"} for d in dims],
-            "limit": None,
-        })
-        sql, params, limit = build_semantic_sql(
-            self.detail, request, max_rows=get_settings().export_row_cap,
-            include_combos=self.include_combos,
+        sql, params, limit = self._compile(
+            dims, self.measures, self.filters, include_combos=self.include_combos
         )
         result = gateway.run_query(
             self.session.conn, sql, max_rows=limit, params=params
@@ -169,19 +187,7 @@ class _Engine(MemberBuilders):
         if key in self._distincts:
             return self._distincts[key]
         dims = [f"{t}.{n}" for t, n in level_fields]
-        request = SemanticQueryRequest.model_validate({
-            "database": self.view["database"],
-            "schema": self.view["schema"],
-            "view": self.view["name"],
-            "dimensions": dims,
-            "metrics": [],
-            "filters": [],
-            "orderBy": [{"field": d, "direction": "asc"} for d in dims],
-            "limit": None,
-        })
-        sql, params, limit = build_semantic_sql(
-            self.detail, request, max_rows=get_settings().export_row_cap
-        )
+        sql, params, limit = self._compile(dims, [], [])
         result = gateway.run_query(
             self.session.conn, sql, max_rows=limit, params=params
         )

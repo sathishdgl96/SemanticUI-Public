@@ -1,6 +1,9 @@
 # Composite semantic models — v1: runtime drill-across
 
-Status: Proposed, to be implemented on a branch off `feature/foundation`
+Status: **Implemented** on `feature/composite-models`, except Phase 0
+(the spike against a real Snowflake account), which has not been run --
+every SQL shape below is unit-tested but none has executed against a
+warehouse
 Date: 2026-08-20
 Companion: [v2 — compiled semantic view](2026-08-20-composite-semantic-models-v2-compiled-semantic-view.md)
 
