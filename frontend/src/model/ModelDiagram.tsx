@@ -3,7 +3,6 @@ import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
@@ -174,7 +173,6 @@ function Diagram({
           >
             <Background variant={BackgroundVariant.Dots} gap={22} size={1} />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable nodeStrokeWidth={2} />
           </ReactFlow>
         </div>
       </ModelNodeContext.Provider>

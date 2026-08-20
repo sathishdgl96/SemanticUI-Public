@@ -3994,24 +3994,36 @@ body {
   color: var(--m-grid);
 }
 
+/* React Flow gives the control stack a pale drop shadow and each button a
+   near-white face and a near-white divider. On a dark canvas all three
+   read as a white smear around the buttons rather than as a control. The
+   stack is clipped to its own radius so the buttons stop painting into
+   the corners. */
+.model-pane .react-flow__controls {
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid var(--m-grid);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
 .model-pane .react-flow__controls-button {
+  width: 26px;
+  height: 26px;
+  padding: 5px;
   background: var(--m-card-head);
-  border-bottom: 1px solid var(--m-ground);
+  border: none;
+  border-bottom: 1px solid var(--m-grid);
   fill: var(--m-ink);
+}
+
+.model-pane .react-flow__controls-button:last-child {
+  border-bottom: none;
 }
 
 .model-pane .react-flow__controls-button:hover {
   background: var(--m-fact);
-}
-
-.model-pane .react-flow__minimap {
-  background: var(--m-card);
-  border: 1px solid var(--m-grid);
-  border-radius: 4px;
-}
-
-.model-pane .react-flow__minimap-node {
-  fill: var(--m-line);
+  fill: #10151c;
 }
 
 .model-pane .react-flow__attribution {
