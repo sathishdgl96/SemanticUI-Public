@@ -21,6 +21,11 @@ vi.mock("../api/client", () => ({
   },
 }));
 
+vi.mock("../api/composites", () => ({
+  listComposites: vi.fn().mockResolvedValue({ composites: [], truncated: false }),
+  getComposite: vi.fn(),
+}));
+
 vi.mock("../api/reports", () => ({
   createReport: vi.fn(),
 }));
@@ -490,3 +495,62 @@ describe("ExplorerPage saved explores", () => {
   });
 });
 
+
+describe("exploring a model", () => {
+  it("sends every request for the model to the model's endpoints", async () => {
+    // describe, query and VALUES all have to move together. Values was
+    // built from three empty strings once, and the filter picker asked
+    // /api/semantic-views///Untitled model/values forever.
+    const { listComposites } = await import("../api/composites");
+    vi.mocked(listComposites).mockResolvedValue({
+      composites: [
+        {
+          id: "m1",
+          name: "Customer 360",
+          workspaceId: "w0",
+          workspaceName: "Team",
+          myRole: "admin",
+          memberCount: 2,
+          updatedAt: "2026-08-20T10:00:00Z",
+          createdBy: "A_SMITH",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+      truncated: false,
+    } as never);
+
+    apiFetchMock.mockImplementation((...args: unknown[]) => {
+      const path = String(args[0]);
+      if (path === "/api/me") return Promise.resolve(ME);
+      if (path === "/api/semantic-views") return Promise.resolve({ views: [] });
+      if (path.startsWith("/api/explores")) return Promise.resolve({ explores: [] });
+      if (path.startsWith("/api/composites/m1/describe")) {
+        return Promise.resolve({
+          tables: [],
+          relationships: [],
+          dimensions: [{ table: "Customer 360", name: "Customer", dataType: "TEXT" }],
+          metrics: [],
+          facts: [],
+        });
+      }
+      if (path.startsWith("/api/composites/m1/values")) {
+        return Promise.resolve({ values: ["ACME"], truncated: false });
+      }
+      return Promise.reject(new Error(`unexpected path: ${path}`));
+    });
+
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Customer 360/ }));
+
+    // The field list came from the model.
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/composites/m1/describe"),
+    );
+    // And nothing asked the semantic-view endpoints for it.
+    const strayed = apiFetchMock.mock.calls
+      .map(([p]) => String(p))
+      .filter((p) => p.startsWith("/api/semantic-views/"));
+    expect(strayed).toEqual([]);
+  });
+});

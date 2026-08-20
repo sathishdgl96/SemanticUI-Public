@@ -18,6 +18,7 @@ import type {
   SemanticQueryBody,
   SemanticViewDetail,
   SemanticViewSummary,
+  ViewRef,
 } from "../api/types";
 import ResultsTable from "../query/ResultsTable";
 import SqlPreview from "../query/SqlPreview";
@@ -170,12 +171,7 @@ export default function ExplorerPage() {
     const definition: ReportDefinition = {
       schemaVersion: 3,
       name: selectedView.name,
-      view: {
-        database: selectedView.database,
-        schema: selectedView.schema,
-        name: selectedView.name,
-        compositeId: selectedView.compositeId,
-      },
+      view: sourceRef(),
       canvas: { columns: 12, rowHeight: 40 },
       pages: [
         {
@@ -197,6 +193,18 @@ export default function ExplorerPage() {
       hierarchies: [],
     };
     addToReport.mutate(definition);
+  }
+
+  /** The selection as a ViewRef. Rebuilding one field by field is how
+   *  `compositeId` went missing at one call site and not another, and a
+   *  model then looked like a view with no name. */
+  function sourceRef(): ViewRef {
+    return {
+      database: selectedView?.database ?? "",
+      schema: selectedView?.schema ?? "",
+      name: selectedView?.name ?? "",
+      compositeId: selectedView?.compositeId,
+    };
   }
 
   function selectView(view: BindSource) {
@@ -338,6 +346,9 @@ export default function ExplorerPage() {
       schema: view.schema,
       name: view.name,
       comment: null,
+      // Without this a saved explore over a model reopened as a view
+      // with no name, and every field reference in it stopped resolving.
+      compositeId: view.compositeId ?? undefined,
     });
     let next = emptyWells();
     for (const ref of dimensions) next = addToWell(next, "axis", ref, "dimension");
@@ -517,11 +528,7 @@ export default function ExplorerPage() {
 
                 <Section title="Filters" summary={`${activeFilterCount} active`}>
                   <ExploreFilters
-                    view={{
-                      database: selectedView.database,
-                      schema: selectedView.schema,
-                      name: selectedView.name,
-                    }}
+                    view={sourceRef()}
                     fields={[
                       ...detail.data.dimensions,
                       ...detail.data.metrics,
