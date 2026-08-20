@@ -1,14 +1,29 @@
-# Composite semantic models — design plan
+# Composite semantic models — v2: compiled semantic view
 
-Status: Proposed, v2 (plan only; nothing here is built)
+Status: Proposed, **gated on Phase 0** (plan only; nothing here is built)
 Date: 2026-08-20
-Revision: v2 replaces v1's storage decision. v1 stored the composite as
-an app document and joined at query time; v2 **compiles the composite
-into a real Snowflake `SEMANTIC VIEW` object**, so Cortex Analyst,
-Snowflake Intelligence, and every other Snowflake-native consumer can
-reuse it. v1's runtime join survives as the fallback tier (§7). The
-question that forced the change: "why would the definition live where
-only this app can read it?" — it shouldn't.
+Companion: [v1 — runtime drill-across](2026-08-20-composite-semantic-models-v1-runtime-drill-across.md)
+
+**Two tracks, deliberately.** v1 composes member views **at query
+time**, inside the app, writing nothing to the warehouse — it is being
+built first because it is known feasible today. v2 (this document)
+**compiles the composite into a real Snowflake `SEMANTIC VIEW`
+object**, so Cortex Analyst, Snowflake Intelligence and every other
+Snowflake-native consumer can reuse it. The question that motivates it:
+"why would the definition live where only this app can read it?"
+
+v2 is the better end state where it works (the risk moves out of the
+query path and into a compile step a person watches; governance becomes
+Snowflake grants). It is **not yet known to be buildable**: it assumes
+`DESCRIBE SEMANTIC VIEW` exposes each logical table's base table and
+each field's expression, which our own parser currently discards and
+which no one has checked on a real account. Phase 0 answers that first,
+and "v2 is not buildable, v1 is the product" is an accepted outcome.
+
+**The two share an authoring document.** v1's composite definition
+(members, conformed-dimension mappings, derived metrics) is
+deliberately shaped so this compiler can consume it unchanged. Building
+v1 first therefore costs v2 nothing.
 
 One model over several Snowflake semantic views, usable everywhere a
 single view is usable today — explorer, reports, dashboards, chat,
@@ -308,9 +323,11 @@ author.
 - **Access**: intersection by construction — every query runs as the
   caller against base tables they must be able to read.
 
-## 7. Tier 2 — runtime drill-across (v1's design, demoted to fallback)
+## 7. Tier 2 — runtime drill-across
 
-Kept, de-scoped, for the cases compilation cannot serve:
+**Specified in full in the [v1 document](2026-08-20-composite-semantic-models-v1-runtime-drill-across.md)**;
+summarised here because v2 depends on it existing. Kept permanently,
+for the cases compilation cannot serve:
 
 - the author has no `CREATE SEMANTIC VIEW` grant anywhere (a pure
   analyst persona in a locked-down shop);
