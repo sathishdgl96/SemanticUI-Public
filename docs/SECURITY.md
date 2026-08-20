@@ -110,6 +110,16 @@ in the dashboard's own workspace, checked on pinning *and* on every
 update — an update is the one place a client could smuggle one in.
 Without it a dashboard could show a report half its members cannot open.
 
+**A model over several views adds no trust boundary.** Its members are
+semantic views — warehouse objects with their own grants, not
+workspace-owned rows — so membership governs who may edit the *mapping*
+and Snowflake alone governs the data. Every branch of a composite query
+runs on the caller's own connection against the member views, so a model
+naming a view somebody cannot read refuses them in Snowflake's own words.
+Constraining which views a model may name would have been this app
+inventing an access rule Snowflake did not ask for, and would have
+implied a containment it cannot actually provide.
+
 **Readability probes are not authorization decisions.** Drawing a list
 asks "may this person open this?" for many rows at once. That reads
 membership directly rather than calling the acting gate, which would
@@ -123,8 +133,17 @@ cannot drift.
 
 - **SQL**: every identifier passes through `quote_ident`, which validates
   and rejects embedded quotes; every *value* is bound as a parameter and
-  never reaches SQL text. `USE ROLE` / `USE WAREHOUSE` cannot take a bind
-  in Snowflake, so those interpolate a validated, quoted identifier.
+  never reaches SQL text. A model over several views compiles to one
+  statement whose parameters are assembled in the same pass as its SQL,
+  so positional binding cannot drift — an off-by-one there would bind
+  one filter's value to another's placeholder and still succeed, which is
+  the worst failure this product has.
+  `USE ROLE` / `USE WAREHOUSE` cannot take a bind in Snowflake, so those
+  interpolate a validated, quoted identifier.
+- **Derived metrics are an expression tree, not a formula string.** A
+  model's cross-view arithmetic is a closed AST of four operators, metric
+  references and numbers; a submitted string is refused as a shape error
+  rather than parsed.
 - **The semantic layer is the allow-list.** A field reference that is not
   in the model's own describe output is refused before a query is built.
 - **XSS**: React escapes by default and the codebase contains no

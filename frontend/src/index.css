@@ -6168,3 +6168,21 @@ button.model-column:hover {
     width: 100%;
   }
 }
+
+.model-derived-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.model-derived-form .field {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.model-expr {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+}

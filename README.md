@@ -613,6 +613,59 @@ NULL is dropped, because `IN (?)` never matches it and offering it would build
 a filter that silently returns nothing.
 
 
+## Models over several semantic views
+
+`SEMANTIC_VIEW()` queries one view per call, so a question spanning two
+of them -- "revenue per ticket by customer by month", where revenue lives
+in one team's view and tickets in another's -- had no answer short of a
+data engineer building a third view.
+
+A **model** is a workspace object that names member views and declares
+the **conformed dimensions**: which column in each view means the same
+thing. Nothing is inferred. Two views both having a `CUSTOMER_ID` is a
+coincidence until somebody who understands both says otherwise, and a
+model with more than one view and no shared dimension is refused, because
+there would be nothing to line their answers up on.
+
+Asking one a question compiles to a single statement:
+
+```sql
+WITH "b_sales"   AS (SELECT ... FROM SEMANTIC_VIEW(SALES_SV   ... )),
+     "b_support" AS (SELECT ... FROM SEMANTIC_VIEW(SUPPORT_SV ... ))
+SELECT COALESCE("b_sales"."c0", "b_support"."c0") AS "Customer", ...
+FROM "b_sales" FULL OUTER JOIN "b_support" ON "b_sales"."c0" = "b_support"."c0"
+```
+
+**Each view aggregates its own numbers before anything is joined.** That
+is the whole reason the figures can be trusted: the join sees one row per
+customer per month from each side, never raw fact rows, so the fan and
+chasm traps that quietly multiply blended measures cannot occur. It also
+means the join is cheap however large the underlying tables are.
+
+Three behaviours worth knowing:
+
+- **Branch pruning.** A question that only touches one member compiles to
+  exactly that view's own query -- no CTEs, no join. You never pay for
+  the model unless the question actually spans it.
+- **Rows to keep.** `full` keeps a customer with tickets but no orders;
+  `inner` keeps only those every view knows. A model-level choice, so the
+  same question cannot answer two ways depending on who asks.
+- **A filter on one view.** `semi` (the default) narrows the others to
+  the keys that survived it -- "tickets for the customers this filter
+  left". `local` leaves them alone. Power BI makes this choice silently
+  and people meet it as wrong numbers; here it is named in the model and
+  spelled out in words on the page.
+
+Cross-view metrics (`Revenue per ticket`) are worked out *after* each
+view has aggregated, which is the only honest place for a ratio across
+two views. They are built from two metric references and an operator
+rather than typed as a formula, because a formula box would suggest the
+numbers can be recomputed here.
+
+Models export and import as portable documents like everything else.
+Design notes and the road not taken:
+[docs/superpowers/specs/2026-08-20-composite-semantic-models-v1-runtime-drill-across.md](docs/superpowers/specs/2026-08-20-composite-semantic-models-v1-runtime-drill-across.md).
+
 ## Workspaces and sharing
 
 **Workspaces are the only unit of sharing.** A report lives in exactly one

@@ -187,3 +187,72 @@ describe("ModelPage", () => {
     expect(screen.getByLabelText("Model name")).toBeDisabled();
   });
 });
+
+describe("derived metrics", () => {
+  it("builds a metric from two member metrics and an operator", async () => {
+    renderPage();
+    await screen.findByText("A.P.SALES_SV");
+
+    await userEvent.type(screen.getByLabelText("Call it"), "Revenue per ticket");
+    await userEvent.type(screen.getByLabelText("Take"), "sales:ORDERS.REVENUE");
+    await userEvent.type(
+      screen.getByLabelText("This"),
+      "support:TICKETS.TICKET_COUNT",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(updateMock).toHaveBeenCalled());
+    const saved = updateMock.mock.calls[0][1] as CompositeDefinition;
+    expect(saved.derivedMetrics).toEqual([
+      {
+        name: "Revenue per ticket",
+        expr: {
+          op: "/",
+          left: { metric: "sales:ORDERS.REVENUE" },
+          right: { metric: "support:TICKETS.TICKET_COUNT" },
+        },
+        nullIfDenominatorZero: true,
+      },
+    ]);
+  });
+
+  it("reads an existing expression back in words", async () => {
+    getMock.mockResolvedValue(
+      detail({
+        definition: definition({
+          derivedMetrics: [
+            {
+              name: "Revenue per ticket",
+              expr: {
+                op: "/",
+                left: { metric: "sales:ORDERS.REVENUE" },
+                right: { metric: "support:TICKETS.TICKET_COUNT" },
+              },
+            },
+          ],
+        }),
+      }),
+    );
+    renderPage();
+    expect(
+      await screen.findByText(
+        "sales:ORDERS.REVENUE divided by support:TICKETS.TICKET_COUNT",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("cannot combine views until there are two of them", async () => {
+    getMock.mockResolvedValue(
+      detail({
+        definition: definition({
+          members: [{ alias: "sales", database: "A", schema: "P", view: "SALES_SV" }],
+          sharedDimensions: [],
+        }),
+      }),
+    );
+    renderPage();
+    await screen.findByText("A.P.SALES_SV");
+    expect(screen.getByText(/needs two to combine/i)).toBeInTheDocument();
+  });
+});

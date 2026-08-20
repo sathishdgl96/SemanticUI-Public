@@ -12,6 +12,7 @@ import {
 } from "../api/composites";
 import type { SemanticViewSummary } from "../api/types";
 import Icon from "../ui/Icon";
+import DerivedMetrics from "./DerivedMetrics";
 import ModelPreview from "./ModelPreview";
 
 /** An alias suggested from a view name: SALES_SV -> sales. Only ever a
@@ -412,6 +413,12 @@ export default function ModelPage() {
             : "Filtering sales to Europe leaves ticket counts global. Say so out loud, because the two answer differently."}
         </p>
       </section>
+
+      <DerivedMetrics
+        definition={draft}
+        readOnly={readOnly}
+        onChange={(derivedMetrics) => patch({ derivedMetrics })}
+      />
 
       <ModelPreview id={id} definition={draft} />
     </div>

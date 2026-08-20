@@ -92,6 +92,19 @@ unaudited before anybody noticed the log looked thin.
   reports onto one canvas. Each tile names a visual rather than copying
   one, so it follows edits to its report and carries that report's own
   filters with it.
+- **Models over several views** — a workspace object that makes two or
+  more semantic views answerable as one, for the questions that cross the
+  boundary two teams drew ("revenue per ticket by customer by month").
+  What makes it trustworthy is the shape of the query: each view
+  aggregates its own numbers at the shared grain *before* anything is
+  joined, so the fan and chasm traps that make blended figures wrong are
+  impossible rather than merely unlikely. It compiles to **one**
+  statement, and a question that happens to touch one view costs exactly
+  that view's own query. Joins are declared by a person — two views both
+  knowing what a customer is proves nothing about their key columns —
+  and where composite semantics differ from single-view semantics (what
+  a filter on one view does to the others) the choice is named in the
+  model and shown in words, never applied silently.
 - **Chat** — ask a report a question in English. The model proposes a
   query; it never executes one and never sees data. The SQL is always
   shown, because an answer you cannot audit is one you should not act on.
