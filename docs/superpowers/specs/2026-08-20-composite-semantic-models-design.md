@@ -154,9 +154,87 @@ refusal a sentence naming the field.
 
 ## 4. The compiler
 
-`DESCRIBE SEMANTIC VIEW` on each member yields its logical tables,
-relationships, dimensions, facts and metrics. The compiler merges them
-into one `CREATE OR REPLACE SEMANTIC VIEW`:
+**A semantic view cannot be built on another semantic view.** The
+`TABLES` clause references base tables and standard views only; there is
+no nesting. The composite is therefore **not a layer above its
+members — it is their peer**, compiled down to the same base tables
+they sit on. Members are read as *source definitions*, not as runtime
+dependencies.
+
+```sql
+-- MEMBER 1                              -- MEMBER 2
+CREATE SEMANTIC VIEW SALES_SV            CREATE SEMANTIC VIEW SUPPORT_SV
+  TABLES (                                 TABLES (
+    ORDERS   AS RAW.ORDERS,                  TICKETS AS RAW.TICKETS,
+    CUSTOMER AS RAW.DIM_CUSTOMER)            CLIENT  AS RAW.DIM_CUSTOMER)
+  RELATIONSHIPS (                          RELATIONSHIPS (
+    ORDERS(CUSTOMER_ID) REFERENCES           TICKETS(CLIENT_ID) REFERENCES
+      CUSTOMER)                                CLIENT)
+  METRICS (ORDERS.REVENUE AS               METRICS (TICKETS.TICKET_COUNT AS
+    SUM(ORDERS.AMOUNT))                        COUNT(TICKETS.TICKET_ID))
+
+-- COMPOSITE: one new view over the SAME base tables, conformed
+-- dimension unified to a single logical table.
+CREATE OR REPLACE SEMANTIC VIEW ANALYTICS.COMPOSITES.CUSTOMER_360
+  TABLES (
+    ORDERS   AS RAW.ORDERS        PRIMARY KEY (ORDER_ID),
+    TICKETS  AS RAW.TICKETS       PRIMARY KEY (TICKET_ID),
+    CUSTOMER AS RAW.DIM_CUSTOMER  PRIMARY KEY (CUSTOMER_ID)  -- ONE, not two
+  )
+  RELATIONSHIPS (
+    ORDERS_TO_CUSTOMER  AS ORDERS(CUSTOMER_ID) REFERENCES CUSTOMER,
+    TICKETS_TO_CUSTOMER AS TICKETS(CLIENT_ID)  REFERENCES CUSTOMER
+  )
+  DIMENSIONS (CUSTOMER.NAME AS …, ORDERS.ORDER_MONTH AS …,
+              TICKETS.OPENED_MONTH AS …)
+  METRICS (
+    ORDERS.REVENUE       AS SUM(ORDERS.AMOUNT),
+    TICKETS.TICKET_COUNT AS COUNT(TICKETS.TICKET_ID),
+    REVENUE_PER_TICKET   AS ORDERS.REVENUE / TICKETS.TICKET_COUNT
+  )
+```
+
+The result is a textbook multi-fact star — `ORDERS → CUSTOMER ←
+TICKETS` — which the semantic-view engine answers natively, under the
+base-entity rules `joins.py` already maps.
+
+Two consequences of flattening, stated rather than discovered later:
+
+- **The composite is a snapshot, not a live reference.** Editing
+  `SALES_SV` afterwards does not change `CUSTOMER_360`; a recompile
+  does. §4.6 covers the diff and the "members changed" state. This is
+  a feature for stability and a trap for expectations, so the UI says
+  which compile a composite is from.
+- **The author needs to see through to the base tables.** Compiling
+  requires `REFERENCES` on each member (private facts and metrics are
+  only visible to `REFERENCES`/`OWNERSHIP` roles, and a public metric
+  may depend on a private fact) and `SELECT` on the underlying tables.
+  An author without them cannot compile — Tier 2 (§7) is the answer,
+  not a partial compile.
+
+### 4.0 What the compiler reads — and the parser gap
+
+`DESCRIBE SEMANTIC VIEW` returns structured rows (`object_kind`,
+`object_name`, `parent_entity`, `property`, `property_value`), which is
+a better source than `GET_DDL` — that returns DDL *text* and would mean
+parsing SQL. But **our existing parser discards exactly the two
+properties a compiler needs** (`app/semantic/discovery.py`):
+
+| Needed | Today |
+|---|---|
+| `TABLE` → its **base table** (`RAW.ORDERS`) | dropped — `tables` keeps `{"name": …}` only |
+| `DIMENSION`/`FACT`/`METRIC` → its **expression** | dropped — fields keep `table`, `name`, `dataType` |
+| relationships incl. FK/PK columns | ✅ already parsed |
+
+Neither was ever needed: querying a view means naming its fields, not
+reconstructing it. So Phase 1 extends the parser (additively — the
+existing `detail` keys keep their shape, and the describe cache carries
+the new keys for free). `GET_DDL` is the documented fallback if
+`DESCRIBE` turns out not to expose the base-table mapping on a real
+account — which is the first thing Phase 0 checks.
+
+The compiler then merges the members into one
+`CREATE OR REPLACE SEMANTIC VIEW`:
 
 1. **Logical tables** from every member, alias-prefixed on collision
    (`SALES_ORDERS`, `SUPPORT_TICKETS`) — collisions renamed, never
@@ -285,13 +363,19 @@ as wrong numbers. v2 adds the lesson their architectures all imply:
 
 ## 10. Delivery plan
 
-**Phase 0 — spike, on a real account** *(gate)*: `DESCRIBE → merge →
-CREATE SEMANTIC VIEW` round-trip for the two-member star; multi-fact
-query behaviour incl. fact-less dimension rows; derived metrics
-spanning tables; private access modifiers; `GRANT SELECT` consumption
-from a second role; Cortex Analyst smoke test against the compiled
-object; the Tier 2 CTE probe (params, join, cost) so the fallback's
-feasibility is known too. Findings doc beside the join-graph one.
+**Phase 0 — spike, on a real account** *(gate)*. First and hardest
+question, because everything rests on it: **does `DESCRIBE SEMANTIC
+VIEW` expose each logical table's base table and each field's
+expression?** If not, `GET_DDL` + a narrow parse is the fallback, and
+if neither serves, v2 is not buildable and the plan reverts to v1's
+Tier 2. Then: `DESCRIBE → merge → CREATE SEMANTIC VIEW` round-trip for
+the two-member star; multi-fact query behaviour incl. fact-less
+dimension rows; derived metrics spanning tables; private access
+modifiers; `REFERENCES`-vs-`SELECT` visibility of private facts;
+`GRANT SELECT` consumption from a second role; Cortex Analyst smoke
+test against the compiled object; the Tier 2 CTE probe (params, join,
+cost) so the fallback's feasibility is known too. Findings doc beside
+the join-graph one.
 
 **Phase 1 — object + compiler.** Migration 0013 (thin pointer +
 authoring doc, workspace FK); CRUD; save-time validation; the compiler;
