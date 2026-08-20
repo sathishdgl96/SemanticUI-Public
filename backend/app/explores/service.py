@@ -11,12 +11,17 @@ from sqlalchemy.orm import Session
 
 from app.db.models import SavedExplore, WorkspaceMember
 from app.explores.schema import ExploreDefinition, parse_definition
+from app.library import search, state
+from app.library.search import LibraryQuery
 from app.reports.service import personal_workspace_id
 from app.workspaces.access import require_owned, require_workspace
 
 
 def list_explores(
-    db: Session, user_id: uuid.UUID, workspace_id: str | None = None
+    db: Session,
+    user_id: uuid.UUID,
+    workspace_id: str | None = None,
+    params: LibraryQuery | None = None,
 ) -> list[SavedExplore]:
     """Every explore in every workspace this user belongs to.
 
@@ -37,7 +42,14 @@ def list_explores(
         # rather than an empty list that reads as "no explores here".
         workspace = require_workspace(db, user_id, workspace_id, need="viewer")
         query = query.where(SavedExplore.workspace_id == workspace.id)
-    return list(db.scalars(query))
+    # Narrowing only, and only after the membership join above.
+    params = params or LibraryQuery()
+    query = search.apply(query, SavedExplore, params)
+    items = list(db.scalars(query))
+    favorites = state.favorite_ids(db, user_id, "explore")
+    recents = state.recent_order(db, user_id, "explore")
+    items = search.keep_favorites(items, params, favorites)
+    return search.order_items(items, params, recents, favorites)
 
 
 def _target(db: Session, user_id: uuid.UUID, workspace_id: str | None) -> uuid.UUID:
@@ -94,5 +106,6 @@ def update_explore(
 
 def delete_explore(db: Session, user_id: uuid.UUID, explore_id: str) -> None:
     explore = require_owned(db, user_id, explore_id, SavedExplore, need="editor")
+    state.forget_item(db, "explore", explore.id)
     db.delete(explore)
     db.commit()

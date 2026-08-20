@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession, SavedExplore, Workspace
+from app.library import state
+from app.library.search import LibraryQuery
 from app.explores import service
 from app.explores.schema import parse_definition, to_export_document
 from app.workspaces.access import membership
@@ -55,13 +57,24 @@ def _context(db: Session, user_id, explore: SavedExplore) -> tuple[Workspace | N
 @router.get("/api/explores")
 def list_explores(
     workspace: str | None = None,
+    q: str | None = None,
+    favorite: bool = False,
+    role: str | None = None,
+    sort: str = "recent",
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
+    params = LibraryQuery(q=q, favorite=favorite, role=role, sort=sort)
+    favorites = state.favorite_ids(db, sess.user_id, "explore")
+    recents = state.recent_order(db, sess.user_id, "explore")
     out = []
-    for explore in service.list_explores(db, sess.user_id, workspace):
-        workspace_row, role = _context(db, sess.user_id, explore)
-        out.append(_summary(explore, workspace=workspace_row, role=role))
+    for explore in service.list_explores(db, sess.user_id, workspace, params):
+        workspace_row, member_role = _context(db, sess.user_id, explore)
+        summary = _summary(explore, workspace=workspace_row, role=member_role)
+        summary["favorite"] = explore.id in favorites
+        seen = recents.get(explore.id)
+        summary["lastViewedAt"] = seen.isoformat() if seen else None
+        out.append(summary)
     return {"explores": out}
 
 

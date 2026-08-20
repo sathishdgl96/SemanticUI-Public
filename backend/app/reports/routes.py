@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.auth.routes import current_session
 from app.db.base import get_db
 from app.db.models import DbSession, Report, Workspace
+from app.library import state
+from app.library.search import LibraryQuery
 from app.reports import service
 from app.workspaces.access import membership, require_access
 from app.reports.migrate import migrate_definition
@@ -76,14 +78,25 @@ def _context(db: Session, user_id, report: Report) -> tuple[Workspace | None, st
 @router.get("/api/reports")
 def list_reports(
     workspace: str | None = None,
+    q: str | None = None,
+    favorite: bool = False,
+    role: str | None = None,
+    sort: str = "recent",
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    reports = service.list_reports(db, sess.user_id, workspace)
+    params = LibraryQuery(q=q, favorite=favorite, role=role, sort=sort)
+    reports = service.list_reports(db, sess.user_id, workspace, params)
+    favorites = state.favorite_ids(db, sess.user_id, "report")
+    recents = state.recent_order(db, sess.user_id, "report")
     out = []
     for report in reports:
-        workspace_row, role = _context(db, sess.user_id, report)
-        out.append(_summary(report, workspace=workspace_row, role=role))
+        workspace_row, member_role = _context(db, sess.user_id, report)
+        summary = _summary(report, workspace=workspace_row, role=member_role)
+        summary["favorite"] = report.id in favorites
+        seen = recents.get(report.id)
+        summary["lastViewedAt"] = seen.isoformat() if seen else None
+        out.append(summary)
     return {"reports": out}
 
 

@@ -13,12 +13,17 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Report, Workspace, WorkspaceMember
 from app.errors import ApiError
+from app.library import search, state
+from app.library.search import LibraryQuery
 from app.reports.schema import ReportDefinition, parse_definition
 from app.workspaces.access import require_access, require_workspace
 
 
 def list_reports(
-    db: Session, user_id: uuid.UUID, workspace_id: str | None = None
+    db: Session,
+    user_id: uuid.UUID,
+    workspace_id: str | None = None,
+    params: LibraryQuery | None = None,
 ) -> list[Report]:
     """Every report in every workspace this user belongs to.
 
@@ -36,6 +41,16 @@ def list_reports(
         # rather than a silently empty list that reads as "no reports here".
         workspace = require_workspace(db, user_id, workspace_id, need="viewer")
         query = query.where(Report.workspace_id == workspace.id)
+    # Narrowing only, and only after the membership join above: a
+    # browse facet can hide what you may see, never reveal what you
+    # may not.
+    params = params or LibraryQuery()
+    query = search.apply(query, Report, params)
+    items = list(db.scalars(query))
+    favorites = state.favorite_ids(db, user_id, "report")
+    recents = state.recent_order(db, user_id, "report")
+    items = search.keep_favorites(items, params, favorites)
+    return search.order_items(items, params, recents, favorites)
     return list(db.scalars(query))
 
 
@@ -100,6 +115,9 @@ def update_report(
 
 def delete_report(db: Session, user_id: uuid.UUID, report_id: str) -> None:
     report = require_access(db, user_id, report_id, need="editor")
+    # Polymorphic reference: the database cannot cascade it, and a
+    # pin outliving its report resurfaces as a phantom row.
+    state.forget_item(db, "report", report.id)
     db.delete(report)
     db.commit()
 
