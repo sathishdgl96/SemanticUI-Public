@@ -456,3 +456,49 @@ def test_member_aliases_are_matched_case_blind():
         model(), dimensions=["Customer"], metrics=["SALES:ORDERS.REVENUE"]
     )
     assert [b.alias for b in stitch.branches] == ["sales"]
+
+
+# ------------------------------------------- two dialects, one planner
+
+
+class TestBuilderDialect:
+    """The report builder names fields from a describe (`sales.ORDERS.REVENUE`);
+    the model names them its own way (`sales:ORDERS.REVENUE`). One mapping
+    serves both, and it has to be idempotent to do so."""
+
+    def test_a_describe_ref_maps_to_a_model_ref(self):
+        from app.xmla.composite_source import to_model_ref
+
+        defn = model()
+        assert to_model_ref(defn, "sales.ORDERS.REVENUE") == "sales:ORDERS.REVENUE"
+        assert to_model_ref(defn, "Customer 360.Customer") == "Customer"
+
+    def test_a_model_ref_survives_the_mapping_unchanged(self):
+        # Applied twice -- once by the caller, once by the endpoint -- a
+        # non-idempotent mapping would grow a second alias and the planner
+        # would refuse a field the user really does have.
+        from app.xmla.composite_source import to_model_ref
+
+        defn = model()
+        once = to_model_ref(defn, "sales.ORDERS.REVENUE")
+        assert to_model_ref(defn, once) == once
+        assert to_model_ref(defn, "Customer") == "Customer"
+
+    def test_a_question_in_the_builders_dialect_plans_the_same_way(self):
+        from app.xmla.composite_source import to_model_refs
+
+        defn = model()
+        builder = plan(
+            defn,
+            dimensions=to_model_refs(defn, ["Customer 360.Customer"]),
+            metrics=to_model_refs(
+                defn, ["sales.ORDERS.REVENUE", "support.TICKETS.TICKET_COUNT"]
+            ),
+        )
+        native = plan(
+            defn,
+            dimensions=["Customer"],
+            metrics=["sales:ORDERS.REVENUE", "support:TICKETS.TICKET_COUNT"],
+        )
+        assert [b.alias for b in builder.branches] == [b.alias for b in native.branches]
+        assert builder.keys == native.keys

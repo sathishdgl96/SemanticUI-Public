@@ -13,6 +13,7 @@ import {
   type CrossFilter,
   type DrillState,
 } from "./filters";
+import { queryUrl } from "./builder/viewBinding";
 
 interface Options {
   reportFilters?: Filter[];
@@ -148,8 +149,11 @@ export function useVisualQuery(view: ViewRef, visual: Visual, options: Options =
       ],
       enabled: ready,
       queryFn: () =>
-        apiFetch<QueryResponse>("/api/query/semantic", {
+        apiFetch<QueryResponse>(queryUrl(view), {
           method: "POST",
+          // A model's endpoint identifies the source in the URL and
+          // ignores the three view fields; sending them anyway would
+          // mean two shapes of request body to keep in step.
           body: JSON.stringify({
             database: view.database,
             schema: view.schema,

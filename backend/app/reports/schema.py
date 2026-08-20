@@ -49,6 +49,11 @@ class ViewRef(_Strict):
     database: str = Field(max_length=255)
     schema_: str = Field(alias="schema", max_length=255)
     name: str = Field(max_length=255)
+    #: A composite model, instead of one semantic view. Set, the three
+    #: fields above stay empty and every field reference is in the
+    #: model's namespace -- so a report over a model is the same document
+    #: with a different source, not a second kind of report.
+    compositeId: str | None = Field(default=None, max_length=64)
 
 
 class VisualLayout(_Strict):
@@ -166,11 +171,13 @@ def parse_definition(raw: dict) -> ReportDefinition:
         )
 
     view = definition.view
-    is_unbound = not view.database or not view.schema_ or not view.name
+    is_unbound = not view.compositeId and (
+        not view.database or not view.schema_ or not view.name
+    )
     if is_unbound and any(page.visuals for page in definition.pages):
         raise _invalid(
-            "This report must be bound to a semantic view before it can hold "
-            "visuals. Pick a semantic view first, or remove its visuals."
+            "This report must be bound to a semantic view or a model before "
+            "it can hold visuals. Pick one first, or remove its visuals."
         )
 
     seen_page_ids: set[str] = set()

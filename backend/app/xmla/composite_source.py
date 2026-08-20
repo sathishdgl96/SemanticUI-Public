@@ -160,9 +160,13 @@ def to_model_ref(definition: CompositeDefinition, ref: str) -> str:
     The inverse of the naming above. Split on the first dot: the left side
     is either the model's own folder (a shared dimension or a derived
     metric, which the planner takes bare) or a member alias.
+
+    Idempotent, because the same mapping runs over MDX field references
+    and over a report's, and a reference already in the model's own form
+    must come back unchanged rather than growing a second alias.
     """
     head, _, rest = ref.partition(".")
-    if not rest:
+    if not rest or ":" in head:
         return ref
     if head.lower() == folder_name(definition).lower():
         return rest

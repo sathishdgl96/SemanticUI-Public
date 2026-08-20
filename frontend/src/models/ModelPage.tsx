@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, apiFetch } from "../api/client";
 import {
   getComposite,
@@ -8,11 +8,13 @@ import {
   type Binding,
   type CompositeDefinition,
   type CompositeMember,
-  type SharedDimension,
 } from "../api/composites";
-import type { SemanticViewSummary } from "../api/types";
+import { createReport } from "../api/reports";
+import type { ReportDefinition, SemanticViewSummary } from "../api/types";
 import Icon from "../ui/Icon";
 import DerivedMetrics from "./DerivedMetrics";
+import SharedDimensions from "./SharedDimensions";
+import { useMemberDescribes } from "./useMemberDescribes";
 import ModelPreview from "./ModelPreview";
 
 /** An alias suggested from a view name: SALES_SV -> sales. Only ever a
@@ -33,9 +35,6 @@ function suggestAlias(view: string, taken: string[]): string {
   return `${start}_x`;
 }
 
-function emptyBinding(): Binding {
-  return { table: "", column: "" };
-}
 
 /**
  * Authoring a model over several semantic views.
@@ -45,8 +44,23 @@ function emptyBinding(): Binding {
  * thing, so somebody who understands both says so here, once, and every
  * question asked of the model afterwards relies on that statement.
  */
+/** A blank report already pointed at this model, so the builder opens on
+ *  the model's field list instead of asking which view to bind. */
+function reportOverModel(name: string, compositeId: string): ReportDefinition {
+  return {
+    schemaVersion: 3,
+    name,
+    view: { database: "", schema: "", name: "", compositeId },
+    canvas: { columns: 12, rowHeight: 40 },
+    pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
+    filters: [],
+    hierarchies: [],
+  };
+}
+
 export default function ModelPage() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<CompositeDefinition | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -81,6 +95,23 @@ export default function ModelPage() {
     onError: (failure) =>
       setSaveError(
         failure instanceof ApiError ? failure.message : "Could not save this model.",
+      ),
+  });
+
+  const describes = useMemberDescribes(draft?.members ?? []);
+
+  const buildReport = useMutation({
+    mutationFn: () =>
+      createReport(
+        reportOverModel(`${draft?.name ?? "Model"} report`, id),
+        model.data?.workspaceId,
+      ),
+    onSuccess: (report) => navigate(`/reports/${report.id}`),
+    onError: (failure) =>
+      setSaveError(
+        failure instanceof ApiError
+          ? failure.message
+          : "Could not start a report over this model.",
       ),
   });
 
@@ -149,21 +180,7 @@ export default function ModelPage() {
     });
   }
 
-  function addSharedDimension() {
-    const shared: SharedDimension = {
-      name: "",
-      bindings: Object.fromEntries(aliases.map((alias) => [alias, emptyBinding()])),
-    };
-    patch({ sharedDimensions: [...draft!.sharedDimensions, shared] });
-  }
 
-  function patchShared(index: number, next: Partial<SharedDimension>) {
-    patch({
-      sharedDimensions: draft!.sharedDimensions.map((shared, i) =>
-        i === index ? { ...shared, ...next } : shared,
-      ),
-    });
-  }
 
   return (
     <div className="model-page">
@@ -183,6 +200,32 @@ export default function ModelPage() {
           <a className="link" href={`/api/composites/${id}/export`} download>
             Export
           </a>
+          <button
+            type="button"
+            disabled={
+              readOnly ||
+              draft.sharedDimensions.length === 0 ||
+              buildReport.isPending
+            }
+            title={
+              draft.sharedDimensions.length === 0
+                ? "Add a shared dimension first — a report needs something to group by."
+                : undefined
+            }
+            onClick={() => {
+              setSaveError(null);
+              buildReport.mutate();
+            }}
+          >
+            {buildReport.isPending ? "Starting…" : "Build a report"}
+          </button>
+          <button
+            type="button"
+            disabled={draft.sharedDimensions.length === 0}
+            onClick={() => navigate(`/explore?model=${encodeURIComponent(id)}`)}
+          >
+            Explore
+          </button>
           <button
             type="button"
             className="primary"
@@ -268,112 +311,15 @@ export default function ModelPage() {
         </select>
       </section>
 
-      <section className="model-section">
-        <h3>What means the same thing</h3>
-        <p className="tile-hint">
-          The columns that let these views be asked one question. Nothing is
-          guessed from a column name — two views spelling something the same
-          way is a coincidence, not a mapping.
-        </p>
-        {draft.sharedDimensions.map((shared, index) => (
-          <div className="model-shared" key={index}>
-            <div className="model-shared-head">
-              <label className="sr-only" htmlFor={`shared-${index}`}>
-                What to call it
-              </label>
-              <input
-                id={`shared-${index}`}
-                placeholder="Customer"
-                value={shared.name}
-                disabled={readOnly}
-                onChange={(event) => patchShared(index, { name: event.target.value })}
-              />
-              <button
-                type="button"
-                className="icon-button danger"
-                aria-label={`Remove ${shared.name || "this dimension"}`}
-                disabled={readOnly}
-                onClick={() =>
-                  patch({
-                    sharedDimensions: draft.sharedDimensions.filter(
-                      (_, i) => i !== index,
-                    ),
-                  })
-                }
-              >
-                <Icon name="trash" size={14} />
-              </button>
-            </div>
-            <table className="content-table">
-              <thead>
-                <tr>
-                  <th>View</th>
-                  <th>Table</th>
-                  <th>Key column</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.members.map((member) => {
-                  const binding = shared.bindings[member.alias];
-                  return (
-                    <tr key={member.alias}>
-                      <td>{member.alias}</td>
-                      <td>
-                        <input
-                          aria-label={`Table for ${member.alias}`}
-                          value={binding?.table ?? ""}
-                          disabled={readOnly}
-                          onChange={(event) =>
-                            patchShared(index, {
-                              bindings: {
-                                ...shared.bindings,
-                                [member.alias]: {
-                                  table: event.target.value,
-                                  column: binding?.column ?? "",
-                                },
-                              },
-                            })
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          aria-label={`Column for ${member.alias}`}
-                          value={binding?.column ?? ""}
-                          disabled={readOnly}
-                          onChange={(event) =>
-                            patchShared(index, {
-                              bindings: {
-                                ...shared.bindings,
-                                [member.alias]: {
-                                  table: binding?.table ?? "",
-                                  column: event.target.value,
-                                },
-                              },
-                            })
-                          }
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ))}
-        <button
-          type="button"
-          disabled={readOnly || draft.members.length < 2}
-          onClick={addSharedDimension}
-          title={
-            draft.members.length < 2
-              ? "Add a second view first — there is nothing to line up yet."
-              : undefined
-          }
-        >
-          Add a shared dimension
-        </button>
-      </section>
+      <SharedDimensions
+        members={draft.members}
+        describes={describes.byAlias}
+        sharedDimensions={draft.sharedDimensions}
+        readOnly={readOnly}
+        loading={describes.loading}
+        unreadable={describes.unreadable}
+        onChange={(sharedDimensions) => patch({ sharedDimensions })}
+      />
 
       <section className="model-section">
         <h3>How the views meet</h3>

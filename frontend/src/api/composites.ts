@@ -1,5 +1,5 @@
 import { apiFetch } from "./client";
-import type { Filter, Role } from "./types";
+import type { ColumnInfo, Filter, Role } from "./types";
 
 /** One semantic view taking part, under the name this model uses for it. */
 export interface CompositeMember {
@@ -73,7 +73,10 @@ export interface CompositeDetail extends CompositeSummary {
 }
 
 export interface CompositeResult {
-  columns: string[];
+  /** `{name, type}` per column, the same shape every other query answers
+   *  with -- not a list of names. Getting this wrong renders an object
+   *  into JSX, which takes the whole page down rather than one cell. */
+  columns: ColumnInfo[];
   rows: unknown[][];
   truncated: boolean;
   sfqid: string | null;

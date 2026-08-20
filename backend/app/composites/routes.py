@@ -149,14 +149,28 @@ def query_composite(
     from app.snowflake import gateway
     from app.snowflake.provider import get_cache
 
+    from app.xmla.composite_source import to_model_ref, to_model_refs
+
     composite = service.get_composite(db, sess.user_id, composite_id)
     definition = parse_definition(composite.definition or {})
+    # Callers arrive in two dialects: the model's own (`sales:ORDERS.REVENUE`)
+    # and the describe's (`sales.ORDERS.REVENUE`), which is what the report
+    # builder builds from a field list. The mapping is idempotent, so one
+    # pass serves both and neither caller has to know about the other.
     stitch = plan_composite(
         definition,
-        dimensions=body.dimensions,
-        metrics=body.metrics,
-        filters=body.filters,
-        order_by=body.orderBy,
+        dimensions=to_model_refs(definition, body.dimensions),
+        metrics=to_model_refs(definition, body.metrics),
+        filters=[
+            item.model_copy(update={"field": to_model_ref(definition, item.field)})
+            for item in body.filters
+        ],
+        order_by=[
+            item.model_copy(
+                update={"field": to_model_ref(definition, item.field)}
+            )
+            for item in body.orderBy
+        ],
         limit=body.limit,
     )
 
@@ -249,3 +263,53 @@ def import_composite(
            resource_type="composite", resource_id=composite.id,
            detail={"imported": True, **_shape(composite)})
     return service.detail(db, sess.user_id, composite)
+
+
+@router.get("/api/composites/{composite_id}/describe")
+def describe_composite(
+    composite_id: str,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The model's field list, in the shape a semantic view's describe has.
+
+    Same keys, same field shape -- so the report builder, the explorer and
+    the field pickers work over a model without knowing it is one. Fields
+    are named `<view>.<TABLE>.<FIELD>` for a member's own and
+    `<model>.<Name>` for a shared dimension or a derived metric, which is
+    exactly what the query endpoint takes back.
+
+    Built from each member's real describe on the caller's own connection,
+    so a view they cannot read contributes nothing rather than being
+    guessed at.
+    """
+    from app.composites.schema import parse_definition
+    from app.snowflake.provider import get_cache
+    from app.xmla.composite_source import member_describes, synthetic_detail
+
+    composite = service.get_composite(db, sess.user_id, composite_id)
+    definition = parse_definition(composite.definition or {})
+
+    cache = get_cache()
+    entry = cache.acquire(db, sess)
+
+    class _Probe:
+        """member_describes wants something with .describe; the cache entry
+        is the thing that has it, under the lock the caller holds."""
+
+        @staticmethod
+        def describe(database, schema, view):
+            return cache.describe(entry, database, schema, view)
+
+    with entry.lock:
+        detail = synthetic_detail(definition, member_describes(_Probe, definition))
+
+    record(db, "composite.read", user_id=sess.user_id, session_id=sess.id,
+           resource_type="composite", resource_id=composite.id,
+           detail={"describe": True, "fields": len(detail["dimensions"]) + len(detail["metrics"])})
+    return {
+        **detail,
+        "modelHierarchies": [],
+        "compositeId": str(composite.id),
+        "name": composite.name,
+    }

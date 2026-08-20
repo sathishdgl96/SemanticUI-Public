@@ -2,6 +2,8 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { ApiError } from "../api/client";
 import { queryComposite, type CompositeDefinition } from "../api/composites";
+import type { Visual } from "../api/types";
+import MatrixTable from "../reports/MatrixTable";
 
 /**
  * Asking the model a question, from inside the editor.
@@ -11,7 +13,27 @@ import { queryComposite, type CompositeDefinition } from "../api/composites";
  * whether the numbers that come back are the ones expected — including
  * the SQL, because an answer you cannot audit is one you should not act
  * on.
+ *
+ * The results are drawn by the report matrix, not by a table of this
+ * page's own. Two tables would be two places to fix a sticky header, two
+ * number formats, and two chances for the preview to disagree with the
+ * report a person builds next over the same model.
  */
+/** The matrix needs a visual to read its wells from. This one is not
+ *  saved anywhere -- it exists for the length of a render, so the preview
+ *  and a real report over the same model go through identical code. */
+function previewVisual(dimensions: string[], metrics: string[]): Visual {
+  return {
+    id: "preview",
+    type: "matrix",
+    title: "",
+    layout: { x: 0, y: 0, w: 12, h: 8 },
+    wells: { rows: dimensions, columns: [], values: metrics },
+    options: {},
+    filters: [],
+  };
+}
+
 export default function ModelPreview({
   id,
   definition,
@@ -101,25 +123,8 @@ export default function ModelPreview({
               : `Answered by ${run.data.branches.length} views: ${run.data.branches.join(", ")}.`}
             {run.data.truncated && " Showing the first rows only."}
           </p>
-          <div className="table-scroll">
-            <table className="content-table">
-              <thead>
-                <tr>
-                  {run.data.columns.map((column) => (
-                    <th key={column}>{column}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {run.data.rows.map((row, index) => (
-                  <tr key={index}>
-                    {row.map((cell, cellIndex) => (
-                      <td key={cellIndex}>{cell === null ? "—" : String(cell)}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="model-result">
+            <MatrixTable visual={previewVisual(dimensions, metrics)} result={run.data} />
           </div>
           <button type="button" className="link" onClick={() => setShowSql(!showSql)}>
             {showSql ? "Hide SQL" : "Show SQL"}

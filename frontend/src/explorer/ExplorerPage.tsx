@@ -1,7 +1,9 @@
 import { DndContext, type Announcements, type DragEndEvent } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { getComposite } from "../api/composites";
+import { describeUrl, queryUrl } from "../reports/builder/viewBinding";
 import { apiFetch, ApiError } from "../api/client";
 import { createExplore, updateExplore } from "../api/explores";
 import { createReport } from "../api/reports";
@@ -52,7 +54,11 @@ const MAX_ROW_LIMIT = 10000;
 
 export default function ExplorerPage() {
   const navigate = useNavigate();
-  const [selectedView, setSelectedView] = useState<SemanticViewSummary | null>(null);
+  // `compositeId` set means the source is a model rather than one view;
+  // the three name fields then carry the model's name for display only.
+  const [selectedView, setSelectedView] = useState<
+    (SemanticViewSummary & { compositeId?: string }) | null
+  >(null);
   const [wells, setWells] = useState<Wells>(emptyWells());
   // Explore filters, in the same vocabulary reports use. Held here rather
   // than inside the query because they survive a re-run and are part of what
@@ -107,22 +113,38 @@ export default function ExplorerPage() {
   });
 
   const detail = useQuery({
-    queryKey: ["semantic-view", selectedView?.database, selectedView?.schema, selectedView?.name],
+    queryKey: [
+      "semantic-view",
+      selectedView?.compositeId ?? selectedView?.database,
+      selectedView?.schema,
+      selectedView?.name,
+    ],
     enabled: selectedView !== null,
     queryFn: () =>
       apiFetch<SemanticViewDetail>(
-        `/api/semantic-views/${encodeURIComponent(selectedView!.database)}/${encodeURIComponent(
-          selectedView!.schema,
-        )}/${encodeURIComponent(selectedView!.name)}`,
+        describeUrl({
+          database: selectedView!.database,
+          schema: selectedView!.schema,
+          name: selectedView!.name,
+          compositeId: selectedView!.compositeId,
+        }),
       ),
   });
 
   const run = useMutation({
     mutationFn: (body: SemanticQueryBody) =>
-      apiFetch<QueryResponse>("/api/query/semantic", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
+      apiFetch<QueryResponse>(
+        queryUrl({
+          database: selectedView?.database ?? "",
+          schema: selectedView?.schema ?? "",
+          name: selectedView?.name ?? "",
+          compositeId: selectedView?.compositeId,
+        }),
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        },
+      ),
   });
 
   const addToReport = useMutation({
@@ -151,6 +173,7 @@ export default function ExplorerPage() {
         database: selectedView.database,
         schema: selectedView.schema,
         name: selectedView.name,
+        compositeId: selectedView.compositeId,
       },
       canvas: { columns: 12, rowHeight: 40 },
       pages: [
@@ -236,6 +259,7 @@ export default function ExplorerPage() {
         database: selectedView.database,
         schema: selectedView.schema,
         name: selectedView.name,
+        compositeId: selectedView.compositeId,
       },
       dimensions,
       metrics,
@@ -254,6 +278,28 @@ export default function ExplorerPage() {
   const workspaces = useWorkspaces();
   const workspaceRows = workspaces.data?.workspaces ?? [];
   const targetWorkspace = searchParams.get("workspace") ?? "";
+  const modelId = searchParams.get("model") ?? "";
+
+  // Arriving from a model's page: adopt it as the source, once. The
+  // model's own name is what the picker shows, because the three view
+  // fields are empty for a model and a blank source line reads as a bug.
+  const model = useQuery({
+    queryKey: ["composite", modelId],
+    queryFn: () => getComposite(modelId),
+    enabled: Boolean(modelId),
+  });
+
+  useEffect(() => {
+    if (!model.data) return;
+    if (selectedView?.compositeId === model.data.id) return;
+    setSelectedView({
+      database: "",
+      schema: "",
+      name: model.data.name,
+      comment: null,
+      compositeId: model.data.id,
+    });
+  }, [model.data, selectedView?.compositeId]);
 
   const save = useMutation({
     mutationFn: (name: string) => {

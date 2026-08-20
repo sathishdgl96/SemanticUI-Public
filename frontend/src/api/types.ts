@@ -210,6 +210,10 @@ export interface ViewRef {
   database: string;
   schema: string;
   name: string;
+  /** Set when the source is a composite model rather than one semantic
+   *  view. The three fields above are then empty, and every field
+   *  reference is in the model's namespace. */
+  compositeId?: string | null;
 }
 
 export interface VisualLayout {
