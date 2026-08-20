@@ -2,8 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
+import { recordView } from "../api/library";
 import { createReport, deleteReport, listReports } from "../api/reports";
 import type { ReportDefinition, ReportDetail } from "../api/types";
+import { FacetChips } from "../library/FacetChips";
+import { FavoriteStar } from "../library/FavoriteStar";
+import { SearchBar } from "../library/SearchBar";
+import { useLibraryQuery } from "../library/useLibraryQuery";
 import ImportPanel from "./ImportPanel";
 import MembersPanel from "../workspaces/MembersPanel";
 import WorkspaceSwitcher from "../workspaces/WorkspaceSwitcher";
@@ -45,15 +50,23 @@ export default function ReportListPage() {
   const selected = rows.find((w) => w.id === selectedId);
   const canCreateHere = selected ? atLeast(selected.myRole, "editor") : false;
 
+  const browse = useLibraryQuery();
+
   const reports = useQuery({
-    // Keyed on the workspace: switching must refetch rather than serve the
-    // previous workspace's list.
-    queryKey: ["reports", selectedId],
+    // Keyed on the workspace AND the browse controls: switching either must
+    // refetch rather than serve the previous list.
+    queryKey: ["reports", selectedId, browse.params],
     // Wrapped, not passed by reference: TanStack calls queryFn with its own
     // context object, which would otherwise arrive as the workspaceId.
-    queryFn: () => listReports(selectedId || undefined),
+    queryFn: () => listReports(selectedId || undefined, browse.params),
     enabled: Boolean(selectedId),
+    // Keeps the previous rows on screen while a search refetches, so typing
+    // does not flash the table away between keystrokes.
+    placeholderData: (previous) => previous,
   });
+
+  const listed = reports.data?.reports ?? [];
+  const filtering = browse.activeFacets.length > 0;
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteReport(id),
@@ -137,6 +150,42 @@ export default function ReportListPage() {
         </p>
       )}
       {createError && <p role="alert">{createError}</p>}
+
+      <div className="library-bar">
+        <SearchBar
+          value={browse.params.q ?? ""}
+          onChange={browse.setSearch}
+          placeholder="Search reports by name, view or workspace"
+        />
+        <button
+          type="button"
+          className={browse.params.favorite ? "toggle-button on" : "toggle-button"}
+          aria-pressed={browse.params.favorite ?? false}
+          onClick={browse.toggleFavoriteFilter}
+        >
+          <span aria-hidden="true">★</span> Pinned
+        </button>
+        <label className="library-sort">
+          <span className="sr-only">Sort</span>
+          <select
+            value={browse.params.sort ?? "recent"}
+            onChange={(event) =>
+              browse.setSort(event.target.value as "recent" | "name" | "updated")
+            }
+          >
+            <option value="recent">Recently opened</option>
+            <option value="updated">Recently changed</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+      </div>
+      <FacetChips
+        facets={browse.activeFacets}
+        onClear={browse.clearFacet}
+        shown={listed.length}
+        total={reports.data ? listed.length : 0}
+      />
+
       {reports.isLoading && <p>Loading reports...</p>}
       {reports.isError && (
         <p role="alert">
@@ -145,14 +194,33 @@ export default function ReportListPage() {
             : "Could not load your reports."}
         </p>
       )}
-      {reports.data?.reports.length === 0 && (
+      {/* Two different emptinesses. "Nothing here yet" is a dead end that
+          wants a first report; "nothing matched" is a filter the user can
+          undo, and saying so beats a blank panel. */}
+      {reports.data && listed.length === 0 && !filtering && (
         <p className="empty">No reports yet. Create one to get started.</p>
       )}
+      {reports.data && listed.length === 0 && filtering && (
+        <div className="empty">
+          <p>
+            No reports match
+            {browse.params.q?.trim() ? ` “${browse.params.q.trim()}”` : " those filters"}.
+          </p>
+          {/* "Clear filters", not "Clear search": it drops every facet, and
+              the search box already owns the words "Clear search". */}
+          <button type="button" className="secondary" onClick={browse.clearAll}>
+            Clear filters
+          </button>
+        </div>
+      )}
 
-      {reports.data && reports.data.reports.length > 0 && (
+      {reports.data && listed.length > 0 && (
         <table className="content-table">
           <thead>
             <tr>
+              <th>
+                <span className="sr-only">Pinned</span>
+              </th>
               <th aria-hidden="true"></th>
               <th>Name</th>
               <th>Semantic view</th>
@@ -164,13 +232,30 @@ export default function ReportListPage() {
             </tr>
           </thead>
           <tbody>
-            {reports.data.reports.map((report) => (
+            {listed.map((report) => (
               <tr key={report.id}>
+                <td className="pin-cell">
+                  <FavoriteStar
+                    itemType="report"
+                    id={report.id}
+                    favorite={report.favorite}
+                    invalidate="reports"
+                  />
+                </td>
                 <td className="type-glyph" aria-hidden="true">
                   ▦
                 </td>
                 <td>
-                  <Link className="report-name" to={`/reports/${report.id}`}>
+                  <Link
+                    className="report-name"
+                    to={`/reports/${report.id}`}
+                    // Recorded on the way out, not on arrival: the list is
+                    // where "recently opened" is read, and a failed record
+                    // must never block the navigation.
+                    onClick={() => {
+                      void recordView("report", report.id).catch(() => {});
+                    }}
+                  >
                     {report.name}
                   </Link>
                 </td>

@@ -1,9 +1,9 @@
 import { DndContext, type Announcements, type DragEndEvent } from "@dnd-kit/core";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
-import { createExplore, listExplores, updateExplore } from "../api/explores";
+import { createExplore, updateExplore } from "../api/explores";
 import { createReport } from "../api/reports";
 import type {
   ExploreDefinition,
@@ -19,7 +19,7 @@ import ResultsTable from "../query/ResultsTable";
 import SqlPreview from "../query/SqlPreview";
 import ExploreFilters from "./ExploreFilters";
 import ExploreVisual from "./ExploreVisual";
-import SavedExplores from "./SavedExplores";
+import SavedExploresPanel from "./SavedExploresPanel";
 import Section from "./Section";
 import VizPicker from "./VizPicker";
 import { CATALOG, type VisualType } from "../reports/catalog";
@@ -237,10 +237,7 @@ export default function ExplorerPage() {
     };
   }
 
-  const explores = useQuery({
-    queryKey: ["explores"],
-    queryFn: () => listExplores(),
-  });
+  const queryClient = useQueryClient();
 
   const save = useMutation({
     mutationFn: (name: string) => {
@@ -256,7 +253,7 @@ export default function ExplorerPage() {
       setOpenExplore(saved);
       setExploreName(saved.name);
       setSaveError(null);
-      explores.refetch();
+      queryClient.invalidateQueries({ queryKey: ["explores"] });
     },
     onError: (error) => {
       setSaveError(
@@ -376,16 +373,11 @@ export default function ExplorerPage() {
               />
             )}
             <h2 className="pane-heading">Saved explores</h2>
-            {explores.isLoading && <p>Loading explores…</p>}
-            {explores.isError && <p role="alert">Could not load saved explores.</p>}
-            {explores.data && (
-              <SavedExplores
-                explores={explores.data.explores}
-                openId={openExplore?.id ?? null}
-                onOpen={openSaved}
-                onError={setSaveError}
-              />
-            )}
+            <SavedExploresPanel
+              openId={openExplore?.id ?? null}
+              onOpen={openSaved}
+              onError={setSaveError}
+            />
             <h2 className="pane-heading">Fields</h2>
             {selectedView && detail.data && (
               <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />

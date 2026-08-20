@@ -232,7 +232,7 @@ describe("ExplorerPage", () => {
       updatedAt: "2026-08-15T00:00:00Z",
       workspaceId: "w0",
       workspaceName: "My reports",
-      myRole: "admin" as const,
+      myRole: "admin" as const, favorite: false, lastViewedAt: null,
       definition: {
         schemaVersion: 3,
         name: "My View",
@@ -281,7 +281,7 @@ describe("ExplorerPage saved explores", () => {
     updatedAt: "2026-08-16T00:00:00Z",
     workspaceId: "w0",
     workspaceName: "My reports",
-    myRole: "admin" as const,
+    myRole: "admin" as const, favorite: false, lastViewedAt: null,
     definition: {
       schemaVersion: 1,
       name: "Revenue by region",

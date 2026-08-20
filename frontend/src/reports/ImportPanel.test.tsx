@@ -52,7 +52,7 @@ describe("ImportPanel", () => {
     importMock.mockResolvedValue({
       id: "r2", name: "Imported", view: { database: "P", schema: "M", name: "V" },
       updatedAt: "", workspaceId: "w0", workspaceName: "My reports",
-      myRole: "admin" as const, definition: {} as never,
+      myRole: "admin" as const, favorite: false, lastViewedAt: null, definition: {} as never,
     });
     const onImported = vi.fn();
     renderPanel(onImported);
@@ -117,7 +117,7 @@ describe("ImportPanel", () => {
       resolveImport({
         id: "r2", name: "Imported", view: { database: "P", schema: "M", name: "V" },
         updatedAt: "", workspaceId: "w0", workspaceName: "My reports",
-      myRole: "admin" as const, definition: {} as never,
+      myRole: "admin" as const, favorite: false, lastViewedAt: null, definition: {} as never,
       }),
     ).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));

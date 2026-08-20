@@ -81,7 +81,7 @@ const detail = {
   updatedAt: "2026-08-15T10:00:00+00:00",
   workspaceId: "w0",
   workspaceName: "My reports",
-  myRole: "admin" as const,
+  myRole: "admin" as const, favorite: false, lastViewedAt: null,
   definition: {
     schemaVersion: 3,
     name: "Sales overview",
@@ -118,7 +118,7 @@ const detail2 = {
   updatedAt: "2026-08-15T10:00:00+00:00",
   workspaceId: "w0",
   workspaceName: "My reports",
-  myRole: "admin" as const,
+  myRole: "admin" as const, favorite: false, lastViewedAt: null,
   definition: {
     schemaVersion: 3,
     name: "Marketing overview",
@@ -193,6 +193,8 @@ describe("BuilderPage", () => {
       workspaceId: "w0",
       workspaceName: "My reports",
       myRole: "admin" as const,
+      favorite: false,
+      lastViewedAt: null,
       view: { database: "", schema: "", name: "" },
       updatedAt: "2026-08-15T10:00:00+00:00",
       definition: {

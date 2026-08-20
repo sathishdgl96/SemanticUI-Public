@@ -257,6 +257,11 @@ export interface ReportSummary {
   /** The caller's role in that workspace, so the UI can disable an action
    *  with a stated reason rather than letting them discover it on a 403. */
   myRole: Role;
+  /** Pinned by THIS caller. Per-user, so it is part of the summary rather
+   *  than of the report. */
+  favorite: boolean;
+  /** When this caller last opened it, or null if they never have. */
+  lastViewedAt: string | null;
 }
 
 export type ReportDetail = ReportSummary & { definition: ReportDefinition };
@@ -282,6 +287,8 @@ export interface ExploreSummary {
   workspaceId: string;
   workspaceName: string;
   myRole: Role;
+  favorite: boolean;
+  lastViewedAt: string | null;
 }
 
 export type ExploreDetail = ExploreSummary & { definition: ExploreDefinition };

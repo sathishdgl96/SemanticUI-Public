@@ -1,9 +1,18 @@
 import { apiFetch } from "./client";
+import { libraryQueryString, type LibraryParams } from "./library";
 import type { ReportDefinition, ReportDetail, ReportSummary, ViewRef } from "./types";
 
-export function listReports(workspaceId?: string): Promise<{ reports: ReportSummary[] }> {
-  const query = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
-  return apiFetch<{ reports: ReportSummary[] }>(`/api/reports${query}`);
+export function listReports(
+  workspaceId?: string,
+  params: LibraryParams = {},
+): Promise<{ reports: ReportSummary[] }> {
+  const browse = libraryQueryString(params);
+  // The workspace joins whatever the browse controls already asked for,
+  // so it is "&" once anything else is there and "?" when it is first.
+  const scope = workspaceId
+    ? `${browse ? `${browse}&` : "?"}workspace=${encodeURIComponent(workspaceId)}`
+    : browse;
+  return apiFetch<{ reports: ReportSummary[] }>(`/api/reports${scope}`);
 }
 
 export function getReport(id: string): Promise<ReportDetail> {

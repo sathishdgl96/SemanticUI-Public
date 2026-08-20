@@ -3636,3 +3636,109 @@ body {
 .star:disabled {
   opacity: 0.5;
 }
+
+/* --------------------------------------------------------------------------
+   Library: the browse bar
+   The controls above a list -- search, the pinned toggle, sort. The bar
+   wraps rather than scrolls: on a narrow pane the sort dropping below the
+   search field reads better than either being clipped.
+   ========================================================================== */
+
+.library-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+}
+
+/* The explorer's rail is half the width of the reports page. */
+.library-bar-compact .searchbar {
+  max-width: none;
+  flex: 1 1 auto;
+}
+
+/* A pressed state needs to be legible without colour alone, so the pressed
+   button also gains a border and weight. */
+.toggle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--ink-secondary);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.toggle-button:hover {
+  background: var(--chrome);
+  color: var(--ink);
+}
+
+.toggle-button.on {
+  background: var(--accent-wash);
+  color: var(--ink);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.library-sort select {
+  min-height: 28px;
+  padding: 0 6px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+/* The pin column: as narrow as the control, so the name still starts near
+   the left edge where the eye looks for it. */
+.pin-cell {
+  width: 32px;
+  padding-right: 0;
+  text-align: center;
+}
+
+/* A list filtered to nothing states the filter and offers the way out, so
+   it never reads as data having gone missing. */
+.reports .empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--ink-secondary);
+}
+
+.reports .empty p {
+  margin: 0;
+}
+
+.saved-explore-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.saved-explore-row .saved-explore {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The pin appears on hover or focus; a column of stars down a narrow rail
+   competes with the names, which are what the eye is scanning for. */
+.saved-explore-row .star {
+  opacity: 0;
+  flex: 0 0 auto;
+}
+
+.saved-explore-row:hover .star,
+.saved-explore-row .star:focus-visible,
+.saved-explore-row .star-on {
+  opacity: 1;
+}

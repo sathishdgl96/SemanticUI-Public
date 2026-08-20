@@ -1,5 +1,7 @@
 import type { ExploreDetail, ExploreSummary } from "../api/types";
 import { getExplore } from "../api/explores";
+import { recordView } from "../api/library";
+import { FavoriteStar } from "../library/FavoriteStar";
 
 interface Props {
   explores: ExploreSummary[];
@@ -23,14 +25,19 @@ export default function SavedExplores({ explores, openId, onOpen, onError }: Pro
   return (
     <ul className="saved-explores">
       {explores.map((explore) => (
-        <li key={explore.id}>
+        <li key={explore.id} className="saved-explore-row">
           <button
             type="button"
             className={explore.id === openId ? "saved-explore open" : "saved-explore"}
             aria-current={explore.id === openId ? "true" : undefined}
             onClick={() =>
               getExplore(explore.id)
-                .then(onOpen)
+                .then((detail) => {
+                  // Recorded only once it actually opened, and never
+                  // allowed to fail the open itself.
+                  void recordView("explore", explore.id).catch(() => {});
+                  onOpen(detail);
+                })
                 .catch(() => onError(`Could not open "${explore.name}".`))
             }
           >
@@ -40,6 +47,12 @@ export default function SavedExplores({ explores, openId, onOpen, onError }: Pro
                 rows apart was competing with the one thing that did not. */}
             <span className="saved-explore-name">{explore.name}</span>
           </button>
+          <FavoriteStar
+            itemType="explore"
+            id={explore.id}
+            favorite={explore.favorite}
+            invalidate="explores"
+          />
         </li>
       ))}
     </ul>

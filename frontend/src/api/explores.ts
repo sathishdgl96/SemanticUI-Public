@@ -1,9 +1,13 @@
 import { apiFetch } from "./client";
+import { libraryQueryString, type LibraryParams } from "./library";
 import type { ExploreDefinition, ExploreDetail, ExploreSummary } from "./types";
 
-export function listExplores(workspaceId?: string) {
-  const query = workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : "";
-  return apiFetch<{ explores: ExploreSummary[] }>(`/api/explores${query}`);
+export function listExplores(workspaceId?: string, params: LibraryParams = {}) {
+  const browse = libraryQueryString(params);
+  const scope = workspaceId
+    ? `${browse ? `${browse}&` : "?"}workspace=${encodeURIComponent(workspaceId)}`
+    : browse;
+  return apiFetch<{ explores: ExploreSummary[] }>(`/api/explores${scope}`);
 }
 
 export function getExplore(id: string) {
