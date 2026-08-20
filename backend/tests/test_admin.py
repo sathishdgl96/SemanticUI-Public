@@ -9,6 +9,7 @@ a row somebody inside the app could eventually grant themselves.
 from datetime import datetime, timedelta, timezone
 
 from app.admin import service
+from app.admin.service import FAILED_LOGIN, RATE_LIMITED
 from app.audit import record
 from app.auth.sessions import SESSION_COOKIE, create_session
 from app.db.models import AuditEvent, User
@@ -186,8 +187,8 @@ def test_the_last_page_says_it_is_the_last(db):
 def test_the_action_filter_offers_what_the_trail_actually_holds(db):
     user = make_user(db)
     record(db, "report.read", user_id=user.id)
-    record(db, "auth.failed", user_id=user.id, outcome="denied")
-    assert service.events(db)["actions"] == ["auth.failed", "report.read"]
+    record(db, FAILED_LOGIN, user_id=user.id, outcome="failed")
+    assert service.events(db)["actions"] == [FAILED_LOGIN, "report.read"]
 
 
 def test_a_page_size_beyond_the_cap_is_clamped(db):
@@ -196,6 +197,64 @@ def test_a_page_size_beyond_the_cap_is_clamped(db):
     # Not an error -- a caller asking for a million rows gets the most this
     # endpoint will build, which is what they wanted anyway.
     assert len(service.events(db, limit=10_000)["events"]) == 1
+
+
+# --- coverage --------------------------------------------------------------
+
+#: Every action the app is expected to record. The list exists so that an
+#: endpoint added without a `record` call fails HERE rather than going
+#: quietly missing from the trail -- which is exactly how the dashboards,
+#: explores, workspace-membership and query paths went unaudited until
+#: somebody noticed the log looked thin.
+EXPECTED_ACTIONS = {
+    # authentication
+    "auth.login",
+    "auth.login_failed",
+    "auth.logout",
+    "auth.rate_limited",
+    # the things people make
+    "report.create", "report.read", "report.update", "report.delete",
+    "dashboard.create", "dashboard.read", "dashboard.update", "dashboard.delete",
+    "dashboard.tile_add", "dashboard.tile_remove",
+    "explore.create", "explore.read", "explore.update", "explore.delete",
+    # who may see them
+    "workspace.create", "workspace.rename", "workspace.delete",
+    "workspace.member_add", "workspace.member_role", "workspace.member_remove",
+    # asking the data anything
+    "query.run",
+    # data leaving, and the machinery that lets it
+    "token.mint",
+    "feed.read",
+    "xmla.session_open",
+    # refusals
+    "access.denied",
+    "admin.denied",
+    # preferences worth a line
+    "session.context",
+    "home.dashboard_set",
+}
+
+
+def test_every_expected_action_is_recorded_somewhere_in_the_app():
+    """A grep, deliberately: the alternative is exercising every endpoint
+    from here, which would make this a second copy of the whole suite."""
+    import pathlib
+
+    app = pathlib.Path(__file__).resolve().parents[1] / "app"
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in app.rglob("*.py")
+    )
+    missing = sorted(
+        action for action in EXPECTED_ACTIONS if f'"{action}"' not in source
+    )
+    assert missing == [], f"no `record` call writes: {missing}"
+
+
+def test_the_security_board_only_counts_actions_that_exist():
+    """The board matched "auth.failed", which nothing ever wrote, so it
+    reported a quiet window through any number of failed sign-ins."""
+    unknown = sorted(service.DENIAL_ACTIONS - EXPECTED_ACTIONS)
+    assert unknown == [], f"the board watches for actions nobody records: {unknown}"
 
 
 # --- the security board ----------------------------------------------------
@@ -210,7 +269,7 @@ def test_a_quiet_window_says_so_rather_than_showing_nothing(db):
 def test_failed_sign_ins_raise_an_alert_that_says_what_it_counted(db):
     """An alert you cannot check is an alert you learn to ignore."""
     for _ in range(12):
-        record(db, "auth.failed", outcome="denied", session_id="s1")
+        record(db, FAILED_LOGIN, outcome="failed", session_id="s1")
 
     alert = next(a for a in service.security(db)["alerts"] if a["id"] == "auth-failures")
     assert alert["severity"] == "high"
@@ -219,13 +278,13 @@ def test_failed_sign_ins_raise_an_alert_that_says_what_it_counted(db):
 
 
 def test_a_few_failures_are_information_rather_than_an_alarm(db):
-    record(db, "auth.failed", outcome="denied")
+    record(db, FAILED_LOGIN, outcome="failed")
     alert = next(a for a in service.security(db)["alerts"] if a["id"] == "auth-failures")
     assert alert["severity"] == "info"
 
 
 def test_throttling_is_always_worth_saying(db):
-    record(db, "auth.rate_limited", outcome="denied")
+    record(db, RATE_LIMITED, outcome="denied")
     alert = next(a for a in service.security(db)["alerts"] if a["id"] == "rate-limited")
     assert alert["severity"] == "high"
 
@@ -244,7 +303,7 @@ def test_refusals_are_grouped_and_the_worst_offender_named(db):
 
 def test_the_window_excludes_what_is_older_than_it(db):
     user = make_user(db)
-    record(db, "auth.failed", user_id=user.id, outcome="denied")
+    record(db, FAILED_LOGIN, user_id=user.id, outcome="failed")
     old = db.query(AuditEvent).one()
     old.ts = datetime.now(timezone.utc) - timedelta(days=3)
     db.commit()

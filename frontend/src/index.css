@@ -2473,6 +2473,74 @@ button.secondary:hover,
   color: var(--ink-secondary);
 }
 
+/* A row that opens: the summary is what you scan, the record underneath
+   is what you act on. */
+.log-row { cursor: pointer; }
+.log-row.is-open { background: var(--accent-wash); }
+
+.log-detail-row td {
+  padding: 0;
+  background: var(--page);
+  border-bottom: 2px solid var(--border);
+}
+
+.log-record {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+  padding: 14px 16px 6px;
+}
+
+.log-record > div { min-width: 0; }
+.log-record-wide { grid-column: 1 / -1; }
+
+.log-record dt {
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.log-record dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Selectable on purpose: a request id is copied into a log search, and a
+   value you cannot select is a value you retype. */
+.log-copyable {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  user-select: all;
+}
+
+.log-record pre {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-record-note {
+  margin: 0;
+  padding: 0 16px 14px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* The rows below the summary carry their own text; the table's blanket
+   nowrap would clip a request id and a detail blob. */
+.log-detail-row td,
+.log-record dd { white-space: normal; }
+
 .log-paging {
   display: flex;
   gap: 8px;

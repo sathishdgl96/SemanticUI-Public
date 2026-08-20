@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { getEvents, type EventQuery } from "../api/admin";
 import { ApiError } from "../api/client";
 import { exactTime, relativeTime } from "../ui/relativeTime";
@@ -31,6 +31,10 @@ function outcomeClass(outcome: string): string {
  */
 export default function ActivityPage() {
   const [filters, setFilters] = useState<EventQuery>({ hours: 24 });
+  //: The event whose full record is open, or null. One at a time: the
+  //: point of the row is to answer "what exactly happened here", and two
+  //: open at once turns a log back into a wall.
+  const [opened, setOpened] = useState<string | null>(null);
   // Keyset paging: the trail grows while it is being read, and an offset
   // would skip or repeat rows as it did.
   const [pages, setPages] = useState<(string | undefined)[]>([undefined]);
@@ -146,7 +150,23 @@ export default function ActivityPage() {
             </thead>
             <tbody>
               {rows.map((event) => (
-                <tr key={event.id}>
+                <Fragment key={event.id}>
+                <tr
+                  className={opened === event.id ? "log-row is-open" : "log-row"}
+                  aria-expanded={opened === event.id}
+                  tabIndex={0}
+                  onClick={() =>
+                    setOpened((current) => (current === event.id ? null : event.id))
+                  }
+                  onKeyDown={(keyed) => {
+                    // A row that opens on click has to open from the
+                    // keyboard too, or the log is mouse-only.
+                    if (keyed.key === "Enter" || keyed.key === " ") {
+                      keyed.preventDefault();
+                      setOpened((current) => (current === event.id ? null : event.id));
+                    }
+                  }}
+                >
                   <td title={exactTime(event.ts)}>{relativeTime(event.ts)}</td>
                   <td className="log-action">{event.action}</td>
                   <td>
@@ -170,6 +190,71 @@ export default function ActivityPage() {
                     {event.detail ? JSON.stringify(event.detail) : ""}
                   </td>
                 </tr>
+                {opened === event.id && (
+                  <tr className="log-detail-row">
+                    <td colSpan={6}>
+                      <dl className="log-record">
+                        <div>
+                          <dt>When</dt>
+                          <dd>{exactTime(event.ts)}</dd>
+                        </div>
+                        <div>
+                          <dt>Action</dt>
+                          <dd>{event.action}</dd>
+                        </div>
+                        <div>
+                          <dt>Outcome</dt>
+                          <dd>{event.outcome}</dd>
+                        </div>
+                        <div>
+                          <dt>User</dt>
+                          <dd>{event.user || "not signed in"}</dd>
+                        </div>
+                        <div>
+                          <dt>Resource</dt>
+                          <dd>
+                            {event.resourceType
+                              ? `${event.resourceType} ${event.resourceId ?? ""}`.trim()
+                              : "—"}
+                          </dd>
+                        </div>
+                        <div>
+                          {/* The full id, not the abbreviation in the row:
+                              this is the value you grep the log stream
+                              with, and half of it does not work. */}
+                          <dt>Request id</dt>
+                          <dd className="log-copyable">{event.requestId ?? "—"}</dd>
+                        </div>
+                        <div>
+                          {/* A hash of the session cookie, never the
+                              cookie: it correlates one session's events
+                              without the trail becoming worth stealing. */}
+                          <dt>Session</dt>
+                          <dd className="log-copyable">{event.sessionRef ?? "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>Event id</dt>
+                          <dd className="log-copyable">{event.id}</dd>
+                        </div>
+                        <div className="log-record-wide">
+                          <dt>Detail</dt>
+                          <dd>
+                            {event.detail ? (
+                              <pre>{JSON.stringify(event.detail, null, 2)}</pre>
+                            ) : (
+                              "None recorded."
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+                      <p className="log-record-note">
+                        The trail records shapes, never values: counts, flags and
+                        durations, but not what any query returned.
+                      </p>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

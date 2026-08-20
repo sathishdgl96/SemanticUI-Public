@@ -20,6 +20,7 @@ from app.db.base import get_db
 from app.errors import ApiError
 from app.snowflake import connect as sf_connect
 from app.snowflake.provider import get_cache
+from app.audit import record
 
 router = APIRouter()
 
@@ -44,6 +45,11 @@ def dev_login(
     throttle_key = f"login:{client}:{req.account}/{req.user}".lower()
     window = auth_window()
     if not window.allowed(throttle_key):
+        # Recorded, because throttling engaging is the thing the security
+        # board is watching for and the refusal happens BEFORE any of the
+        # code that would otherwise write a line. No user id: whoever this
+        # is has not proved who they are.
+        record(db, "auth.rate_limited", outcome="denied")
         raise ApiError(
             "RATE_LIMITED", 429,
             "Too many sign-in attempts; wait a minute and try again.",
@@ -79,7 +85,6 @@ def dev_login(
         raise
     except Exception as exc:
         window.register_failure(throttle_key)
-        from app.audit import record
 
         record(db, "auth.login_failed", outcome="failed",
                detail={"method": req.authenticator})
@@ -94,7 +99,6 @@ def dev_login(
     # This connection is the only copy of the user's credential — there is no
     # stored token to rebuild it from, so it must survive the idle sweep.
     get_cache().put(sess.id, conn, rebuildable=False)
-    from app.audit import record
 
     record(db, "auth.login", user_id=sess.user_id, session_id=sess.id,
            detail={"method": req.authenticator})

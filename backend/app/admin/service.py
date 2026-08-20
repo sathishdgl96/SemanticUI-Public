@@ -29,17 +29,27 @@ STARTED_AT = time.time()
 #: The window the security board and the activity summary look back over.
 DEFAULT_WINDOW_HOURS = 24
 
-#: Actions that mean somebody was refused. The security board counts these
-#: rather than pattern-matching on strings at read time, so adding an
-#: action means adding it here on purpose.
+#: The action a failed sign-in is recorded under. Named once, here,
+#: because the security board matched "auth.failed" -- a name nothing ever
+#: wrote -- and so reported a quiet window through any number of failures.
+FAILED_LOGIN = "auth.login_failed"
+#: And the one a refused-for-rate attempt is recorded under.
+RATE_LIMITED = "auth.rate_limited"
+
+#: Actions that mean somebody was refused. Counted from this set rather
+#: than pattern-matched at read time, so adding an action means adding it
+#: here on purpose -- and so that a name that no longer exists shows up as
+#: a test failure rather than as an empty board.
 DENIAL_ACTIONS = frozenset(
     {
-        "auth.failed",
-        "auth.rate_limited",
+        FAILED_LOGIN,
+        RATE_LIMITED,
+        # Every workspace-governed refusal funnels through the single
+        # authorization gate and lands here, whatever was being reached
+        # for -- which is why there is no per-resource denial action to
+        # list beside it.
         "access.denied",
-        "workspace.denied",
-        "connect.denied",
-        "xmla.denied",
+        "admin.denied",
     }
 )
 
@@ -244,8 +254,8 @@ def security(db: Session, hours: int = DEFAULT_WINDOW_HOURS) -> dict:
         )
     )
 
-    failures = [r for r in rows if r.action == "auth.failed"]
-    throttled = [r for r in rows if r.action == "auth.rate_limited"]
+    failures = [r for r in rows if r.action == FAILED_LOGIN]
+    throttled = [r for r in rows if r.action == RATE_LIMITED]
     denials = [
         r for r in rows if r.action in DENIAL_ACTIONS or r.outcome in BAD_OUTCOMES
     ]
@@ -279,7 +289,7 @@ def security(db: Session, hours: int = DEFAULT_WINDOW_HOURS) -> dict:
             }
         )
 
-    refusals = [r for r in denials if r.action != "auth.failed"]
+    refusals = [r for r in denials if r.action != FAILED_LOGIN]
     if refusals:
         by_user = Counter(names.get(r.user_id, "") or "unknown" for r in refusals)
         worst, worst_count = by_user.most_common(1)[0]

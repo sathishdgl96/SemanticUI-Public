@@ -32,6 +32,7 @@ from app.errors import ApiError
 from app.feed import service
 from app.feed.render import to_csv, to_json
 from app.snowflake.provider import get_cache
+from app.audit import record
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def _feed(
     client = request.client.host if request.client else "?"
     throttle_key = f"token:{client}"
     if not auth_window().allowed(throttle_key):
+        record(db, "auth.rate_limited", outcome="denied", detail={"surface": "feed"})
         raise ApiError(
             "RATE_LIMITED", 429, "Too many failed attempts; wait a minute."
         )
@@ -100,7 +102,6 @@ def _feed(
         db, dbsess.user_id, entry, report_id, visual_id,
         extra_filters=extra, limit=limit,
     )
-    from app.audit import record
 
     record(db, "feed.read", user_id=dbsess.user_id, session_id=dbsess.id,
            resource_type="report", resource_id=report_id,

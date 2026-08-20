@@ -13,6 +13,7 @@ from app.auth.routes import current_session
 from app.dashboards import service
 from app.db.base import get_db
 from app.db.models import DbSession
+from app.audit import record
 
 router = APIRouter()
 
@@ -55,6 +56,8 @@ def create_dashboard(
     db: Session = Depends(get_db),
 ) -> dict:
     dashboard = service.create_dashboard(db, sess.user_id, body.name, body.workspaceId)
+    record(db, "dashboard.create", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=dashboard.id)
     return service.detail(db, sess.user_id, dashboard)
 
 
@@ -65,6 +68,8 @@ def get_dashboard(
     db: Session = Depends(get_db),
 ) -> dict:
     dashboard = service.get_dashboard(db, sess.user_id, dashboard_id)
+    record(db, "dashboard.read", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=dashboard.id)
     return service.detail(db, sess.user_id, dashboard)
 
 
@@ -78,6 +83,10 @@ def update_dashboard(
     dashboard = service.update_dashboard(
         db, sess.user_id, dashboard_id, body.definition
     )
+    # A shape, never the document: how many tiles, not what they show.
+    record(db, "dashboard.update", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=dashboard.id,
+           detail={"tiles": len((dashboard.definition or {}).get("tiles") or [])})
     return service.detail(db, sess.user_id, dashboard)
 
 
@@ -88,6 +97,8 @@ def delete_dashboard(
     db: Session = Depends(get_db),
 ) -> None:
     service.delete_dashboard(db, sess.user_id, dashboard_id)
+    record(db, "dashboard.delete", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=dashboard_id)
 
 
 @router.post("/api/dashboards/{dashboard_id}/tiles", status_code=201)
@@ -97,7 +108,7 @@ def add_tile(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    return service.add_tile(
+    tile = service.add_tile(
         db,
         sess.user_id,
         dashboard_id,
@@ -106,6 +117,12 @@ def add_tile(
         body.visualId,
         body.title,
     )
+    # Which report a dashboard now draws from is worth a line: it is the
+    # one act that widens what a dashboard exposes.
+    record(db, "dashboard.tile_add", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=dashboard_id,
+           detail={"report": body.reportId})
+    return tile
 
 
 @router.delete("/api/dashboards/{dashboard_id}/tiles/{tile_id}", status_code=204)
@@ -116,6 +133,8 @@ def remove_tile(
     db: Session = Depends(get_db),
 ) -> None:
     service.remove_tile(db, sess.user_id, dashboard_id, tile_id)
+    record(db, "dashboard.tile_remove", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=dashboard_id)
 
 
 @router.put("/api/home/dashboard")
@@ -125,4 +144,6 @@ def set_home_dashboard(
     db: Session = Depends(get_db),
 ) -> dict:
     service.set_home_dashboard(db, sess.user_id, body.dashboardId)
+    record(db, "home.dashboard_set", user_id=sess.user_id, session_id=sess.id,
+           resource_type="dashboard", resource_id=body.dashboardId)
     return {"dashboardId": body.dashboardId}

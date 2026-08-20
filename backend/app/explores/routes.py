@@ -12,6 +12,7 @@ from app.library.search import LibraryQuery
 from app.explores import service
 from app.explores.schema import parse_definition, to_export_document
 from app.workspaces.access import membership
+from app.audit import record
 
 router = APIRouter()
 
@@ -99,6 +100,8 @@ def create_explore(
         db, sess.user_id, body.definition, body.workspaceId
     )
     workspace, role = _context(db, sess.user_id, explore)
+    record(db, "explore.create", user_id=sess.user_id, session_id=sess.id,
+           resource_type="explore", resource_id=explore.id)
     return _detail(explore, workspace=workspace, role=role)
 
 
@@ -110,6 +113,8 @@ def get_explore(
 ) -> dict:
     explore = service.get_explore(db, sess.user_id, explore_id)
     workspace, role = _context(db, sess.user_id, explore)
+    record(db, "explore.read", user_id=sess.user_id, session_id=sess.id,
+           resource_type="explore", resource_id=explore.id)
     return _detail(explore, workspace=workspace, role=role)
 
 
@@ -122,6 +127,8 @@ def update_explore(
 ) -> dict:
     explore = service.update_explore(db, sess.user_id, explore_id, body.definition)
     workspace, role = _context(db, sess.user_id, explore)
+    record(db, "explore.update", user_id=sess.user_id, session_id=sess.id,
+           resource_type="explore", resource_id=explore.id)
     return _detail(explore, workspace=workspace, role=role)
 
 
@@ -132,6 +139,8 @@ def delete_explore(
     db: Session = Depends(get_db),
 ) -> Response:
     service.delete_explore(db, sess.user_id, explore_id)
+    record(db, "explore.delete", user_id=sess.user_id, session_id=sess.id,
+           resource_type="explore", resource_id=explore_id)
     return Response(status_code=204)
 
 

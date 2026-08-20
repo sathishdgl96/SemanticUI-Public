@@ -17,6 +17,7 @@ from app.db.base import get_db
 from app.db.models import DbSession, Report, User, Workspace, WorkspaceMember
 from app.workspaces import service
 from app.workspaces.access import require_workspace
+from app.audit import record
 
 router = APIRouter()
 
@@ -77,6 +78,8 @@ def create_workspace(
     workspace = service.create_workspace(
         db, sess.user_id, sess.user.snowflake_account, body.name
     )
+    record(db, "workspace.create", user_id=sess.user_id, session_id=sess.id,
+           resource_type="workspace", resource_id=workspace.id)
     return _row(db, workspace, "admin")
 
 
@@ -88,6 +91,8 @@ def rename_workspace(
     db: Session = Depends(get_db),
 ) -> dict:
     workspace = service.rename_workspace(db, sess.user_id, workspace_id, body.name)
+    record(db, "workspace.rename", user_id=sess.user_id, session_id=sess.id,
+           resource_type="workspace", resource_id=workspace.id)
     return _row(db, workspace, "admin")
 
 
@@ -98,6 +103,9 @@ def delete_workspace(
     db: Session = Depends(get_db),
 ) -> Response:
     service.delete_workspace(db, sess.user_id, workspace_id)
+    # After the delete, so a refused one records nothing.
+    record(db, "workspace.delete", user_id=sess.user_id, session_id=sess.id,
+           resource_type="workspace", resource_id=workspace_id)
     return Response(status_code=204)
 
 
@@ -155,6 +163,18 @@ def add_member(
         body.role,
         body.snowflakeAccount,
     )
+    # Who may read a workspace is the most security-relevant thing this
+    # app changes. The role travels; the username does not -- the trail
+    # names people by id.
+    record(
+        db,
+        "workspace.member_add",
+        user_id=sess.user_id,
+        session_id=sess.id,
+        resource_type="workspace",
+        resource_id=workspace_id,
+        detail={"role": body.role, "subject": str(member.user_id)},
+    )
     return _member_row(db, member, sess.user_id)
 
 
@@ -169,6 +189,15 @@ def set_member_role(
     member = service.set_member_role(
         db, sess.user_id, workspace_id, member_user_id, body.role
     )
+    record(
+        db,
+        "workspace.member_role",
+        user_id=sess.user_id,
+        session_id=sess.id,
+        resource_type="workspace",
+        resource_id=workspace_id,
+        detail={"role": body.role, "subject": member_user_id},
+    )
     return _member_row(db, member, sess.user_id)
 
 
@@ -182,4 +211,13 @@ def remove_member(
     db: Session = Depends(get_db),
 ) -> Response:
     service.remove_member(db, sess.user_id, workspace_id, member_user_id)
+    record(
+        db,
+        "workspace.member_remove",
+        user_id=sess.user_id,
+        session_id=sess.id,
+        resource_type="workspace",
+        resource_id=workspace_id,
+        detail={"subject": member_user_id},
+    )
     return Response(status_code=204)

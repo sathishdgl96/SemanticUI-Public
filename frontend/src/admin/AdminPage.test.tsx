@@ -212,6 +212,54 @@ describe("Activity log", () => {
     expect(screen.getByRole("button", { name: /newer/i })).toBeDisabled();
   });
 
+  it("opens a row into the full record, and closes it again", async () => {
+    renderAdmin("/admin/activity");
+    await screen.findByText("ALICE");
+    const body = document.querySelector("tbody") as HTMLElement;
+
+    await userEvent.click(within(body).getByText("report.read"));
+    // The FULL request id, not the abbreviation in the row: this is the
+    // value you grep the log stream with, and half of it does not work.
+    expect(await screen.findByText("abcdef1234")).toBeInTheDocument();
+    expect(screen.getByText(/"rows": 12/)).toBeInTheDocument();
+    expect(screen.getByText("ffff")).toBeInTheDocument();
+
+    await userEvent.click(within(body).getAllByText("report.read")[0]);
+    expect(screen.queryByText("abcdef1234")).toBeNull();
+  });
+
+  it("opens a row from the keyboard too", async () => {
+    // A row that opens on click has to open from the keyboard, or the log
+    // is mouse-only.
+    renderAdmin("/admin/activity");
+    await screen.findByText("ALICE");
+    const row = (document.querySelector("tbody tr") as HTMLElement);
+    row.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByText("abcdef1234")).toBeInTheDocument();
+  });
+
+  it("says what the trail does not hold, where somebody is reading it", async () => {
+    renderAdmin("/admin/activity");
+    await screen.findByText("ALICE");
+    await userEvent.click(
+      within(document.querySelector("tbody") as HTMLElement).getByText("report.read"),
+    );
+    expect(screen.getByText(/records shapes, never values/i)).toBeInTheDocument();
+  });
+
+  it("says so when an event carried no detail", async () => {
+    eventsMock.mockResolvedValue(
+      events({ events: [{ ...events().events[0], detail: null }] }),
+    );
+    renderAdmin("/admin/activity");
+    await screen.findByText("ALICE");
+    await userEvent.click(
+      within(document.querySelector("tbody") as HTMLElement).getByText("report.read"),
+    );
+    expect(screen.getByText(/none recorded/i)).toBeInTheDocument();
+  });
+
   it("says the window is empty rather than showing a bare table", async () => {
     eventsMock.mockResolvedValue(events({ events: [] }));
     renderAdmin("/admin/activity");

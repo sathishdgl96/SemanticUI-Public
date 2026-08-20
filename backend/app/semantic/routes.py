@@ -15,6 +15,7 @@ from app.semantic import discovery
 from app.semantic.query import SemanticQueryRequest, bridged_through, build_semantic_sql
 from app.snowflake import gateway
 from app.snowflake.provider import get_cache
+from app.audit import record
 
 router = APIRouter()
 
@@ -150,6 +151,24 @@ def query_semantic(
         result = gateway.run_query(
             entry.conn, sql, max_rows=effective_limit, params=params
         )
+    # The single most valuable line in a data tool's trail: somebody asked
+    # this view a question. Shapes only -- how many rows came back and
+    # whether it was capped, never the SQL, the filters or a value. The
+    # Snowflake query id is here because it is what joins this row to
+    # Snowflake's own QUERY_HISTORY.
+    record(
+        db,
+        "query.run",
+        user_id=sess.user_id,
+        session_id=sess.id,
+        resource_type="semantic_view",
+        resource_id=f"{req.database}.{req.schema_}.{req.view}"[:64],
+        detail={
+            "rows": len(result.rows),
+            "truncated": bool(result.truncated),
+            "sfqid": result.sfqid,
+        },
+    )
     return {
         "columns": result.columns,
         "rows": result.rows,
