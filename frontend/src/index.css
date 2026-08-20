@@ -192,34 +192,94 @@ button:disabled {
    Login
    ========================================================================== */
 
+/* The sign-in page is the whole viewport, with the card centred on it.
+   The background is whatever SEMANTICUI_LOGIN_BACKGROUND_URL points at,
+   or the built-in gradient when a deployment has not said. */
 .login {
-  max-width: 360px;
-  margin: 10vh auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
   padding: 24px;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, #1d3a5f 0%, transparent 60%),
+    radial-gradient(900px 500px at 95% 110%, #24506b 0%, transparent 55%),
+    linear-gradient(160deg, #10151c 0%, #16202b 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+.login.has-background {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* A scrim, not a lighter image: whatever a deployment points at, the card
+   above it has to stay readable -- and a photograph with a bright corner
+   is the normal case, not the exception. */
+.login-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(8 12 18 / 0.55), rgb(8 12 18 / 0.75));
+  pointer-events: none;
+}
+
+.login-card {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  padding: 32px 28px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.35), 0 2px 6px rgb(0 0 0 / 0.2);
 }
 
-.login h1 {
+.login-card h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 4px;
-  font-size: 18px;
-  letter-spacing: -0.01em;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-.login > p {
+.login-tagline {
+  margin: 0 0 20px;
+  color: var(--ink-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-card > p {
   margin: 0 0 16px;
   color: var(--ink-secondary);
   font-size: 13px;
 }
 
-.login form {
+/* The one thing this page is for. */
+.sso-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sso-signin .button {
+  justify-content: center;
+  height: 38px;
+  font-size: 13px;
+}
+
+.login-card form {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.login label {
+.login-card label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2100,6 +2160,251 @@ button.secondary:hover,
   color: var(--ink-secondary);
   font-size: 12px;
 }
+
+/* ==========================================================================
+   The admin area — operations, the activity log, the security board
+   ========================================================================== */
+
+.admin {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 22px clamp(12px, 2vw, 28px) 32px;
+}
+
+.admin-tabs { margin-bottom: 18px; }
+.admin-tabs .kind-tab { text-decoration: none; }
+
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-section-title {
+  margin: 8px 0 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- operations ---------------------------------------------------------- */
+
+.ops-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.ops-banner.ops-ok { border-left: 3px solid #107c10; }
+.ops-banner.ops-down { border-left: 3px solid var(--error); }
+.ops-uptime { margin-left: auto; color: var(--ink-muted); font-size: 12px; }
+
+/* Green or red, and nothing in between: a health check either answered or
+   it did not. */
+.ops-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  flex: 0 0 auto;
+}
+
+.ops-ok > .ops-dot { background: #107c10; }
+.ops-down > .ops-dot { background: var(--error); }
+
+.ops-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.ops-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--grid);
+  font-size: 13px;
+}
+
+.ops-check:last-child { border-bottom: none; }
+.ops-check-name { font-weight: 600; }
+.ops-check-detail { color: var(--ink-muted); font-size: 12px; }
+.ops-check-latency {
+  margin-left: auto;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ops-counts li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.ops-count-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-count-label {
+  color: var(--ink-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- the activity log ---------------------------------------------------- */
+
+.admin-user-filter input {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.log-table col.col-when { width: 120px; }
+.log-table col.col-action { width: 170px; }
+.log-table col.col-outcome { width: 96px; }
+.log-table col.col-actor { width: 130px; }
+.log-table col.col-resource { width: 150px; }
+
+.log-action,
+.log-resource,
+.log-detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.log-detail { color: var(--ink-muted); }
+
+/* The request id joins this row to the log stream, and through the query
+   id logged there to Snowflake's own QUERY_HISTORY. */
+.log-request {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+}
+
+.log-paging {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.role-pill.role-denied { background: rgba(164, 38, 44, 0.12); color: var(--error); }
+.role-pill.role-error { background: rgba(217, 155, 40, 0.16); color: #8a5a00; }
+
+/* --- the security board -------------------------------------------------- */
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-pane);
+  font-size: 13px;
+}
+
+.alert-ok { border-left-color: #107c10; }
+.alert-info { border-left-color: var(--accent); }
+.alert-medium { border-left-color: #d99b28; }
+.alert-high { border-left-color: var(--error); }
+
+.alert-severity {
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.alert-high .alert-severity { background: rgba(164, 38, 44, 0.14); color: var(--error); }
+.alert-medium .alert-severity { background: rgba(217, 155, 40, 0.18); color: #8a5a00; }
+.alert-ok .alert-severity { background: rgba(16, 124, 16, 0.14); color: #0e6b0e; }
+
+.alert-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.alert-detail { color: var(--ink-secondary); font-size: 12px; }
+
+.alert-count {
+  margin-left: auto;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A shape, not a chart: no axes, no legend, nothing to read off it but
+   "was it busy, and when". Loading a chart library to draw fourteen
+   rectangles would cost more than the answer is worth. */
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.sparkline-bar {
+  flex: 1 1 auto;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.rail-admin .rail-glyph { color: var(--brand); }
 
 /* ==========================================================================
    Context menu — the browser's own is suppressed only where this replaces it

@@ -97,11 +97,25 @@ export default function LoginPage() {
     }
   }
 
+  // Only a URL the browser can fetch reaches a style attribute, and only
+  // as a url() -- a value from configuration is not a value to interpolate
+  // into CSS unchecked.
+  const background = /^(https?:\/\/|\/)[^"')\s]+$/.test(branding.loginBackgroundUrl ?? "")
+    ? { backgroundImage: `url("${branding.loginBackgroundUrl}")` }
+    : undefined;
+
   return (
-    <main className="login">
-      <h1>
-        {branding.logoUrl ? (
-          <img
+    <main
+      className={background ? "login has-background" : "login"}
+      style={background}
+    >
+      {/* A scrim, not a lighter image: whatever a deployment points at,
+          the card above it has to stay readable. */}
+      <div className="login-scrim" aria-hidden="true" />
+      <section className="login-card">
+        <h1>
+          {branding.logoUrl ? (
+            <img
               className="brand-logo"
               src={branding.logoUrl}
               alt=""
@@ -111,11 +125,14 @@ export default function LoginPage() {
                 e.currentTarget.style.display = "none";
               }}
             />
-        ) : (
-          <span className="brand-mark" aria-hidden="true" />
+          ) : (
+            <span className="brand-mark" aria-hidden="true" />
+          )}
+          {branding.name}
+        </h1>
+        {branding.loginTagline && (
+          <p className="login-tagline">{branding.loginTagline}</p>
         )}
-        {branding.name}
-      </h1>
       {redirectReason && <p className="notice">{redirectReason}</p>}
       {authMode === "oauth" && (
         <div className="sso-signin">
@@ -217,6 +234,7 @@ export default function LoginPage() {
           </form>
         </>
       )}
+      </section>
     </main>
   );
 }

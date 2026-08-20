@@ -4,6 +4,11 @@ import { useEffect } from "react";
 export interface Branding {
   name: string;
   logoUrl: string | null;
+  /** Behind the sign-in card. Empty for the built-in gradient, which is
+   *  what an unconfigured deployment gets. */
+  loginBackgroundUrl?: string;
+  /** One line under the brand on the sign-in page. */
+  loginTagline?: string;
 }
 
 const FALLBACK: Branding = { name: "SemanticUI", logoUrl: null };

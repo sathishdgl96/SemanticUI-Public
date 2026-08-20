@@ -1,11 +1,13 @@
 import { useBranding } from "./useBranding";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useMe } from "../auth/useMe";
 import { ProfileMenu } from "../session/ProfileMenu";
 import WorkspacesFlyout from "./WorkspacesFlyout";
+import { amIAppAdmin } from "../api/admin";
+import Icon from "../ui/Icon";
 
 /** The PowerBI-style frame every authenticated page sits in: near-black top
  *  bar with the brand mark and identity, and the left nav rail with the
@@ -16,6 +18,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
+  // Asked of everyone, and answered for everyone: the endpoint is not
+  // behind the admin gate, so an ordinary page load does not produce an
+  // audited denial just to decide whether to draw a nav item.
+  const admin = useQuery({
+    queryKey: ["admin", "whoami"],
+    queryFn: amIAppAdmin,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
   const location = useLocation();
 
   // The flyout is a way of GETTING somewhere, so arriving anywhere ends it.
@@ -134,6 +145,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </span>
             <span className="rail-label">Workspaces</span>
           </button>
+          {/* Absent rather than disabled for everyone else: a control that
+              is visible and refuses is an invitation to try. */}
+          {admin.data?.isAppAdmin && (
+            <NavLink
+              to="/admin"
+              className="rail-item rail-admin"
+              title="Administration"
+              onClick={() => setWorkspacesOpen(false)}
+            >
+              <span className="rail-glyph" aria-hidden="true">
+                <Icon name="shield" size={19} />
+              </span>
+              <span className="rail-label">Admin</span>
+            </NavLink>
+          )}
         </nav>
         {workspacesOpen && <WorkspacesFlyout onClose={() => setWorkspacesOpen(false)} />}
         <main className="app-content">{children}</main>

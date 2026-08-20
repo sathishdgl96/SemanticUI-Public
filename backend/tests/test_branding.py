@@ -11,13 +11,22 @@ def test_branding_endpoint_is_public_and_reads_settings(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "app_name", "PlainBI")
     monkeypatch.setattr(get_settings(), "app_logo_url", None)
     monkeypatch.setattr(get_settings(), "app_logo_file", None)
-    assert client.get("/api/branding").json() == {"name": "PlainBI", "logoUrl": None}
+    assert client.get("/api/branding").json() == {
+        "name": "PlainBI",
+        "logoUrl": None,
+        # The sign-in page's own dressing travels with the rest of the
+        # branding: empty means the built-in gradient and no tagline.
+        "loginBackgroundUrl": "",
+        "loginTagline": "",
+    }
 
     monkeypatch.setattr(get_settings(), "app_name", "AcmeBI")
     monkeypatch.setattr(get_settings(), "app_logo_url", "https://acme.example/logo.svg")
     assert client.get("/api/branding").json() == {
         "name": "AcmeBI",
         "logoUrl": "https://acme.example/logo.svg",
+        "loginBackgroundUrl": "",
+        "loginTagline": "",
     }
 
 

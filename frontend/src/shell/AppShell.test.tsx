@@ -54,6 +54,9 @@ function stubApi(overrides: Record<string, unknown> = {}) {
     }
     if (path === "/api/me") return Promise.resolve(ME);
     if (path === "/api/workspaces") return Promise.resolve(WORKSPACES);
+    // Answered for everyone: the endpoint is not behind the admin gate,
+    // so drawing the rail costs no audited denial.
+    if (path === "/api/admin/whoami") return Promise.resolve({ isAppAdmin: false });
     if (path === "/auth/logout") return Promise.resolve(undefined);
     return Promise.reject(new Error(`unexpected path: ${path}`));
   });
@@ -110,6 +113,23 @@ describe("AppShell", () => {
     );
     expect(screen.getByText("Reports content")).toBeInTheDocument();
     expect(await screen.findByText("ALICE @ ACME")).toBeInTheDocument();
+  });
+
+  it("hides the admin entry from everyone who is not one", async () => {
+    // Absent rather than disabled: a control that is visible and refuses
+    // is an invitation to try.
+    renderShell();
+    await screen.findByText("Reports content");
+    expect(screen.queryByRole("link", { name: /admin/i })).toBeNull();
+  });
+
+  it("shows the admin entry to an administrator", async () => {
+    stubApi({ "/api/admin/whoami": { isAppAdmin: true } });
+    renderShell();
+    expect(await screen.findByRole("link", { name: /admin/i })).toHaveAttribute(
+      "href",
+      "/admin",
+    );
   });
 
   it("does not mark Browse current while you are inside a workspace", async () => {

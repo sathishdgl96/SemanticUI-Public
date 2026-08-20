@@ -13,6 +13,7 @@ import { useMe } from "./auth/useMe";
 import AppShell from "./shell/AppShell";
 import ExplorerPage from "./explorer/ExplorerPage";
 import HomePage from "./home/HomePage";
+import AdminPage from "./admin/AdminPage";
 import DashboardPage from "./dashboards/DashboardPage";
 import WorkspacePage from "./workspaces/WorkspacePage";
 import BuilderPage from "./reports/BuilderPage";
@@ -85,6 +86,18 @@ export default function App() {
               <RequireAuth>
                 <AppShell>
                   <DashboardPage />
+                </AppShell>
+              </RequireAuth>
+            }
+          />
+          {/* A splat: the admin area routes its own tabs, so the three
+              of them are one entry here rather than three. */}
+          <Route
+            path="/admin/*"
+            element={
+              <RequireAuth>
+                <AppShell>
+                  <AdminPage />
                 </AppShell>
               </RequireAuth>
             }
