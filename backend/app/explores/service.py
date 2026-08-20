@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import SavedExplore, WorkspaceMember
 from app.explores.schema import ExploreDefinition, parse_definition
-from app.library import search, state
+from app.library import provenance, search, state
 from app.library.search import LibraryQuery
 from app.reports.service import personal_workspace_id
 from app.workspaces.access import require_owned, require_workspace
@@ -84,6 +84,7 @@ def create_explore(
         definition={},
     )
     _apply(explore, definition)
+    provenance.stamp(db, user_id, explore)
     db.add(explore)
     db.commit()
     db.refresh(explore)
@@ -99,6 +100,7 @@ def update_explore(
 ) -> SavedExplore:
     explore = require_owned(db, user_id, explore_id, SavedExplore, need="editor")
     _apply(explore, parse_definition(raw_definition))
+    provenance.stamp(db, user_id, explore)
     db.commit()
     db.refresh(explore)
     return explore

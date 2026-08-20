@@ -85,12 +85,21 @@ def setup_logging(fmt: str) -> None:
     handler.addFilter(ContextFilter())
     root.addHandler(handler)
     root.setLevel(logging.INFO)
-    # Uvicorn ships its own handlers; fold them into ours so access lines
-    # carry request ids and one collector sees one stream.
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    # Uvicorn ships its own handlers; fold them into ours so one
+    # collector sees one stream.
+    for name in ("uvicorn", "uvicorn.error"):
         lg = logging.getLogger(name)
         lg.handlers = []
         lg.propagate = True
+    # ...except the access log, which writes the path WITH its query
+    # string -- search terms, feed filter values, and a live OAuth
+    # authorization code on every sign-in. Uvicorn emits it only when
+    # the logger has a handler, so leaving it detached silences it.
+    # The app's own request line (app/main.py) already records method,
+    # path and status, carries the request id, and logs no query string.
+    access = logging.getLogger("uvicorn.access")
+    access.handlers = []
+    access.propagate = False
 
 
 class RequestTimer:

@@ -155,10 +155,15 @@ async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
     # after it; MSOLAP quotes it on each subsequent call.
     echo_session = session_id if (xmla_request.wants_session or xmla_request.session_id) else None
 
+    # Shape, never the statement: MDX encodes a pivot's selected member
+    # VALUES as literal keys, and they sit well inside any prefix worth
+    # logging. The sfqid in the query log is the bridge to Snowflake's
+    # own QUERY_HISTORY for anyone who needs the text (ADR 0007).
     logger.info(
-        "%s %s session=%s",
+        "%s %s chars=%d session=%s",
         xmla_request.verb,
-        xmla_request.request_type or (xmla_request.statement or "")[:120],
+        xmla_request.request_type or "statement",
+        len(xmla_request.statement or ""),
         "yes" if xmla_request.session_id else ("new" if xmla_request.wants_session else "-"),
     )
     def attempt():

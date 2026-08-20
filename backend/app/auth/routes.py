@@ -59,21 +59,32 @@ def oauth_login(account: str | None = None) -> RedirectResponse:
 
 
 def _replay_remembered_context(db: Session, sess: DbSession, conn) -> None:
-    """Put the user back in the role and warehouse they last chose.
+    """Put the user back in the role and warehouse they last chose, then
+    record what actually took effect.
 
     Best effort by design: a remembered role that has since been revoked
-    costs the user a preference, never their login. Losing it silently
-    would be worse than useless, so the gap is logged.
+    costs the user a preference, never their login. Reading the context
+    back afterwards keeps the stored value honest -- it is what the
+    profile menu and the provenance stamp both rely on, so a preference
+    that silently failed to apply must not survive as if it had.
     """
     user = db.get(User, sess.user_id)
-    if user is None or not (user.last_role or user.last_warehouse):
+    if user is None:
         return
     from app.session import context
 
+    if user.last_role or user.last_warehouse:
+        try:
+            context.apply_context(conn, user.last_role, user.last_warehouse)
+        except Exception as exc:
+            logger.info("remembered context no longer usable, using defaults: %s", exc)
     try:
-        context.apply_context(conn, user.last_role, user.last_warehouse)
-    except Exception as exc:
-        logger.info("remembered context no longer usable, using defaults: %s", exc)
+        live = context.current_context(conn)
+    except Exception:
+        return
+    user.last_role = live["role"]
+    user.last_warehouse = live["warehouse"]
+    db.commit()
 
 
 def _reject_oauth_callback(message: str, detail: str | None = None) -> JSONResponse:
@@ -168,6 +179,10 @@ def oauth_callback(
             access_expires_at=datetime.now(timezone.utc)
             + timedelta(seconds=tok.expires_in),
         )
+        # Remembered so a rebuilt connection reaches the SAME account;
+        # the choice otherwise lived only in the short-lived OAuth state.
+        sess.snowflake_account_choice = account
+        db.commit()
     except Exception:
         sf_connect.close_quietly(conn)
         raise

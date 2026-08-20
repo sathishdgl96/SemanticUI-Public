@@ -46,7 +46,13 @@ def _commit_or_stale(db: Session, session_id: str) -> bool:
         db.commit()
         return True
     except StaleDataError:
-        logger.warning("session %s vanished during touch; treating as inactive", session_id)
+        # By reference: the session id IS the cookie secret.
+        from app.audit import session_ref
+
+        logger.warning(
+            "session %s vanished during touch; treating as inactive",
+            session_ref(session_id),
+        )
         db.rollback()
         return False
 

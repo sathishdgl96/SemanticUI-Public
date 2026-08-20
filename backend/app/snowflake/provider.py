@@ -196,6 +196,9 @@ class ConnectionCache:
             token,
             user=self._login_name(db, sess),
             role=oauth_mod.role_from_token(token),
+            # The account this session chose, or the rebuild lands on
+            # the configured default -- a different account entirely.
+            account=sess.snowflake_account_choice,
         )
 
     def evict(self, session_id: str) -> None:

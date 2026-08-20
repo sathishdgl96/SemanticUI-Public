@@ -68,6 +68,13 @@ class DbSession(Base):
     connect_token_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: The account chosen at login. Needed because rebuilding an
+    #: expired OAuth connection must reach the SAME account -- the
+    #: choice lived only in the short-lived OAuth state, so a rebuild
+    #: silently fell back to the configured default.
+    snowflake_account_choice: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
 
     user: Mapped[User] = relationship()
 

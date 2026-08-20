@@ -24,30 +24,77 @@ from app.semantic.discovery import quote_ident
 from app.snowflake import gateway
 
 
-def _first_column(conn: Any, sql: str) -> list[str]:
+def _rows(conn: Any, sql: str) -> tuple[list[dict], dict[str, int]]:
+    """Rows plus a name->index map.
+
+    Columns are addressed BY NAME. SHOW rowsets are wide and their
+    layout is Snowflake's to change: reading column 0 of SHOW GRANTS TO
+    USER once yielded `created_on`, a timestamp, which silently emptied
+    the role list.
+    """
     result = gateway.run_query(conn, sql, max_rows=1000)
-    return [str(row[0]) for row in result.rows if row and row[0]]
+    index = {str(col["name"]).lower(): i for i, col in enumerate(result.columns)}
+    return result.rows, index
 
 
 def available_roles(conn: Any) -> list[str]:
     """Roles granted to the current user, in Snowflake's own order.
 
-    Deduplicated: a role granted both directly and through another is
-    one choice to a person, however many grants produced it.
+    SHOW GRANTS TO USER lists direct privilege grants alongside role
+    grants, so only the rows `granted_on = ROLE` name a role. It also
+    demands an identifier -- `CURRENT_USER()` there is a compilation
+    error -- hence the extra round trip to learn the name.
     """
+    who, _ = _rows(conn, "SELECT CURRENT_USER()")
+    if not who or not who[0] or not who[0][0]:
+        return []
+    login = str(who[0][0])
+    rows, index = _rows(conn, f"SHOW GRANTS TO USER {quote_ident(login)}")
+
+    granted_on = index.get("granted_on")
+    name = index.get("name", index.get("role"))
+    if granted_on is None or name is None:
+        return []
+
     seen: set[str] = set()
     out: list[str] = []
-    for name in _first_column(conn, "SHOW GRANTS TO USER CURRENT_USER()"):
-        if name.upper() not in seen:
-            seen.add(name.upper())
-            out.append(name)
+    for row in rows:
+        if str(row[granted_on]).upper() != "ROLE" or not row[name]:
+            continue
+        role = str(row[name])
+        # A role granted more than one way is one choice to a person.
+        if role.upper() not in seen:
+            seen.add(role.upper())
+            out.append(role)
     return out
 
 
 def available_warehouses(conn: Any) -> list[str]:
     """Warehouses usable under the CURRENT role -- SHOW already filters
     to what the session may see, so no second check is needed."""
-    return _first_column(conn, "SHOW WAREHOUSES")
+    rows, index = _rows(conn, "SHOW WAREHOUSES")
+    column = index.get("name")
+    if column is None:
+        return []
+    return [str(row[column]) for row in rows if row[column]]
+
+
+def current_context(conn: Any) -> dict[str, str | None]:
+    """What the connection is ACTUALLY running as.
+
+    Reported instead of the stored preference: an apply can fail halfway
+    (USE ROLE succeeds, USE WAREHOUSE does not), and a profile menu
+    confidently naming a role the session is not in is worse than one
+    that says nothing.
+    """
+    rows, _ = _rows(conn, "SELECT CURRENT_ROLE(), CURRENT_WAREHOUSE()")
+    if not rows or not rows[0]:
+        return {"role": None, "warehouse": None}
+    role, warehouse = rows[0][0], rows[0][1]
+    return {
+        "role": str(role) if role else None,
+        "warehouse": str(warehouse) if warehouse else None,
+    }
 
 
 def resolve(choice: str | None, allowed: list[str], kind: str) -> str | None:

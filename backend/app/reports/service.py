@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Report, Workspace, WorkspaceMember
 from app.errors import ApiError
-from app.library import search, state
+from app.library import provenance, search, state
 from app.library.search import LibraryQuery
 from app.reports.schema import ReportDefinition, parse_definition
 from app.workspaces.access import require_access, require_workspace
@@ -97,6 +97,7 @@ def create_report(
     report = Report(owner_user_id=user_id, workspace_id=target, name=definition.name,
                     view_database="", view_schema="", view_name="", definition={})
     _apply(report, definition)
+    provenance.stamp(db, user_id, report)
     db.add(report)
     db.commit()
     db.refresh(report)
@@ -108,6 +109,7 @@ def update_report(
 ) -> Report:
     report = require_access(db, user_id, report_id, need="editor")
     _apply(report, parse_definition(raw_definition))
+    provenance.stamp(db, user_id, report)
     db.commit()
     db.refresh(report)
     return report
@@ -218,6 +220,7 @@ def import_report(
     report = Report(owner_user_id=user_id, workspace_id=target, name=definition.name,
                     view_database="", view_schema="", view_name="", definition={})
     _apply(report, definition)
+    provenance.stamp(db, user_id, report)
     db.add(report)
     db.commit()
     db.refresh(report)

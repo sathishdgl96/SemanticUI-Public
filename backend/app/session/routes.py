@@ -26,12 +26,16 @@ def read_context(
 ) -> dict:
     entry = get_cache().acquire(db, sess)
     with entry.lock:
+        # What the connection IS running as, not what was last stored:
+        # a remembered role can be revoked, and an apply can fail
+        # halfway. A menu naming a role the session is not in is worse
+        # than one that says nothing.
+        live = context.current_context(entry.conn)
         roles = context.available_roles(entry.conn)
         warehouses = context.available_warehouses(entry.conn)
-    user = db.get(User, sess.user_id)
     return {
-        "role": user.last_role,
-        "warehouse": user.last_warehouse,
+        "role": live["role"],
+        "warehouse": live["warehouse"],
         "roles": roles,
         "warehouses": warehouses,
     }
@@ -49,16 +53,24 @@ def set_context(
         # anything is applied -- a rejected choice must leave the
         # connection exactly as it was.
         role = context.resolve(body.role, context.available_roles(entry.conn), "role")
+        if role:
+            # The role first, then re-list: warehouse usage is granted
+            # per role, so the old role's list is the wrong one to
+            # validate the new role's warehouse against.
+            context.apply_context(entry.conn, role, None)
         warehouse = context.resolve(
             body.warehouse, context.available_warehouses(entry.conn), "warehouse"
         )
-        context.apply_context(entry.conn, role, warehouse)
+        context.apply_context(entry.conn, None, warehouse)
+        applied = context.current_context(entry.conn)
 
+    # Remember what actually took effect, so a half-applied switch is
+    # not replayed as if it had succeeded at the next login.
     user = db.get(User, sess.user_id)
     if role:
-        user.last_role = role
+        user.last_role = applied["role"] or role
     if warehouse:
-        user.last_warehouse = warehouse
+        user.last_warehouse = applied["warehouse"] or warehouse
     db.commit()
 
     from app.audit import record
