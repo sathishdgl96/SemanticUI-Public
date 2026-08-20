@@ -89,9 +89,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </span>
             <span className="rail-label">Home</span>
           </NavLink>
+          {/* Browse and "a workspace" are the same route with and without
+              a ?workspace=. Marking Browse current while you are inside one
+              said you were somewhere you were not. */}
           <NavLink
             to="/reports"
-            className="rail-item"
+            className={({ isActive }) =>
+              isActive && !location.search.includes("workspace=")
+                ? "rail-item active"
+                : "rail-item"
+            }
             title="Browse"
             onClick={() => setWorkspacesOpen(false)}
           >
@@ -113,7 +120,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </NavLink>
           <button
             type="button"
-            className="rail-item"
+            className={
+              location.search.includes("workspace=")
+                ? "rail-item active"
+                : "rail-item"
+            }
             aria-expanded={workspacesOpen}
             onClick={() => setWorkspacesOpen((open) => !open)}
             title="Workspaces"

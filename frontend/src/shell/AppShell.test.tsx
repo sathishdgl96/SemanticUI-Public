@@ -59,11 +59,11 @@ function stubApi(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function renderShell() {
+function renderShellAt(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/reports"]}>
+      <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/login" element={<p>Login page</p>} />
           <Route
@@ -79,6 +79,10 @@ function renderShell() {
     </QueryClientProvider>,
   );
   return { qc, ...utils };
+}
+
+function renderShell() {
+  return renderShellAt("/reports");
 }
 
 beforeEach(() => {
@@ -106,6 +110,20 @@ describe("AppShell", () => {
     );
     expect(screen.getByText("Reports content")).toBeInTheDocument();
     expect(await screen.findByText("ALICE @ ACME")).toBeInTheDocument();
+  });
+
+  it("does not mark Browse current while you are inside a workspace", async () => {
+    // Browse and "a workspace" are the same route with and without a
+    // ?workspace=. Lighting Browse up inside one said you were somewhere
+    // you were not.
+    renderShellAt("/reports?workspace=w1");
+    expect(screen.getByRole("link", { name: /^browse$/i })).not.toHaveClass("active");
+    expect(screen.getByRole("button", { name: /workspaces/i })).toHaveClass("active");
+  });
+
+  it("marks Browse current when no workspace is named", async () => {
+    renderShellAt("/reports");
+    expect(screen.getByRole("link", { name: /^browse$/i })).toHaveClass("active");
   });
 
   it("closes the workspaces flyout on the way to another page", async () => {

@@ -2,6 +2,7 @@ import * as echarts from "echarts";
 import { useEffect, useRef } from "react";
 import type { EChartsOptionLike } from "./renderers/categorical";
 import { buildChartOption, type ChartSeries } from "./buildChartOption";
+import { scaleOption } from "./responsiveText";
 
 interface Props {
   kind: "bar" | "line";
@@ -36,12 +37,30 @@ export default function AutoChart({
 
   useEffect(() => {
     if (!ref.current) return;
-    const chart = echarts.init(ref.current, undefined, { renderer: "svg" });
-    chart.setOption(option ?? buildChartOption(kind, categories, series));
+    const element = ref.current;
+    const chart = echarts.init(element, undefined, { renderer: "svg" });
+    const base = option ?? buildChartOption(kind, categories, series);
+
+    /** Re-size the geometry AND the text. ECharts scales the picture to
+     *  its container and leaves every label at the size it was told, so a
+     *  tile dragged small kept 12px axis labels around a plot with barely
+     *  room to draw -- text and picture at different scales, which is what
+     *  makes a small tile look broken rather than small. */
+    const draw = () => {
+      const box = { width: element.clientWidth, height: element.clientHeight };
+      // `notMerge`, because the previous option's larger sizes would
+      // otherwise survive underneath the new ones.
+      chart.setOption(scaleOption(base as Record<string, unknown>, box), true);
+    };
+    draw();
+
     chart.on("click", (params: { name?: string }) => {
       if (params?.name) clickRef.current?.(params.name);
     });
-    const onResize = () => chart.resize();
+    const onResize = () => {
+      chart.resize();
+      draw();
+    };
     window.addEventListener("resize", onResize);
     // The window is not the only thing that changes a chart's size: collapsing
     // a pane, resizing a tile on the grid, or switching to a page whose
@@ -50,7 +69,7 @@ export default function AutoChart({
     // instead of stretching only when the browser frame moves.
     const observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
-    observer?.observe(ref.current);
+    observer?.observe(element);
     return () => {
       window.removeEventListener("resize", onResize);
       observer?.disconnect();
