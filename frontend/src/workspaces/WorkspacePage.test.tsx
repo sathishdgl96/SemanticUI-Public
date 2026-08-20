@@ -118,6 +118,14 @@ async function createA(kind: RegExp) {
   await userEvent.click(await screen.findByRole("menuitem", { name: kind }));
 }
 
+/** The names in the order the table is rendering them. The header cell
+ *  carries the same class, so read the body only. */
+function names(): string[] {
+  return Array.from(document.querySelectorAll("tbody .cell-name")).map(
+    (cell) => cell.textContent ?? "",
+  );
+}
+
 describe("WorkspacePage", () => {
   it("does not ask again which workspace this is", async () => {
     // You chose one to get here, from the rail's flyout. A switcher in the
@@ -280,7 +288,7 @@ describe("WorkspacePage", () => {
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
-  it("shows an error and keeps the confirm dialog open when delete fails", async () => {
+  it("shows an error and keeps the confirmation open when delete fails", async () => {
     listMock.mockResolvedValue({
       reports: [summary({ view: { database: "A", schema: "B", name: "C" } })],
     });
@@ -292,9 +300,9 @@ describe("WorkspacePage", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/report is locked/i);
-    // Failure must not silently dismiss the dialog — the user needs to see
+    // Failure must not silently dismiss it — the user needs to see
     // why nothing happened and still has Cancel/retry available.
-    expect(screen.getByRole("dialog", { name: /confirm delete/i })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /confirm delete/i })).toBeInTheDocument();
   });
 
   it("shows an alert with the backend's message when creating a report fails", async () => {
@@ -394,17 +402,63 @@ describe("WorkspacePage browsing", () => {
     await waitFor(() => expect(viewMock).toHaveBeenCalledWith("report", "r1"));
   });
 
-  it("sorts on request", async () => {
+  it("sorts the merged list without refetching it", async () => {
+    // Three lists are being merged, so only one of the three could ever
+    // have been ordered remotely. Ordering here also means a sort costs
+    // no round trip.
+    listMock.mockResolvedValue({
+      reports: [
+        summary({ id: "r2", name: "Zulu" }),
+        summary({ id: "r1", name: "Alpha" }),
+      ],
+    });
+    renderPage();
+    await screen.findByText("Alpha");
+    const calls = listMock.mock.calls.length;
+
+    await userEvent.selectOptions(screen.getByLabelText(/sort/i), "name");
+    expect(names()).toEqual(["Alpha", "Zulu"]);
+    expect(listMock.mock.calls.length).toBe(calls);
+  });
+
+  it("sorts by a column when its header is clicked, and reverses on a second", async () => {
+    listMock.mockResolvedValue({
+      reports: [
+        summary({ id: "r2", name: "Zulu" }),
+        summary({ id: "r1", name: "Alpha" }),
+      ],
+    });
+    renderPage();
+    await screen.findByText("Alpha");
+
+    await userEvent.click(screen.getByRole("button", { name: /^name/i }));
+    expect(names()).toEqual(["Alpha", "Zulu"]);
+    await userEvent.click(screen.getByRole("button", { name: /^name/i }));
+    expect(names()).toEqual(["Zulu", "Alpha"]);
+  });
+
+  it("says which column is sorted, and which way", async () => {
     listMock.mockResolvedValue({ reports: [summary()] });
     renderPage();
     await screen.findByText("Sales overview");
-    await userEvent.selectOptions(screen.getByLabelText(/sort/i), "name");
-    await waitFor(() =>
-      expect(listMock).toHaveBeenLastCalledWith(
-        "w0",
-        expect.objectContaining({ sort: "name" }),
-      ),
+    await userEvent.click(screen.getByRole("button", { name: /^name/i }));
+    expect(screen.getByRole("columnheader", { name: /name/i })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
     );
+  });
+
+  it("confirms a delete in the row it is about", async () => {
+    // It used to render after the table: clicking row 3 of forty put the
+    // question below row 40, usually off-screen.
+    listMock.mockResolvedValue({ reports: [summary()] });
+    renderPage();
+    await screen.findByText("Sales overview");
+    await userEvent.click(screen.getByRole("button", { name: /delete Sales overview/i }));
+
+    const confirm = screen.getByRole("group", { name: /confirm delete/i });
+    const row = screen.getByRole("link", { name: "Sales overview" }).closest("tr");
+    expect(confirm.closest("tr")?.previousElementSibling).toBe(row);
   });
 });
 

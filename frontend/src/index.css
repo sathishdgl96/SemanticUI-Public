@@ -1867,6 +1867,105 @@ button.secondary:hover,
   opacity: 0.75;
 }
 
+/* --- what a workspace list drops as it narrows --------------------------- */
+
+/* By CLASS, on the col AND the cells, so the header and the body can never
+   drift out of step. The previous rules did it by nth-child, written when
+   the table had six columns; adding Type shifted every index and below the
+   breakpoint the headers sat one column left of their own data.
+
+   Priority, least important first: the semantic view is on the item you
+   are about to open, your role rarely varies within one workspace, and the
+   date is the first thing you stop reading. Name never goes. */
+@media (max-width: 1180px) {
+  .content-table col.col-detail { width: 0; }
+  .content-table .cell-detail { display: none; }
+}
+
+@media (max-width: 980px) {
+  .content-table col.col-role { width: 0; }
+  .content-table .cell-role { display: none; }
+}
+
+@media (max-width: 820px) {
+  .content-table col.col-updated { width: 0; }
+  .content-table .cell-updated { display: none; }
+}
+
+/* Past here a table with three columns is pretending. Each row becomes a
+   card: the name, and under it what the remaining columns were saying. */
+@media (max-width: 640px) {
+  .content-table,
+  .content-table tbody,
+  .content-table tr {
+    display: block;
+    width: 100%;
+  }
+
+  .content-table thead { display: none; }
+  .content-table colgroup { display: none; }
+
+  .content-table tbody tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--grid);
+  }
+
+  .content-table tbody td {
+    display: block;
+    padding: 0;
+    border: none;
+    white-space: normal;
+  }
+
+  /* The name takes the middle column; the pin and the delete bracket it,
+     and the kind sits under the name as a caption. */
+  .content-table .cell-name { grid-column: 2; font-weight: 600; }
+  .content-table .cell-kind {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+  .content-table .cell-actions { grid-column: 3; grid-row: 1 / span 2; }
+  .content-table .cell-pin { grid-column: 1; grid-row: 1 / span 2; }
+  .content-table .cell-glyph { display: none; }
+
+  /* Every row's controls are reachable on a touch screen -- there is no
+     hover to reveal them with. */
+  .content-table .row-actions .icon-button { opacity: 1; }
+
+  .content-table .confirm-row { display: block; }
+  .content-table .confirm-row td { padding: 0; }
+}
+
+/* --- confirming a delete, in the row it is about ------------------------- */
+
+/* It used to render after the table, so clicking row 3 of forty put the
+   question below row 40 -- usually off-screen, always somewhere else. */
+.content-table tr.is-confirming { background: rgba(164, 38, 44, 0.05); }
+
+.content-table .confirm-row td {
+  padding: 0;
+  border-bottom: 1px solid var(--grid);
+  background: rgba(164, 38, 44, 0.05);
+}
+
+.content-table .confirm-row span[role="group"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.content-table .confirm-row [role="alert"] { color: var(--error); }
+
 /* ==========================================================================
    Context menu — the browser's own is suppressed only where this replaces it
    ========================================================================== */
@@ -3459,13 +3558,64 @@ button.secondary:hover,
 /* Explicit widths, because `table-layout: fixed` takes them from the first
    row and the first row is whatever the filter happened to leave. Name
    takes what is left. */
-.content-table col.col-pin { width: 36px; }
-.content-table col.col-glyph { width: 30px; }
-.content-table col.col-kind { width: 104px; }
-.content-table col.col-detail { width: 26%; }
-.content-table col.col-role { width: 84px; }
-.content-table col.col-updated { width: 150px; }
-.content-table col.col-actions { width: 46px; }
+/* `--w` is the width the reader dragged to, if any; the fallback is the
+   default. A custom property rather than an inline `width` so the
+   narrow-screen rules below can still override it -- an inline width wins
+   over every media query, and the table would overflow the moment the
+   window narrowed. Name has no default: it takes what is left. */
+.content-table col.col-pin { width: var(--w, 36px); }
+.content-table col.col-glyph { width: var(--w, 30px); }
+.content-table col.col-name { width: var(--w, auto); }
+.content-table col.col-kind { width: var(--w, 104px); }
+.content-table col.col-detail { width: var(--w, 240px); }
+.content-table col.col-role { width: var(--w, 92px); }
+.content-table col.col-updated { width: var(--w, 140px); }
+.content-table col.col-actions { width: var(--w, 46px); }
+
+/* --- sortable and resizable headers -------------------------------------- */
+
+.content-table th { position: relative; }
+
+.content-table th .th-sort {
+  /* The whole header cell is the target, so the click does not have to
+     find the word. */
+  width: 100%;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+.content-table th[aria-sort] .th-sort { color: var(--accent); }
+
+/* Sits ON the border between two columns, half in each. */
+.col-grip {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  z-index: 1;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-grip::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  left: 2px;
+  width: 2px;
+  height: 60%;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.col-grip:hover::after { background: var(--accent); }
 
 .content-table td,
 .content-table th {
@@ -3715,17 +3865,6 @@ button.secondary:hover,
   }
   .reports-actions {
     flex-wrap: wrap;
-  }
-  /* Name and actions survive; the rest is detail available on the report
-     itself. Hidden with display:none rather than shrunk, so the remaining
-     columns get the full width. */
-  .content-table .report-view,
-  .content-table .report-updated,
-  .content-table thead th:nth-child(3),
-  .content-table thead th:nth-child(4),
-  .content-table thead th:nth-child(5),
-  .content-table tbody td:nth-child(4) {
-    display: none;
   }
   .content-table td,
   .content-table th {

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { createDashboard, deleteDashboard, listDashboards } from "../api/dashboards";
@@ -11,11 +11,19 @@ import { FacetChips } from "../library/FacetChips";
 import { FavoriteStar } from "../library/FavoriteStar";
 import { SearchBar } from "../library/SearchBar";
 import { ITEM_FILTERS, useLibraryQuery } from "../library/useLibraryQuery";
+import {
+  nextSort,
+  sortRows,
+  useTableColumns,
+  type SortKey,
+  type SortState,
+} from "../library/useTableColumns";
 import ImportPanel from "../reports/ImportPanel";
 import MembersPanel from "./MembersPanel";
 import { useWorkspaces } from "./useWorkspaces";
 import ContextMenu, { useContextMenu, type MenuItem } from "../ui/ContextMenu";
 import Icon from "../ui/Icon";
+import { exactTime, relativeTime } from "../ui/relativeTime";
 import { atLeast } from "../api/workspaces";
 
 function blankDefinition(name: string): ReportDefinition {
@@ -51,6 +59,33 @@ const GLYPH: Record<ItemType, string> = {
   dashboard: "▩",
   explore: "◈",
 };
+
+/** The columns, in order. `key` is both the CSS class suffix and the
+ *  width's storage key; `sort` marks the ones a header click orders by.
+ *
+ *  Hiding on a narrow screen is done from this key in CSS, on the `col`
+ *  AND on the cells. It used to be done by nth-child, which was written
+ *  when the table had six columns -- adding Type shifted every index and
+ *  the header quietly drifted one column out of step with the body. */
+const COLUMNS: {
+  key: string;
+  label: string;
+  sort?: SortKey;
+  /** Header text is hidden but still announced. */
+  quiet?: boolean;
+  resizable?: boolean;
+}[] = [
+  { key: "pin", label: "Pinned", quiet: true },
+  { key: "glyph", label: "", quiet: true },
+  { key: "name", label: "Name", sort: "name", resizable: true },
+  { key: "kind", label: "Type", sort: "kind", resizable: true },
+  { key: "detail", label: "Semantic view", sort: "detail", resizable: true },
+  { key: "role", label: "Your role", sort: "role", resizable: true },
+  { key: "updated", label: "Modified", sort: "updated", resizable: true },
+  { key: "actions", label: "Actions", quiet: true },
+];
+
+const ARROW: Record<"asc" | "desc", string> = { asc: "▲", desc: "▼" };
 
 const LABEL: Record<ItemType, string> = {
   report: "Report",
@@ -89,6 +124,11 @@ export default function WorkspacePage() {
   const canCreateHere = selected ? atLeast(selected.myRole, "editor") : false;
 
   const browse = useLibraryQuery();
+  // Ordering is done here rather than by the server: three lists are being
+  // merged, so only one of the three could have been ordered remotely.
+  // That also means a sort costs no refetch.
+  const [sort, setSort] = useState<SortState>({ key: "recent", direction: "desc" });
+  const columns = useTableColumns("semanticui.workspace.columns");
   const wants = (kind: ItemType) => browse.kind === "all" || browse.kind === kind;
   const enabled = Boolean(selectedId);
 
@@ -168,16 +208,9 @@ export default function WorkspacePage() {
       }
     }
 
-    const sort = browse.params.sort ?? "recent";
-    return out.sort((a, b) => {
-      if (sort === "name") return a.name.localeCompare(b.name);
-      const key = sort === "recent" ? "lastViewedAt" : "updatedAt";
-      // Never opened sorts last rather than first: an empty string would
-      // otherwise beat every real timestamp.
-      return (b[key] ?? "").localeCompare(a[key] ?? "");
-    });
+    return sortRows(out, sort);
     // `wants` closes over browse.kind, which is in the list.
-  }, [reports.data, dashboards.data, explores.data, browse.kind, browse.params.sort]);
+  }, [reports.data, dashboards.data, explores.data, browse.kind, sort]);
 
   const loading =
     (wants("report") && reports.isLoading) ||
@@ -366,17 +399,21 @@ export default function WorkspacePage() {
         >
           <span aria-hidden="true">★</span> Pinned
         </button>
+        {/* The dropdown and the headers drive one piece of state. It keeps
+            "Recently opened", which has no column of its own to click. */}
         <label className="library-sort">
           <span className="sr-only">Sort</span>
           <select
-            value={browse.params.sort ?? "recent"}
+            value={sort.key}
             onChange={(event) =>
-              browse.setSort(event.target.value as "recent" | "name" | "updated")
+              setSort((current) => nextSort(current, event.target.value as SortKey))
             }
           >
             <option value="recent">Recently opened</option>
             <option value="updated">Recently changed</option>
             <option value="name">Name</option>
+            <option value="kind">Type</option>
+            <option value="role">Your role</option>
           </select>
         </label>
       </div>
@@ -418,35 +455,83 @@ export default function WorkspacePage() {
       {items.length > 0 && (
         <table className="content-table">
           <colgroup>
-            <col className="col-pin" />
-            <col className="col-glyph" />
-            <col />
-            <col className="col-kind" />
-            <col className="col-detail" />
-            <col className="col-role" />
-            <col className="col-updated" />
-            <col className="col-actions" />
+            {COLUMNS.map((column) => (
+              <col
+                key={column.key}
+                className={`col-${column.key}`}
+                // A width the reader chose, as a custom property so the
+                // narrow-screen rules can still override it -- an inline
+                // `width` would win over every media query and the table
+                // would overflow the moment the window narrowed.
+                style={
+                  columns.widths[column.key]
+                    ? ({ "--w": `${columns.widths[column.key]}px` } as React.CSSProperties)
+                    : undefined
+                }
+              />
+            ))}
           </colgroup>
           <thead>
             <tr>
-              <th>
-                <span className="sr-only">Pinned</span>
-              </th>
-              <th aria-hidden="true"></th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Semantic view</th>
-              <th>Your role</th>
-              <th>Modified</th>
-              <th>
-                <span className="sr-only">Actions</span>
-              </th>
+              {COLUMNS.map((column) => (
+                <th
+                  key={column.key}
+                  className={`cell-${column.key}`}
+                  aria-sort={
+                    column.sort && sort.key === column.sort
+                      ? sort.direction === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : undefined
+                  }
+                >
+                  {column.sort ? (
+                    <button
+                      type="button"
+                      className="th-sort"
+                      onClick={() =>
+                        setSort((current) => nextSort(current, column.sort as SortKey))
+                      }
+                    >
+                      {column.label}
+                      <span className="th-sort-arrow" aria-hidden="true">
+                        {sort.key === column.sort ? ARROW[sort.direction] : ""}
+                      </span>
+                    </button>
+                  ) : column.quiet ? (
+                    <span className="sr-only">{column.label}</span>
+                  ) : (
+                    column.label
+                  )}
+                  {column.resizable && (
+                    // Its own control, not a bare div: a column width is
+                    // adjustable from the keyboard too, and a reader who
+                    // cannot drag still gets the reset.
+                    <span
+                      className="col-grip"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Resize ${column.label}`}
+                      onPointerDown={(event) =>
+                        columns.beginResize(
+                          event,
+                          column.key,
+                          event.currentTarget.parentElement?.getBoundingClientRect().width ??
+                            120,
+                        )
+                      }
+                      onDoubleClick={() => columns.reset(column.key)}
+                    />
+                  )}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={`${item.kind}:${item.id}`}>
-                <td className="pin-cell">
+              <Fragment key={`${item.kind}:${item.id}`}>
+              <tr className={pendingDelete?.id === item.id ? "is-confirming" : undefined}>
+                <td className="cell-pin pin-cell">
                   <FavoriteStar
                     itemType={item.kind}
                     id={item.id}
@@ -454,10 +539,10 @@ export default function WorkspacePage() {
                     invalidate={`${item.kind}s`}
                   />
                 </td>
-                <td className="type-glyph" aria-hidden="true">
+                <td className="cell-glyph type-glyph" aria-hidden="true">
                   {GLYPH[item.kind]}
                 </td>
-                <td>
+                <td className="cell-name">
                   <Link
                     className="report-name"
                     to={item.href}
@@ -471,13 +556,18 @@ export default function WorkspacePage() {
                     {item.name}
                   </Link>
                 </td>
-                <td className="item-kind">{LABEL[item.kind]}</td>
-                <td className="report-view">{item.detail}</td>
-                <td>{item.myRole}</td>
-                <td className="report-updated">
-                  {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "—"}
+                <td className="cell-kind item-kind">{LABEL[item.kind]}</td>
+                <td className="cell-detail report-view" title={item.detail}>
+                  {item.detail}
                 </td>
-                <td className="row-actions">
+                <td className="cell-role">{item.myRole}</td>
+                <td
+                  className="cell-updated report-updated"
+                  title={item.updatedAt ? exactTime(item.updatedAt) : ""}
+                >
+                  {item.updatedAt ? relativeTime(item.updatedAt) : "—"}
+                </td>
+                <td className="cell-actions row-actions">
                   {/* An icon, and a red one: "Delete" repeated down every
                       row is the loudest word on the page, and the one
                       action there you least want to invite. An explore is
@@ -497,33 +587,42 @@ export default function WorkspacePage() {
                   )}
                 </td>
               </tr>
+              {pendingDelete?.id === item.id && (
+                // In the row it is about, and as a row of its own so the
+                // table's columns still line up underneath it.
+                <tr className="confirm-row">
+                  <td colSpan={COLUMNS.length}>
+                    <span role="group" aria-label="Confirm delete">
+                      Delete “{item.name}”? This cannot be undone.
+                      <button
+                        type="button"
+                        className="danger-primary"
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate(item)}
+                      >
+                        {remove.isPending ? "Deleting…" : "Delete"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          setPendingDelete(null);
+                          setDeleteError(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      {deleteError && <span role="alert">{deleteError}</span>}
+                    </span>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
       )}
       </div>
-
-      {pendingDelete && (
-        <div className="confirm" role="dialog" aria-label="Confirm delete">
-          <p>Delete “{pendingDelete.name}”? This cannot be undone.</p>
-          {deleteError && <p role="alert">{deleteError}</p>}
-          <button
-            onClick={() => remove.mutate(pendingDelete)}
-            disabled={remove.isPending}
-          >
-            {remove.isPending ? "Deleting..." : "Delete"}
-          </button>
-          <button
-            className="secondary"
-            onClick={() => {
-              setPendingDelete(null);
-              setDeleteError(null);
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
 
       {create.at && (
         <ContextMenu at={create.at} items={createItems()} onClose={create.close} />
