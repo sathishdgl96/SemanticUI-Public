@@ -6379,17 +6379,17 @@ button.model-column:hover {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  width: 100%;
   padding: 0.35rem 0.5rem 0;
   font-size: 0.82rem;
   font-weight: 600;
-}
-
-.designer-toggle {
   background: none;
   border: none;
-  color: inherit;
   cursor: pointer;
-  padding: 0 0.15rem;
+  text-align: left;
+}
+
+.designer-toggle > span:first-child {
   font-size: 0.75rem;
   line-height: 1;
 }
@@ -6549,12 +6549,92 @@ button.model-column:hover {
 
 /* A view's own joins are Snowflake's: drawn quieter than the mappings
    somebody made, because only one of the two is theirs to change. */
-.designer-canvas .react-flow__edge[data-kind="internal"] .react-flow__edge-path {
+.designer-canvas .react-flow__edge.designer-edge-internal .react-flow__edge-path {
   stroke: var(--ink-muted, #8a94a6);
   stroke-width: 1;
 }
 
-.designer-canvas .react-flow__edge[data-kind="ghost"] .react-flow__edge-path {
+.designer-canvas .react-flow__edge.designer-edge-ghost .react-flow__edge-path {
   stroke: var(--ink-muted, #8a94a6);
   stroke-dasharray: 4 4;
+}
+
+/* A refusal, and the panel for a selected mapping. Both float over the
+   canvas rather than pushing it: a diagram that resized every time you
+   clicked an edge would move the thing you were aiming at. */
+.designer-refusal,
+.designer-edge-panel {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.82rem;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+}
+
+.designer-refusal {
+  border-color: var(--danger, #c92a2a);
+}
+
+.designer-refusal .link,
+.designer-edge-panel .link {
+  margin-left: auto;
+}
+
+.designer-edge-panel input {
+  flex: 0 1 14rem;
+  min-width: 0;
+}
+
+/* Connectable ports have to be findable once dragging is possible --
+   invisible anchors were right while the canvas was only readable. */
+.designer-canvas .designer-port {
+  width: 8px;
+  height: 8px;
+  background: var(--surface);
+  border: 1.5px solid var(--ink-muted, #8a94a6);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.designer-column:hover .designer-port,
+.designer-summary-row:hover .designer-port,
+.designer-canvas .react-flow__node:hover .designer-port {
+  opacity: 1;
+}
+
+.designer-canvas .designer-port:hover {
+  border-color: var(--accent, #4c6ef5);
+  background: var(--accent, #4c6ef5);
+}
+
+/* A canvas needs room to be a canvas. Below this the Design tab offers a
+   diagram nobody can read OR drag on, so it says so and points at the
+   form, which works at any width. */
+@media (max-width: 860px) {
+  .designer-canvas {
+    display: none;
+  }
+  .designer-too-narrow {
+    display: block;
+  }
+}
+
+.designer-too-narrow {
+  display: none;
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--ink-muted, var(--muted));
+  font-size: 0.85rem;
 }

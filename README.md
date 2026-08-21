@@ -662,6 +662,38 @@ two views. They are built from two metric references and an operator
 rather than typed as a formula, because a formula box would suggest the
 numbers can be recomputed here.
 
+### Designing one
+
+A model opens on a **Design** tab: each member view is a coloured area
+holding its own tables, with the conformed dimensions drawn between the
+columns they relate. Drag a column onto a column in another view to map
+them; drag a third view's column onto an existing mapping and it joins
+that one rather than starting a second.
+
+A view starts collapsed — sixty-four table cards is not a diagram — but
+collapsed is smaller, not blind: it still lists the columns it
+contributes to a shared dimension, so every line lands on something that
+says *what* the two views meet on. Expanding brings that view's tables
+and its own internal joins in together.
+
+Those internal joins are drawn quieter, and clicking one says why it
+cannot be changed: they are Snowflake's, declared by the view. Only the
+mappings you made are yours to edit.
+
+**Detect** offers the columns two views name the same way, dashed, with
+the evidence on each ("same key column in 2 views"). They are never
+applied on their own — a mapping the app made is one nobody reviewed —
+and accepting one goes through the same rules a drag does, so a
+suggestion can never save a model the server would refuse. Deliberately
+not offered: a match between differently-named columns like `CUSTOMER_ID`
+and `CLIENT_ID`, because nothing in the metadata connects them and a list
+full of guesses is one people learn to click past.
+
+The **Fields** tab is the same model as a form, and does three things the
+canvas has no gesture for: derived metrics, the join and cross-filter
+settings, and typing an exact column. Both tabs edit one draft, so
+whatever you do on one shows on the other.
+
 Models export and import as portable documents like everything else.
 Design notes and the road not taken:
 [docs/superpowers/specs/2026-08-20-composite-semantic-models-v1-runtime-drill-across.md](docs/superpowers/specs/2026-08-20-composite-semantic-models-v1-runtime-drill-across.md).

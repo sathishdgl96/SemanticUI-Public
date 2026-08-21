@@ -286,6 +286,8 @@ export default function ModelPage() {
           definition={draft}
           detail={shape.data}
           loading={shape.isLoading}
+          readOnly={readOnly}
+          onChange={(next) => setDraft(next)}
         />
       )}
 

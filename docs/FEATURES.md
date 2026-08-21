@@ -104,7 +104,10 @@ unaudited before anybody noticed the log looked thin.
   knowing what a customer is proves nothing about their key columns —
   and where composite semantics differ from single-view semantics (what
   a filter on one view does to the others) the choice is named in the
-  model and shown in words, never applied silently.
+  model and shown in words, never applied silently. Authored on a
+  canvas — views as coloured areas holding their tables, mappings drawn
+  between columns — with matching columns *offered* rather than applied,
+  because a mapping nobody reviewed is one nobody can vouch for.
 - **Chat** — ask a report a question in English. The model proposes a
   query; it never executes one and never sees data. The SQL is always
   shown, because an answer you cannot audit is one you should not act on.

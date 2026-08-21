@@ -79,6 +79,23 @@ export function columnHandle(alias: string, table: string, column: string): stri
   return `${alias}::${table}.${column}`;
 }
 
+/** `source:sales::CUSTOMER.CUSTOMER_ID` -> the column it names.
+ *
+ *  The inverse of `columnHandle`, kept beside it: a drag arrives as two
+ *  handle ids and nothing else, so if these two ever disagreed a drop
+ *  would resolve to the wrong column rather than failing. */
+export function parseHandle(
+  handle: string | null | undefined,
+): { alias: string; table: string; column: string } | null {
+  if (!handle) return null;
+  const withoutRole = handle.replace(/^(source|target):/, "");
+  const [alias, rest] = withoutRole.split("::");
+  if (!alias || !rest) return null;
+  const dot = rest.indexOf(".");
+  if (dot <= 0 || dot === rest.length - 1) return null;
+  return { alias, table: rest.slice(0, dot), column: rest.slice(dot + 1) };
+}
+
 /** The columns a view actually contributes, grouped by its own table. */
 function columnsByTable(
   detail: CompositeViewDetail,
@@ -259,6 +276,7 @@ export function buildDesigner(
           target: `${key}/${relationship.refTable}`,
           markerStart: MANY,
           markerEnd: ONE,
+          className: "designer-edge-internal",
           data: {
             kind: "internal",
             label: (relationship.foreignKey ?? []).join(", ") || undefined,
@@ -335,6 +353,7 @@ export function buildDesigner(
         sourceHandle: `source:${a.handle}`,
         target: b.node,
         targetHandle: `target:${b.handle}`,
+        className: "designer-edge-conformed",
         data: {
           kind: "conformed",
           dimension: shared.name,
@@ -361,6 +380,7 @@ export function buildDesigner(
         sourceHandle: `source:${a.handle}`,
         target: b.node,
         targetHandle: `target:${b.handle}`,
+        className: "designer-edge-ghost",
         data: { kind: "ghost", dimension: ghost.name, reason: ghost.reason, label: ghost.name },
       });
     }

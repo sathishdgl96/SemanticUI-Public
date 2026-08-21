@@ -7,6 +7,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { CompositeDefinition } from "../api/composites";
@@ -14,7 +15,9 @@ import type { CompositeViewDetail } from "../models/availability";
 import { MANY, ONE } from "../model/graph";
 import Backdrop from "./Backdrop";
 import DesignerTable from "./DesignerTable";
-import { buildDesigner } from "./layout";
+import { relate, rename, unrelate } from "./edits";
+import { buildDesigner, parseHandle, type DesignerEdge } from "./layout";
+import { ghostKey, ghostsFor } from "./suggest";
 
 const nodeTypes = { backdrop: Backdrop, designerTable: DesignerTable };
 
@@ -94,9 +97,15 @@ function Markers() {
 function Toolbar({
   onExpandAll,
   onCollapseAll,
+  ghosts,
+  onDetectAll,
+  readOnly,
 }: {
   onExpandAll: () => void;
   onCollapseAll: () => void;
+  ghosts: number;
+  onDetectAll: () => void;
+  readOnly: boolean;
 }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   return (
@@ -121,6 +130,16 @@ function Toolbar({
       <button type="button" title="Collapse every view" onClick={onCollapseAll}>
         Collapse all
       </button>
+      {!readOnly && ghosts > 0 && (
+        <button
+          type="button"
+          className="primary"
+          title="Accept every suggested mapping"
+          onClick={onDetectAll}
+        >
+          Accept {ghosts} suggested
+        </button>
+      )}
     </div>
   );
 }
@@ -129,16 +148,28 @@ function Canvas({
   modelId,
   definition,
   detail,
+  readOnly,
+  onChange,
 }: {
   modelId: string;
   definition: CompositeDefinition;
   detail: CompositeViewDetail;
+  readOnly: boolean;
+  onChange: (next: CompositeDefinition) => void;
 }) {
   const { open, toggle, setOpen } = useExpanded(modelId);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [selected, setSelected] = useState<DesignerEdge | null>(null);
+
+  const ghosts = useMemo(
+    () => (readOnly ? [] : ghostsFor(definition, detail, dismissed)),
+    [definition, detail, dismissed, readOnly],
+  );
 
   const graph = useMemo(
-    () => buildDesigner(definition, detail, open),
-    [definition, detail, open],
+    () => buildDesigner(definition, detail, open, ghosts),
+    [definition, detail, open, ghosts],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
@@ -153,6 +184,58 @@ function Canvas({
     const id = window.setTimeout(() => fitView(FIT), 0);
     return () => window.clearTimeout(id);
   }, [graph, setNodes, setEdges, fitView]);
+
+  function apply(result: ReturnType<typeof relate>) {
+    if (result.ok) {
+      setRefusal(null);
+      setSelected(null);
+      onChange(result.definition);
+    } else {
+      // A drag that silently does nothing is worse than one that says
+      // why -- the reason is the whole feedback for a gesture that had no
+      // visible effect.
+      setRefusal(result.reason);
+    }
+  }
+
+  function onConnect(connection: Connection) {
+    const from = parseHandle(connection.sourceHandle);
+    const to = parseHandle(connection.targetHandle);
+    if (!from || !to) {
+      setRefusal("Drag from a column to a column — that is what a mapping is.");
+      return;
+    }
+    apply(relate(definition, from, to));
+  }
+
+  const accepted = (name: string) =>
+    ghosts.find((ghost) => ghost.name === name);
+
+  function acceptGhost(name: string) {
+    const ghost = accepted(name);
+    if (!ghost) return;
+    // Through `relate` rather than by appending: a suggestion has to obey
+    // the same rules a drag does, or accepting one could save a model the
+    // server refuses.
+    const entries = Object.entries(ghost.bindings);
+    let next = definition;
+    for (let i = 0; i + 1 < entries.length; i += 1) {
+      const [alias, binding] = entries[i];
+      const [nextAlias, nextBinding] = entries[i + 1];
+      const result = relate(
+        next,
+        { alias, table: binding.table, column: binding.column },
+        { alias: nextAlias, table: nextBinding.table, column: nextBinding.column },
+      );
+      if (!result.ok) {
+        setRefusal(result.reason);
+        return;
+      }
+      next = result.definition;
+    }
+    setRefusal(null);
+    onChange(next);
+  }
 
   return (
     <div
@@ -174,50 +257,145 @@ function Canvas({
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onConnect={readOnly ? undefined : onConnect}
+        onEdgeClick={(_event, edge) => {
+          setRefusal(null);
+          const kind = (edge as DesignerEdge).data?.kind;
+          if (kind === "internal") {
+            setSelected(null);
+            setRefusal(
+              "That join belongs to the view — Snowflake declares it, so it " +
+                "cannot be changed here.",
+            );
+            return;
+          }
+          setSelected(edge as DesignerEdge);
+        }}
         fitView
         fitViewOptions={FIT}
         minZoom={0.2}
         maxZoom={1.6}
         proOptions={{ hideAttribution: true }}
-        nodesConnectable={false}
+        nodesConnectable={!readOnly}
         elementsSelectable
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
       </ReactFlow>
+
       <Toolbar
         onExpandAll={() =>
           setOpen(new Set(definition.members.map((m) => m.alias.toLowerCase())))
         }
         onCollapseAll={() => setOpen(new Set())}
+        ghosts={ghosts.length}
+        onDetectAll={() => ghosts.forEach((ghost) => acceptGhost(ghost.name))}
+        readOnly={readOnly}
       />
+
+      {refusal && (
+        <p className="designer-refusal" role="alert">
+          {refusal}
+          <button type="button" className="link" onClick={() => setRefusal(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
+
+      {selected?.data?.kind === "conformed" && !readOnly && (
+        <div className="designer-edge-panel" role="group" aria-label="Shared dimension">
+          <label className="sr-only" htmlFor="designer-edge-name">
+            Name
+          </label>
+          <input
+            id="designer-edge-name"
+            defaultValue={selected.data.dimension}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              apply(
+                rename(
+                  definition,
+                  selected.data!.dimensionIndex as number,
+                  (event.target as HTMLInputElement).value,
+                ),
+              );
+            }}
+          />
+          <button
+            type="button"
+            className="danger"
+            onClick={() =>
+              apply(unrelate(definition, selected.data!.dimensionIndex as number))
+            }
+          >
+            Remove
+          </button>
+          <button type="button" className="link" onClick={() => setSelected(null)}>
+            Close
+          </button>
+        </div>
+      )}
+
+      {selected?.data?.kind === "ghost" && !readOnly && (
+        <div className="designer-edge-panel" role="group" aria-label="Suggested mapping">
+          <span>
+            <strong>{selected.data.dimension}</strong> — {selected.data.reason}
+          </span>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              acceptGhost(selected.data!.dimension as string);
+              setSelected(null);
+            }}
+          >
+            Accept
+          </button>
+          <button
+            type="button"
+            className="link"
+            onClick={() => {
+              const ghost = accepted(selected.data!.dimension as string);
+              if (ghost) {
+                setDismissed((current) => new Set(current).add(ghostKey(ghost)));
+              }
+              setSelected(null);
+            }}
+          >
+            Not the same
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * The model as a diagram: member views as coloured areas, their tables
- * inside them, conformed dimensions drawn between the columns they relate.
+ * The model as a diagram you can edit: member views as coloured areas,
+ * their tables inside them, conformed dimensions drawn between the
+ * columns they relate.
  *
- * Read-only for now — pan, zoom, expand and collapse. Drawing and editing
- * relationships is the next step; the gestures it will use already exist
- * as pure functions in `edits.ts`.
+ * Drag a column onto a column in another view to map them. Suggestions
+ * are drawn dashed and are never applied on their own — a mapping the app
+ * made is one nobody reviewed.
  */
 export default function ModelDesigner({
   modelId,
   definition,
   detail,
   loading,
+  readOnly = false,
+  onChange,
 }: {
   modelId: string;
   definition: CompositeDefinition;
   detail?: CompositeViewDetail;
   loading?: boolean;
+  readOnly?: boolean;
+  onChange: (next: CompositeDefinition) => void;
 }) {
   if (definition.members.length === 0) {
     return (
-      <p className="empty">
-        Add a view on the Fields tab and it will appear here.
-      </p>
+      <p className="empty">Add a view on the Fields tab and it will appear here.</p>
     );
   }
   if (loading || !detail) {
@@ -225,7 +403,20 @@ export default function ModelDesigner({
   }
   return (
     <ReactFlowProvider>
-      <Canvas modelId={modelId} definition={definition} detail={detail} />
+      {/* Shown only under the canvas's breakpoint, by CSS rather than by
+          measuring: a width query does not need a resize listener, and
+          the two cannot disagree about where the cutoff is. */}
+      <p className="designer-too-narrow">
+        There is not enough width here to draw the model. The Fields tab
+        does everything this does, and works at any size.
+      </p>
+      <Canvas
+        modelId={modelId}
+        definition={definition}
+        detail={detail}
+        readOnly={readOnly}
+        onChange={onChange}
+      />
     </ReactFlowProvider>
   );
 }

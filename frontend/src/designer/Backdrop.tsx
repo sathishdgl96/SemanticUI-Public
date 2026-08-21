@@ -22,24 +22,25 @@ export default function Backdrop({ data }: NodeProps<BackdropNode>) {
         borderColor: colour.ink,
       }}
     >
-      <header className="designer-backdrop-head" style={{ color: colour.ink }}>
-        <button
-          type="button"
-          className="designer-toggle"
-          // The whole header is the target: a 12px chevron is a poor
-          // thing to ask somebody to hit on a canvas they are also
-          // panning.
-          data-alias={alias}
-          aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${alias}`}
-        >
-          <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
-        </button>
+      {/* `nodrag`, or React Flow claims the pointer for a node drag and
+          the click never lands -- which is exactly how this shipped once
+          with a toggle that did nothing. The whole header is the target:
+          a 12px chevron is a poor thing to ask somebody to hit on a
+          canvas they are also panning. */}
+      <button
+        type="button"
+        className="designer-backdrop-head designer-toggle nodrag"
+        style={{ color: colour.ink }}
+        data-alias={alias}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Collapse" : "Expand"} ${alias}`}
+      >
+        <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
         <span className="designer-backdrop-name">{alias}</span>
         <span className="designer-backdrop-count">
           {tableCount === 1 ? "1 table" : `${tableCount} tables`}
         </span>
-      </header>
+      </button>
       <p className="designer-backdrop-view" title={view}>
         {view}
       </p>

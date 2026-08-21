@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { CompositeDefinition } from "../api/composites";
 import type { CompositeViewDetail } from "../models/availability";
-import { buildDesigner, type DesignerEdge, type DesignerNode } from "./layout";
+import {
+  buildDesigner,
+  columnHandle,
+  parseHandle,
+  type DesignerEdge,
+  type DesignerNode,
+} from "./layout";
 import { PALETTE } from "./palette";
 
 function definition(over: Partial<CompositeDefinition> = {}): CompositeDefinition {
@@ -246,5 +252,59 @@ describe("buildDesigner", () => {
     const { nodes, edges } = buildDesigner(empty, detail());
     expect(nodes).toEqual([]);
     expect(edges).toEqual([]);
+  });
+});
+
+describe("parseHandle", () => {
+  it("reads back exactly what columnHandle wrote", () => {
+    // A drag arrives as two handle ids and nothing else; if these two
+    // disagreed a drop would resolve to the WRONG column rather than
+    // failing, which is the worst kind of bug this canvas could have.
+    const written = columnHandle("sales", "CUSTOMER", "CUSTOMER_ID");
+    expect(parseHandle(`source:${written}`)).toEqual({
+      alias: "sales",
+      table: "CUSTOMER",
+      column: "CUSTOMER_ID",
+    });
+    expect(parseHandle(`target:${written}`)).toEqual({
+      alias: "sales",
+      table: "CUSTOMER",
+      column: "CUSTOMER_ID",
+    });
+  });
+
+  it("keeps a column name that contains a dot", () => {
+    const written = columnHandle("sales", "ORDERS", "TOTAL.NET");
+    expect(parseHandle(`source:${written}`)?.column).toBe("TOTAL.NET");
+  });
+
+  it("says nothing rather than guessing at a handle it did not write", () => {
+    expect(parseHandle(null)).toBeNull();
+    expect(parseHandle("")).toBeNull();
+    expect(parseHandle("source:nonsense")).toBeNull();
+    expect(parseHandle("source:sales::NODOT")).toBeNull();
+  });
+});
+
+describe("edge styling", () => {
+  it("marks each kind with a class, because React Flow does not emit data", () => {
+    // The CSS was keyed on a `data-kind` attribute React Flow never
+    // writes, so a view's own joins were drawn as loudly as the mappings
+    // somebody made.
+    const { edges } = buildDesigner(definition(), detail(), new Set(["sales"]), [
+      {
+        name: "Month",
+        reason: "Same key column in 2 views",
+        bindings: {
+          sales: { table: "ORDERS", column: "ORDER_MONTH" },
+          support: { table: "TICKETS", column: "ORDER_MONTH" },
+        },
+      },
+    ]);
+    const classOf = (want: string) =>
+      edges.find((e) => e.data?.kind === want)?.className;
+    expect(classOf("internal")).toBe("designer-edge-internal");
+    expect(classOf("conformed")).toBe("designer-edge-conformed");
+    expect(classOf("ghost")).toBe("designer-edge-ghost");
   });
 });
