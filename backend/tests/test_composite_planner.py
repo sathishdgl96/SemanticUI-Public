@@ -547,3 +547,85 @@ class TestColumnNames:
                 stitch, {"sales": SALES, "support": support}, max_rows=200
             )
         assert "ORDERS.REVENUE" in str(caught.value.message)
+
+
+class TestNothingButIdentifiersReachesSql:
+    """The contract the whole codebase keeps, asserted for the composite
+    compiler specifically: every identifier is quoted, every value binds."""
+
+    def test_a_hostile_dimension_name_cannot_break_out(self):
+        # A shared dimension's name is typed by a person and becomes a
+        # column alias. quote_ident refuses an embedded quote rather than
+        # escaping it, so the model is unsaveable instead of dangerous.
+        defn = model(
+            sharedDimensions=[
+                {
+                    "name": 'Customer" , (SELECT 1) AS "x',
+                    "bindings": {
+                        "sales": {"table": "CUSTOMER", "column": "CUSTOMER_ID"},
+                        "support": {"table": "CLIENT", "column": "CLIENT_ID"},
+                    },
+                }
+            ]
+        )
+        with pytest.raises(ApiError):
+            compiled(
+                defn,
+                dimensions=['Customer" , (SELECT 1) AS "x'],
+                metrics=["sales:ORDERS.REVENUE"],
+            )
+
+    def test_every_filter_value_is_a_placeholder(self):
+        sql, params, _ = compiled(
+            model(),
+            dimensions=["Customer"],
+            metrics=["sales:ORDERS.REVENUE", "support:TICKETS.TICKET_COUNT"],
+            filters=filters(
+                {
+                    "id": "f1",
+                    "field": "sales:CUSTOMER.REGION",
+                    "op": "is",
+                    "values": ["EU'; DROP TABLE USERS --"],
+                }
+            ),
+        )
+        assert "DROP TABLE" not in sql
+        assert "EU'; DROP TABLE USERS --" in params
+        # One placeholder per bound value, in the gate and in the branch.
+        assert sql.count("?") == len(params)
+
+    def test_a_derived_metric_operator_comes_from_a_closed_set(self):
+        # The operator is interpolated, so it must never be user text.
+        # pydantic's Literal is what makes that true; this asserts it.
+        from app.composites.schema import parse_definition
+
+        with pytest.raises(ApiError):
+            parse_definition(
+                {
+                    "schemaVersion": 1,
+                    "name": "M",
+                    "members": [
+                        {"alias": "a", "database": "D", "schema": "S", "view": "A"},
+                        {"alias": "b", "database": "D", "schema": "S", "view": "B"},
+                    ],
+                    "sharedDimensions": [
+                        {
+                            "name": "K",
+                            "bindings": {
+                                "a": {"table": "T", "column": "C"},
+                                "b": {"table": "T", "column": "C"},
+                            },
+                        }
+                    ],
+                    "derivedMetrics": [
+                        {
+                            "name": "Evil",
+                            "expr": {
+                                "op": ") OR 1=1 --",
+                                "left": {"metric": "a:T.M"},
+                                "right": {"metric": "b:T.M"},
+                            },
+                        }
+                    ],
+                }
+            )

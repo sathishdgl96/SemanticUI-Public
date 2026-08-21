@@ -23,10 +23,10 @@ import { colourOf, paletteFor, type ViewColour } from "./palette";
  * why anybody expands one.
  */
 
-export const BACKDROP_HEADER = 34;
-export const BACKDROP_PADDING = 14;
+const BACKDROP_HEADER = 34;
+const BACKDROP_PADDING = 14;
 /** A conformed column listed on a collapsed backdrop. */
-export const SUMMARY_ROW = 22;
+const SUMMARY_ROW = 22;
 const TABLE_HEADER = 34;
 const GAP = 56;
 

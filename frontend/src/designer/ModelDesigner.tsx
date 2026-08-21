@@ -13,7 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { CompositeDefinition } from "../api/composites";
 import type { CompositeViewDetail } from "../models/availability";
-import type { SemanticViewSummary } from "../api/types";
+import type { SemanticViewDetail, SemanticViewSummary } from "../api/types";
 import { MANY, ONE } from "../model/graph";
 import Backdrop from "./Backdrop";
 import DesignerTable from "./DesignerTable";
@@ -197,6 +197,7 @@ function Canvas({
   modelId,
   definition,
   detail,
+  describes,
   readOnly,
   views,
   onChange,
@@ -204,6 +205,7 @@ function Canvas({
   modelId: string;
   definition: CompositeDefinition;
   detail: CompositeViewDetail;
+  describes: Record<string, SemanticViewDetail | undefined>;
   readOnly: boolean;
   views: SemanticViewSummary[];
   onChange: (next: CompositeDefinition) => void;
@@ -215,8 +217,8 @@ function Canvas({
   const [selected, setSelected] = useState<DesignerEdge | null>(null);
 
   const ghosts = useMemo(
-    () => (readOnly ? [] : ghostsFor(definition, detail, dismissed)),
-    [definition, detail, dismissed, readOnly],
+    () => (readOnly ? [] : ghostsFor(definition, describes, dismissed)),
+    [definition, describes, dismissed, readOnly],
   );
 
   const graph = useMemo(
@@ -486,6 +488,7 @@ export default function ModelDesigner({
   modelId,
   definition,
   detail,
+  describes,
   loading,
   readOnly = false,
   views = [],
@@ -494,6 +497,10 @@ export default function ModelDesigner({
   modelId: string;
   definition: CompositeDefinition;
   detail?: CompositeViewDetail;
+  /** Each member view's own describe, as the page fetched it. The
+   *  matcher wants these, and handing them over beats flattening them
+   *  into the model's shape only to unflatten them again. */
+  describes: Record<string, SemanticViewDetail | undefined>;
   loading?: boolean;
   readOnly?: boolean;
   /** Every semantic view this caller can see, so a model can be built
@@ -517,6 +524,7 @@ export default function ModelDesigner({
         modelId={modelId}
         definition={definition}
         detail={detail}
+        describes={describes}
         readOnly={readOnly}
         views={views}
         onChange={onChange}

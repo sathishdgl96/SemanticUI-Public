@@ -254,7 +254,7 @@ export function unrelate(
  * imposed: what a team calls a view and what it calls that view's part
  * in a model are different questions, so the alias stays editable.
  */
-export function suggestAlias(view: string, taken: string[]): string {
+function suggestAlias(view: string, taken: string[]): string {
   const base =
     view
       .toLowerCase()

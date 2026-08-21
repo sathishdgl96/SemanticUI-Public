@@ -727,3 +727,47 @@ def test_describe_says_why_a_member_could_not_be_read(client, db, monkeypatch):
     # The one that answered is unaffected.
     assert "sales" not in body["memberErrors"]
     assert [g["alias"] for g in body["memberGraphs"]] == ["sales"]
+
+
+def test_every_composite_endpoint_refuses_a_stranger(client, db):
+    """One list, so a new endpoint added without a gate fails HERE rather
+    than being found by whoever it exposes a model to."""
+    owner = sign_in(client, db, "ALICE")
+    ws = workspace(db, owner.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+    mine = created["id"]
+
+    sign_in(client, db, "MALLORY")
+    # 404 rather than 403 throughout: "forbidden" would confirm the id.
+    assert client.get(f"/api/composites/{mine}").status_code == 404
+    assert client.get(f"/api/composites/{mine}/describe").status_code == 404
+    assert client.get(f"/api/composites/{mine}/export").status_code == 404
+    assert client.get(
+        f"/api/composites/{mine}/values", params={"field": "Customer 360.Customer"}
+    ).status_code == 404
+    assert client.post(
+        f"/api/composites/{mine}/query",
+        json={"dimensions": ["Customer 360.Customer"], "metrics": []},
+    ).status_code == 404
+    assert client.put(
+        f"/api/composites/{mine}", json={"definition": definition()}
+    ).status_code == 404
+    assert client.delete(f"/api/composites/{mine}").status_code == 404
+    # ...and a stranger's own listing shows nothing of Alice's.
+    assert client.get("/api/composites").json()["composites"] == []
+
+
+def test_signed_out_callers_reach_no_composite_endpoint(client, db):
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+
+    client.cookies.clear()
+    for path in (
+        "/api/composites",
+        f"/api/composites/{created['id']}",
+        f"/api/composites/{created['id']}/describe",
+        f"/api/composites/{created['id']}/export",
+    ):
+        assert client.get(path).status_code == 401, path

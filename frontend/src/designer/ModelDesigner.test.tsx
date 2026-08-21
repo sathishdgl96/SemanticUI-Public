@@ -51,6 +51,27 @@ function detail(): CompositeViewDetail {
   };
 }
 
+/** The per-member describes the page holds, as the matcher wants them. */
+const DESCRIBES = {
+  sales: {
+    tables: [{ name: "ORDERS" }, { name: "CUSTOMER" }],
+    relationships: [],
+    dimensions: [
+      { table: "CUSTOMER", name: "CUSTOMER_ID", dataType: "TEXT" },
+      { table: "CUSTOMER", name: "REGION", dataType: "TEXT" },
+    ],
+    metrics: [{ table: "ORDERS", name: "REVENUE", dataType: "NUMBER" }],
+    facts: [],
+  },
+  support: {
+    tables: [{ name: "CLIENT" }],
+    relationships: [],
+    dimensions: [{ table: "CLIENT", name: "CUSTOMER_ID", dataType: "TEXT" }],
+    metrics: [],
+    facts: [],
+  },
+};
+
 function renderDesigner(over: Partial<CompositeDefinition> = {}) {
   const onChange = vi.fn();
   render(
@@ -58,6 +79,7 @@ function renderDesigner(over: Partial<CompositeDefinition> = {}) {
       modelId="m1"
       definition={definition(over)}
       detail={detail()}
+      describes={DESCRIBES}
       onChange={onChange}
     />,
   );
@@ -110,6 +132,7 @@ describe("ModelDesigner", () => {
         modelId="m1"
         definition={definition()}
         detail={detail()}
+        describes={DESCRIBES}
         onChange={vi.fn()}
       />,
     );
@@ -122,6 +145,7 @@ describe("ModelDesigner", () => {
         modelId="m1"
         definition={definition()}
         detail={detail()}
+        describes={DESCRIBES}
         onChange={vi.fn()}
       />,
     );
@@ -189,6 +213,7 @@ describe("ModelDesigner", () => {
         modelId="m1"
         definition={definition({ members: [], sharedDimensions: [] })}
         detail={detail()}
+        describes={DESCRIBES}
         views={[{ database: "A", schema: "P", name: "SALES_SV", comment: null }]}
         onChange={vi.fn()}
       />,
@@ -204,6 +229,7 @@ describe("ModelDesigner", () => {
         modelId="m1"
         definition={definition({ members: [], sharedDimensions: [] })}
         detail={detail()}
+        describes={DESCRIBES}
         views={[{ database: "A", schema: "P", name: "SALES_SV", comment: null }]}
         onChange={onChange}
       />,
@@ -225,6 +251,7 @@ describe("ModelDesigner", () => {
         modelId="m1"
         definition={definition()}
         detail={detail()}
+        describes={DESCRIBES}
         views={[
           { database: "D", schema: "S", name: "SALES_SV", comment: null },
           { database: "D", schema: "S", name: "BILLING_SV", comment: null },
@@ -254,6 +281,7 @@ describe("ModelDesigner", () => {
           ],
         })}
         detail={detail()}
+        describes={DESCRIBES}
         onChange={onChange}
       />,
     );
@@ -273,6 +301,7 @@ describe("ModelDesigner", () => {
         modelId="m1"
         definition={definition()}
         detail={detail()}
+        describes={DESCRIBES}
         readOnly
         onChange={vi.fn()}
       />,

@@ -237,6 +237,7 @@ export default function ModelPage() {
           modelId={id}
           definition={draft}
           detail={shape}
+          describes={describes.byAlias}
           loading={describes.loading}
           readOnly={readOnly}
           views={views.data?.views ?? []}

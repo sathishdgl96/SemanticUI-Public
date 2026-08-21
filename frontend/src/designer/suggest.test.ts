@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CompositeDefinition } from "../api/composites";
-import type { CompositeViewDetail } from "../models/availability";
-import { ghostKey, ghostsFor, memberDetails } from "./suggest";
+import type { SemanticViewDetail } from "../api/types";
+import { ghostKey, ghostsFor } from "./suggest";
 
 function definition(over: Partial<CompositeDefinition> = {}): CompositeDefinition {
   return {
@@ -20,54 +20,27 @@ function definition(over: Partial<CompositeDefinition> = {}): CompositeDefinitio
 }
 
 /** Both views know CUSTOMER_ID; only sales knows REGION. */
-function detail(): CompositeViewDetail {
+function detail(): Record<string, SemanticViewDetail> {
   return {
-    tables: [{ name: "Customer 360" }, { name: "sales" }, { name: "support" }],
-    relationships: [],
-    dimensions: [
-      { table: "sales", name: "CUSTOMER.CUSTOMER_ID", dataType: "TEXT" },
-      { table: "sales", name: "CUSTOMER.REGION", dataType: "TEXT" },
-      { table: "support", name: "CLIENT.CUSTOMER_ID", dataType: "TEXT" },
-    ],
-    metrics: [],
-    facts: [],
-    memberGraphs: [
-      { alias: "sales", tables: [{ name: "CUSTOMER" }], relationships: [] },
-      { alias: "support", tables: [{ name: "CLIENT" }], relationships: [] },
-    ],
+    sales: {
+      tables: [{ name: "CUSTOMER" }],
+      relationships: [],
+      dimensions: [
+        { table: "CUSTOMER", name: "CUSTOMER_ID", dataType: "TEXT" },
+        { table: "CUSTOMER", name: "REGION", dataType: "TEXT" },
+      ],
+      metrics: [],
+      facts: [],
+    },
+    support: {
+      tables: [{ name: "CLIENT" }],
+      relationships: [],
+      dimensions: [{ table: "CLIENT", name: "CUSTOMER_ID", dataType: "TEXT" }],
+      metrics: [],
+      facts: [],
+    },
   };
 }
-
-describe("memberDetails", () => {
-  it("unflattens the model's field list back into one describe per view", () => {
-    // So auto-detect costs no extra request, and the canvas and the form
-    // suggest from exactly the same data.
-    const details = memberDetails(definition(), detail());
-    expect(details.sales.dimensions).toEqual([
-      { table: "CUSTOMER", name: "CUSTOMER_ID", dataType: "TEXT" },
-      { table: "CUSTOMER", name: "REGION", dataType: "TEXT" },
-    ]);
-    expect(details.support.dimensions).toEqual([
-      { table: "CLIENT", name: "CUSTOMER_ID", dataType: "TEXT" },
-    ]);
-  });
-
-  it("leaves a shared dimension out — it is already mapped, not a candidate", () => {
-    const withShared = detail();
-    withShared.dimensions.push({
-      table: "Customer 360",
-      name: "Customer",
-      dataType: "TEXT",
-    });
-    const details = memberDetails(definition(), withShared);
-    expect(Object.keys(details).sort()).toEqual(["sales", "support"]);
-  });
-
-  it("carries each view's own graph through, for the reachability rules", () => {
-    const details = memberDetails(definition(), detail());
-    expect(details.sales.tables).toEqual([{ name: "CUSTOMER" }]);
-  });
-});
 
 describe("ghostsFor", () => {
   it("suggests the column both views name the same way", () => {
@@ -104,7 +77,7 @@ describe("ghostsFor", () => {
 
   it("suggests nothing when only one view knows a column", () => {
     const alone = detail();
-    alone.dimensions = alone.dimensions.filter((d) => d.table === "sales");
+    delete (alone as Record<string, unknown>).support;
     expect(ghostsFor(definition(), alone)).toEqual([]);
   });
 });
