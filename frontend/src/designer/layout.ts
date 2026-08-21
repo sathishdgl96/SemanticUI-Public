@@ -282,7 +282,9 @@ export function buildDesigner(
         edges.push({
           id: `internal:${key}:${relationship.name}`,
           source: `${key}/${relationship.table}`,
+          sourceHandle: `source:${key}::${relationship.table}`,
           target: `${key}/${relationship.refTable}`,
+          targetHandle: `target:${key}::${relationship.refTable}`,
           markerStart: MANY,
           markerEnd: ONE,
           className: "designer-edge-internal",

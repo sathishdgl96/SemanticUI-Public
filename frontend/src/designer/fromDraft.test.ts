@@ -80,9 +80,11 @@ describe("compositeDetailFromDraft", () => {
     });
   });
 
-  it("does not offer a conformed column twice", () => {
-    // Two ways to group by one thing answer differently depending which
-    // was dragged.
+  it("keeps a conformed column under its member, unlike the server's describe", () => {
+    // The server hides it: its describe feeds a field PICKER, and two
+    // ways to group by one thing answer differently depending which was
+    // dragged. This one feeds a DIAGRAM, where that column is what the
+    // mapping line is drawn to.
     const detail = compositeDetailFromDraft(
       definition({
         sharedDimensions: [
@@ -98,7 +100,7 @@ describe("compositeDetailFromDraft", () => {
       describes,
     );
     const names = detail.dimensions.map((d) => `${d.table}.${d.name}`);
-    expect(names).not.toContain("sales.CUSTOMER.CUSTOMER_ID");
+    expect(names).toContain("sales.CUSTOMER.CUSTOMER_ID");
     expect(names).toContain("sales.CUSTOMER.REGION");
   });
 
@@ -160,5 +162,55 @@ describe("folderName", () => {
 
   it("keeps clear of a member alias, so a reference stays unambiguous", () => {
     expect(folderName(definition({ name: "sales" }))).not.toBe("sales");
+  });
+});
+
+describe("mapping a column must not remove it from its table", () => {
+  it("keeps a conformed column in its member's field list", () => {
+    // The canvas anchors a mapping to the COLUMN it is on. Dropping the
+    // column from the member's list took its handle with it, so the very
+    // line that was just drawn had nowhere to land and vanished -- and
+    // any table left with no columns took its view's own joins with it.
+    const mapped = compositeDetailFromDraft(
+      definition({
+        sharedDimensions: [
+          {
+            name: "Customer",
+            bindings: {
+              sales: { table: "CUSTOMER", column: "CUSTOMER_ID" },
+              support: { table: "CLIENT", column: "CLIENT_ID" },
+            },
+          },
+        ],
+      }),
+      describes,
+    );
+    const names = mapped.dimensions.map((d) => `${d.table}.${d.name}`);
+    expect(names).toContain("sales.CUSTOMER.CUSTOMER_ID");
+    expect(names).toContain("support.CLIENT.CLIENT_ID");
+    // ...and the shared dimension is still offered in its own right.
+    expect(names).toContain("Customer 360.Customer");
+  });
+
+  it("leaves no table without columns after everything is mapped", () => {
+    // A card with no columns has no handles, and React Flow drops every
+    // edge that cannot find one.
+    const mapped = compositeDetailFromDraft(
+      definition({
+        members: [{ alias: "support", database: "D", schema: "S", view: "SUPPORT_SV" }],
+        sharedDimensions: [
+          {
+            name: "Customer",
+            bindings: {
+              support: { table: "CLIENT", column: "CLIENT_ID" },
+              other: { table: "X", column: "Y" },
+            },
+          },
+        ],
+      }),
+      { support: describes.support },
+    );
+    const supportFields = mapped.dimensions.filter((d) => d.table === "support");
+    expect(supportFields.length).toBeGreaterThan(0);
   });
 });

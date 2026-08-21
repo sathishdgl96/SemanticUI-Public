@@ -16,6 +16,22 @@ export default function DesignerTable({ data }: NodeProps<DesignerTableNode>) {
   const { alias, table, colour, columns } = data;
   return (
     <div className="designer-table">
+      {/* The card's own anchors, for the view's declared joins. Those
+          edges name no column -- a physical join key is rarely an exposed
+          field -- so without a pair here they would have to borrow a
+          column's handle, and vanish with the last column. */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={`target:${alias.toLowerCase()}::${table}`}
+        className="designer-port designer-port-table"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={`source:${alias.toLowerCase()}::${table}`}
+        className="designer-port designer-port-table"
+      />
       <header className="designer-table-head" style={{ borderTopColor: colour.ink }}>
         <span className="designer-table-name" title={`${alias}.${table}`}>
           {table}

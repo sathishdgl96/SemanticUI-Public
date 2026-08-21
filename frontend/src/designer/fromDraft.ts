@@ -18,6 +18,11 @@ import type { CompositeViewDetail } from "../models/availability";
  *
  * The server keeps its endpoint: a report or an explore reads a model it
  * did not author, and for those the saved definition is exactly right.
+ *
+ * One deliberate difference from the server's version: a column bound to
+ * a shared dimension stays listed under its member here. The server
+ * hides it because its describe feeds a field picker; this one feeds a
+ * diagram, where that column is the thing a mapping line attaches to.
  */
 export function compositeDetailFromDraft(
   definition: CompositeDefinition,
@@ -30,16 +35,9 @@ export function compositeDetailFromDraft(
   const memberGraphs: NonNullable<CompositeViewDetail["memberGraphs"]> = [];
   const memberErrors: Record<string, string> = {};
 
-  // Columns already conformed are not offered a second time under their
-  // member: two ways to group by one thing answer differently depending
-  // which was dragged.
-  const bound = new Map<string, Set<string>>();
+  // Every shared dimension is offered under the model's own name. The
+  // columns it is bound to STAY under their members -- see below.
   for (const shared of definition.sharedDimensions) {
-    for (const [alias, binding] of Object.entries(shared.bindings)) {
-      const key = alias.toLowerCase();
-      if (!bound.has(key)) bound.set(key, new Set());
-      bound.get(key)!.add(`${binding.table}.${binding.column}`.toUpperCase());
-    }
     dimensions.push({ table: folder, name: shared.name, dataType: "TEXT" });
   }
 
@@ -57,10 +55,16 @@ export function compositeDetailFromDraft(
       tables: detail.tables ?? [],
       relationships: detail.relationships ?? [],
     });
-    const taken = bound.get(key) ?? new Set<string>();
     for (const field of detail.dimensions ?? []) {
       if (!field.table || !field.name) continue;
-      if (taken.has(`${field.table}.${field.name}`.toUpperCase())) continue;
+      // A conformed column stays on its table. The server's describe
+      // hides it, because there it feeds a field PICKER and two ways to
+      // group by one thing answer differently depending which was
+      // dragged. Here it feeds a DIAGRAM, and the column is precisely
+      // what the mapping line is anchored to -- hiding it took the
+      // handle away, so accepting a suggestion made the line it had just
+      // drawn disappear, and any table left with no columns took its
+      // view's own joins with it.
       dimensions.push({
         table: member.alias,
         name: `${field.table}.${field.name}`,

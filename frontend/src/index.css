@@ -6808,3 +6808,13 @@ button.model-column:hover {
   bottom: 16px;
   left: 16px;
 }
+
+/* The card's own anchor for its view's declared joins. Positioned at the
+   header so an edge meets the card where its name is, and unobtrusive
+   because it is not something to drag from -- those joins are
+   Snowflake's. */
+.designer-port-table {
+  top: 17px;
+  opacity: 0;
+  pointer-events: none;
+}
