@@ -13,7 +13,7 @@ columns therefore keep to identifier-safe names by construction.
 
 from xml.sax.saxutils import escape
 
-from app.xmla.soap import ROWSET_NS
+from app.xmla.soap import ROWSET_NS, attr
 
 #: Types the schemas below actually use. `int` is xsd:int, everything else
 #: is a string; booleans are the literal "true"/"false" the spec wants.
@@ -53,7 +53,7 @@ def rows_to_xml(columns: list[Column], rows: list[dict]) -> str:
         type_attr = f' type="{xsd_type}"' if xsd_type else ""
         min_attr = "" if c.required else ' minOccurs="0"'
         parts.append(
-            f'<xsd:element sql:field="{escape(c.name)}" name="{escape(c.name)}"'
+            f'<xsd:element sql:field="{attr(c.name)}" name="{attr(c.name)}"'
             f"{type_attr}{min_attr}/>"
         )
     fields = "".join(parts)

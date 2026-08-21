@@ -152,6 +152,14 @@ cannot drift.
   width — are validated against a pattern or an enum first.
 - **Excel formula injection**: a cell whose value begins `= + - @` is
   neutralised on export.
+- **XML injection over XMLA**: element text and attribute values are
+  escaped by different rules, and the difference is load-bearing. The
+  standard-library escaper leaves quotes alone, which is right for text
+  and wrong inside an attribute, where a bare `"` ends the value early.
+  One helper escapes attributes, and the tests assert that responses
+  *parse* rather than that they contain entities — including a SOAP
+  fault whose message carries a quote, which is what a client sees when
+  anything else has already gone wrong.
 - **Prompt injection**: the model proposes a query specification. It never
   executes one and never sees data; the resulting SQL is always shown.
 - **Document size** is bounded on every import and save, checked on the

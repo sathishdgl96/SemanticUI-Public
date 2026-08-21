@@ -14,6 +14,30 @@ from xml.etree import ElementTree
 SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
 XMLA_NS = "urn:schemas-microsoft-com:xml-analysis"
 ROWSET_NS = "urn:schemas-microsoft-com:xml-analysis:rowset"
+
+
+def attr(value: object) -> str:
+    """One attribute value, escaped for an attribute.
+
+    `xml.sax.saxutils.escape` handles `&`, `<` and `>` and leaves quotes
+    alone -- which is correct for element text and wrong inside an
+    attribute, where a bare `"` ends the value early. The parser then
+    reports the next character as unexpected, which is how a Snowflake
+    object or a model named with a quote in it reached Excel as
+    "XML parsing failed ... whitespace expected".
+
+    Apostrophes go too. Nothing here emits single-quoted attributes
+    today, and an escaper whose correctness depends on that staying true
+    is one waiting to be caught out.
+    """
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
 MDDATASET_NS = "urn:schemas-microsoft-com:xml-analysis:mddataset"
 #: MSOLAP sends engine headers (Version, Session) in this namespace family.
 ENGINE_NS_PREFIX = "http://schemas.microsoft.com/analysisservices/"
@@ -162,8 +186,12 @@ def fault(code: str, message: str) -> bytes:
         f"<faultcode>soap:Server</faultcode>"
         f"<faultstring>{escape(message)}</faultstring>"
         "<detail>"
-        f'<Error ErrorCode="3238658121" Description="{escape(message)}" '
-        f'Source="{escape(get_settings().app_name)} ({escape(code)})" HelpFile=""/>'
+        # Attributes, so quotes have to go too. A message carrying one
+        # -- and `!r` produces DOUBLE quotes for any value containing an
+        # apostrophe -- ended the attribute early, and Excel reported an
+        # XML parse failure instead of showing what went wrong.
+        f'<Error ErrorCode="3238658121" Description="{attr(message)}" '
+        f'Source="{attr(get_settings().app_name)} ({attr(code)})" HelpFile=""/>'
         "</detail>"
         "</soap:Fault>"
     )

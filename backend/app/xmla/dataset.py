@@ -9,6 +9,8 @@ values, and absent cells are simply absent (their ordinal is skipped).
 
 from xml.sax.saxutils import escape
 
+from app.xmla.soap import attr
+
 MDDATASET_XSD = (
     "<xsd:schema elementFormDefault=\"qualified\" targetNamespace=\"urn:schemas-microsoft-com:xml-analysis:m"
     "ddataset\" xmlns=\"urn:schemas-microsoft-com:xml-analysis:mddataset\" xmlns:sql=\"urn:schemas-microsoft-"
@@ -73,7 +75,7 @@ def member_xml(member: dict) -> str:
     """One <Member> element. Keys: hierarchy, uname, caption, lname, lnum,
     display_info, and optional properties dict (element name -> value)."""
     parts = [
-        f'<Member Hierarchy="{escape(member["hierarchy"])}">',
+        f'<Member Hierarchy="{attr(member["hierarchy"])}">',
         f"<UName>{escape(member['uname'])}</UName>",
         f"<Caption>{escape(member['caption'])}</Caption>",
         f"<LName>{escape(member['lname'])}</LName>",
@@ -91,7 +93,7 @@ def axis_xml(name: str, tuples: list) -> str:
         "<Tuple>" + "".join(member_xml(m) for m in tup) + "</Tuple>"
         for tup in tuples
     )
-    return f'<Axis name="{escape(name)}"><Tuples>{inner}</Tuples></Axis>'
+    return f'<Axis name="{attr(name)}"><Tuples>{inner}</Tuples></Axis>'
 
 
 def axis_info_xml(name: str, hierarchies: list) -> str:
@@ -106,19 +108,19 @@ def axis_info_xml(name: str, hierarchies: list) -> str:
     infos = []
     for h, props in hierarchies:
         extra = "".join(
-            f'<{p} name="{escape(h)}.[{p}]" type="xsd:string"/>' for p in props
+            f'<{p} name="{attr(h)}.[{p}]" type="xsd:string"/>' for p in props
         )
         infos.append(
-            f'<HierarchyInfo name="{escape(h)}">'
-            f'<UName name="{escape(h)}.[MEMBER_UNIQUE_NAME]"/>'
-            f'<Caption name="{escape(h)}.[MEMBER_CAPTION]"/>'
-            f'<LName name="{escape(h)}.[LEVEL_UNIQUE_NAME]"/>'
-            f'<LNum name="{escape(h)}.[LEVEL_NUMBER]"/>'
-            f'<DisplayInfo name="{escape(h)}.[DISPLAY_INFO]"/>'
+            f'<HierarchyInfo name="{attr(h)}">'
+            f'<UName name="{attr(h)}.[MEMBER_UNIQUE_NAME]"/>'
+            f'<Caption name="{attr(h)}.[MEMBER_CAPTION]"/>'
+            f'<LName name="{attr(h)}.[LEVEL_UNIQUE_NAME]"/>'
+            f'<LNum name="{attr(h)}.[LEVEL_NUMBER]"/>'
+            f'<DisplayInfo name="{attr(h)}.[DISPLAY_INFO]"/>'
             f"{extra}"
             "</HierarchyInfo>"
         )
-    return f'<AxisInfo name="{escape(name)}">{"".join(infos)}</AxisInfo>'
+    return f'<AxisInfo name="{attr(name)}">{"".join(infos)}</AxisInfo>'
 
 
 def cell_xml(ordinal: int, value) -> str:

@@ -52,7 +52,7 @@ def _unauthorized() -> Response:
         status_code=401,
         # The realm is what Excel shows in its credential prompt.
         headers={
-            "WWW-Authenticate": f'Basic realm="{get_settings().app_name} XMLA"',
+            "WWW-Authenticate": f'Basic realm="{get_settings().app_name.replace(chr(34), "")} XMLA"',
             **_NEGOTIATION,
         },
         content="Connect token required (Basic auth, token as the password)",
