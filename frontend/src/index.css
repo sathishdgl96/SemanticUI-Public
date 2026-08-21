@@ -711,6 +711,25 @@ button:disabled {
    on a block (or shrinkable flex-item) box whose content overflows it;
    min-width: 0 is what lets that flex item shrink below its text's
    intrinsic width in the first place. */
+/* The member count on a model's row. Right-aligned and quiet: it is
+   what tells a model from a view at a glance, on a row that is
+   otherwise identical to one. */
+.view-item-count {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ink-wash);
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.view-item.selected .view-item-count {
+  background: rgb(255 255 255 / 22%);
+  color: #fff;
+}
+
 .view-item-label {
   flex: 1 1 auto;
   min-width: 0;
@@ -6256,23 +6275,6 @@ button.model-column:hover {
   align-items: center;
 }
 
-/* Models in a source picker. Its own list rather than a branch of the
-   view tree: a model does not live in a database and a schema, and
-   inventing a place for it there would be a lie about where it comes
-   from. */
-.model-picker-tree > h3 {
-  margin-bottom: 0.15rem;
-}
-
-.model-picker-tree > .tile-hint {
-  margin: 0 0 0.4rem;
-}
-
-.view-tree-note {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--muted);
-}
 /* ==========================================================================
    Resizable panes
    ========================================================================== */

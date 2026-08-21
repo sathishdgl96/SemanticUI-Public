@@ -17,7 +17,11 @@ export interface BindSource {
  * Its own list rather than a fourth branch of that tree: a model does not
  * live in a database and a schema, and inventing a place for it there
  * would be a lie about where it comes from. It comes from a workspace,
- * which is what this shows.
+ * which is what each row shows.
+ *
+ * Everything else is ViewTree's markup and ViewTree's classes, so a
+ * model reads as another thing you can pick rather than as a button
+ * somebody dropped into a tree.
  */
 export default function ModelPicker({
   selected,
@@ -37,19 +41,21 @@ export default function ModelPicker({
     (model) => model.memberCount > 0,
   );
 
-  if (models.isLoading) return <p className="tile-hint">Loading models…</p>;
-  if (rows.length === 0) return null;
+  if (models.isLoading || rows.length === 0) return null;
 
   return (
-    <nav className="view-tree model-picker-tree">
+    <nav className="view-tree">
       <h3>Models</h3>
-      <p className="tile-hint">Over several semantic views.</p>
       <ul>
         {rows.map((model) => (
           <li key={model.id}>
             <button
-              type="button"
-              className={selected === model.id ? "is-selected" : undefined}
+              className={
+                selected === model.id ? "view-item selected" : "view-item"
+              }
+              title={`${model.memberCount === 1 ? "1 view" : `${model.memberCount} views`}${
+                model.workspaceName ? ` · ${model.workspaceName}` : ""
+              }`}
               onClick={() =>
                 onSelect({
                   database: "",
@@ -60,13 +66,10 @@ export default function ModelPicker({
                 })
               }
             >
-              {model.name}
-              <span className="view-tree-note">
-                {model.memberCount === 1
-                  ? "1 view"
-                  : `${model.memberCount} views`}
-                {model.workspaceName ? ` · ${model.workspaceName}` : ""}
-              </span>
+              <span className="view-item-label">{model.name}</span>
+              {/* The count earns its place: it is what tells a model from
+                  a view at a glance, and the row is otherwise identical. */}
+              <span className="view-item-count">{model.memberCount}</span>
             </button>
           </li>
         ))}

@@ -554,3 +554,59 @@ describe("exploring a model", () => {
     expect(strayed).toEqual([]);
   });
 });
+
+describe("models in the source list", () => {
+  it("reads as another thing you can pick, not a button in a tree", async () => {
+    const { listComposites } = await import("../api/composites");
+    vi.mocked(listComposites).mockResolvedValue({
+      composites: [
+        {
+          id: "m1",
+          name: "Customer 360",
+          workspaceId: "w0",
+          workspaceName: "Team",
+          myRole: "admin",
+          memberCount: 2,
+          updatedAt: "2026-08-21T10:00:00Z",
+          createdBy: "A_SMITH",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+      truncated: false,
+    } as never);
+    mockRoutes(() => Promise.resolve(DETAIL));
+
+    renderPage();
+    const row = await screen.findByRole("button", { name: /Customer 360/ });
+    // The same class the semantic-view rows carry, so the two lists read
+    // as one control rather than a list and a stray button.
+    expect(row).toHaveClass("view-item");
+  });
+
+  it("does not offer a model with nothing mapped yet", async () => {
+    const { listComposites } = await import("../api/composites");
+    vi.mocked(listComposites).mockResolvedValue({
+      composites: [
+        {
+          id: "m2",
+          name: "Empty",
+          workspaceId: "w0",
+          workspaceName: "Team",
+          myRole: "admin",
+          memberCount: 0,
+          updatedAt: "2026-08-21T10:00:00Z",
+          createdBy: "A_SMITH",
+          favorite: false,
+          lastViewedAt: null,
+        },
+      ],
+      truncated: false,
+    } as never);
+    mockRoutes(() => Promise.resolve(DETAIL));
+
+    renderPage();
+    await screen.findByRole("button", { name: "My View" });
+    expect(screen.queryByRole("button", { name: /Empty/ })).toBeNull();
+  });
+});
