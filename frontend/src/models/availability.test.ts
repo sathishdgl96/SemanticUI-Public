@@ -145,3 +145,82 @@ describe("compositeAvailability", () => {
     ).toBe(0);
   });
 });
+
+describe("the TPC-H shape that reported this", () => {
+  /** LINEITEMS is the fine-grained fact referencing both ORDERS and PART,
+   *  so neither of those reaches the other: ORDER_COUNT is per ORDERS and
+   *  cannot be broken down by PART.BRAND. */
+  function tpch(): CompositeViewDetail {
+    return {
+      tables: [{ name: "Model" }, { name: "sales" }],
+      relationships: [],
+      dimensions: [
+        { table: "Model", name: "Customer", dataType: "TEXT" },
+        { table: "sales", name: "PART.BRAND", dataType: "TEXT" },
+        { table: "sales", name: "CUSTOMER.NAME", dataType: "TEXT" },
+      ],
+      metrics: [
+        { table: "sales", name: "ORDERS.ORDER_COUNT", dataType: "NUMBER" },
+        { table: "sales", name: "LINEITEMS.TOTAL_QUANTITY", dataType: "NUMBER" },
+      ],
+      facts: [],
+      memberGraphs: [
+        {
+          alias: "sales",
+          tables: [
+            { name: "LINEITEMS" },
+            { name: "ORDERS" },
+            { name: "PART" },
+            { name: "CUSTOMER" },
+          ],
+          relationships: [
+            {
+              name: "li_to_orders",
+              table: "LINEITEMS",
+              refTable: "ORDERS",
+              foreignKey: ["ORDER_ID"],
+              refKey: ["ORDER_ID"],
+            },
+            {
+              name: "li_to_part",
+              table: "LINEITEMS",
+              refTable: "PART",
+              foreignKey: ["PART_ID"],
+              refKey: ["PART_ID"],
+            },
+            {
+              name: "orders_to_customer",
+              table: "ORDERS",
+              refTable: "CUSTOMER",
+              foreignKey: ["CUSTOMER_ID"],
+              refKey: ["CUSTOMER_ID"],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("greys PART.BRAND once ORDER_COUNT is chosen", () => {
+    const blocked = compositeAvailability(
+      tpch(),
+      wells({ values: ["sales.ORDERS.ORDER_COUNT"] }),
+    );
+    expect(blocked.has("sales.PART.BRAND")).toBe(true);
+    // ...and leaves the one ORDERS does reach alone.
+    expect(blocked.has("sales.CUSTOMER.NAME")).toBe(false);
+  });
+
+  it("greys ORDER_COUNT once PART.BRAND is chosen", () => {
+    // The same rule from the other side: whichever was picked first, the
+    // pair is never offered.
+    const blocked = compositeAvailability(
+      tpch(),
+      wells({ axis: ["sales.PART.BRAND"] }),
+    );
+    expect(blocked.get("sales.ORDERS.ORDER_COUNT")).toMatch(/measured per ORDERS/);
+    // The measure that CAN break it down stays offered -- it is the way
+    // out of the refusal.
+    expect(blocked.has("sales.LINEITEMS.TOTAL_QUANTITY")).toBe(false);
+  });
+});
