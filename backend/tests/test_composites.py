@@ -595,3 +595,85 @@ def test_values_for_an_unknown_field_are_refused(client, db):
         f"/api/composites/{created['id']}/values", params={"field": "ghost.X.Y"}
     )
     assert refused.status_code == 400
+
+
+# ------------------------------------------------------- the model's shape
+
+
+def test_describe_returns_the_fields_and_each_members_graph(client, db, monkeypatch):
+    """The canvas and the report builder both read this. It had no test,
+    which is how a change to member_describes' signature could have
+    emptied it in silence."""
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    seen: list = []
+    _stub_snowflake(monkeypatch, [], seen)
+
+    answer = client.get(f"/api/composites/{created['id']}/describe")
+    assert answer.status_code == 200
+    body = answer.json()
+
+    # Fields, named so the client can map them back to the model.
+    names = {(f["table"], f["name"]) for f in body["dimensions"]}
+    assert ("Customer 360", "Customer") in names
+    assert ("sales", "CUSTOMER.REGION") in names
+
+    # And each member's own shape, which is what the designer draws as
+    # tables and what the field list uses to grey unreachable pairs.
+    graphs = {g["alias"]: g for g in body["memberGraphs"]}
+    assert set(graphs) == {"sales", "support"}
+    assert {t["name"] for t in graphs["sales"]["tables"]} == {"CUSTOMER", "CLIENT"}
+
+    # Both members were described -- a member skipped in silence is a
+    # container that renders with no tables in it.
+    described = {s[3] for s in seen if s[0] == "describe"}
+    assert described == {"SALES_SV", "SUPPORT_SV"}
+
+
+def test_describe_still_answers_when_one_member_cannot_be_read(client, db, monkeypatch):
+    # A model naming a view this caller may not see still exposes the
+    # ones they may; Snowflake refuses the rest when a query asks.
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    from app.snowflake import provider
+
+    class _Entry:
+        conn = object()
+
+        class _Lock:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *a):
+                return False
+
+        lock = _Lock()
+
+    class _Cache:
+        def acquire(self, db_, sess_):
+            return _Entry()
+
+        def describe(self, entry, database, schema, view):
+            if view == "SUPPORT_SV":
+                raise RuntimeError("not authorised")
+            return {
+                "tables": [{"name": "CUSTOMER"}],
+                "relationships": [],
+                "dimensions": [
+                    {"table": "CUSTOMER", "name": "REGION", "dataType": "TEXT"}
+                ],
+                "metrics": [],
+                "facts": [],
+            }
+
+    monkeypatch.setattr(provider, "get_cache", lambda: _Cache())
+
+    body = client.get(f"/api/composites/{created['id']}/describe").json()
+    assert [g["alias"] for g in body["memberGraphs"]] == ["sales"]
+    assert any(f["table"] == "sales" for f in body["dimensions"])

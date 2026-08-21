@@ -127,7 +127,7 @@ class XmlaSession:
                     row, workspace.name if workspace else MODEL_DATABASE
                 )
                 detail = synthetic_detail(
-                    definition, member_describes(self, definition)
+                    definition, member_describes(self.describe, definition)
                 )
                 if not detail["dimensions"] and not detail["metrics"]:
                     continue

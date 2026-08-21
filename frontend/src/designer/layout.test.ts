@@ -308,3 +308,30 @@ describe("edge styling", () => {
     expect(classOf("ghost")).toBe("designer-edge-ghost");
   });
 });
+
+describe("a member the warehouse would not describe", () => {
+  it("is marked unreadable rather than rendering as an empty box", () => {
+    // An empty container is indistinguishable from a broken one, and
+    // that ambiguity is what made "zero tables" so hard to place.
+    const blind = detail();
+    blind.memberGraphs = blind.memberGraphs!.filter((g) => g.alias === "sales");
+    blind.dimensions = blind.dimensions.filter((d) => d.table !== "support");
+    blind.metrics = blind.metrics.filter((m) => m.table !== "support");
+
+    const { nodes } = buildDesigner(definition(), blind);
+    const backs = nodes.filter((n) => n.type === "backdrop");
+    expect(backs.find((n) => n.id === "sales")!.data.readable).toBe(true);
+    expect(backs.find((n) => n.id === "support")!.data.readable).toBe(false);
+  });
+
+  it("counts a member readable when it has fields but no declared joins", () => {
+    // A view with one table and no relationships is perfectly normal.
+    const flat = detail();
+    flat.memberGraphs = flat.memberGraphs!.map((g) =>
+      g.alias === "support" ? { ...g, relationships: [] } : g,
+    );
+    const { nodes } = buildDesigner(definition(), flat);
+    const support = nodes.find((n) => n.id === "support")!;
+    expect(support.data.readable).toBe(true);
+  });
+});

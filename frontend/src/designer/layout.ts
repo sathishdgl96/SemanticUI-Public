@@ -36,6 +36,10 @@ export interface BackdropData extends Record<string, unknown> {
   colour: ViewColour;
   expanded: boolean;
   tableCount: number;
+  /** False when this member has no describe: the caller cannot read the
+   *  view, or it is gone. The container then says so instead of
+   *  rendering as an empty box, which is indistinguishable from a bug. */
+  readable: boolean;
   /** Shown when collapsed: the columns this view contributes to a
    *  conformed dimension, in the model's order, each an edge anchor. */
   summary: { dimension: string; table: string; column: string }[];
@@ -300,6 +304,7 @@ export function buildDesigner(
         colour: colourOf(palette, alias),
         expanded: isOpen,
         tableCount: tables.length,
+        readable: Boolean(graph) || tables.length > 0,
         summary,
       },
     });
