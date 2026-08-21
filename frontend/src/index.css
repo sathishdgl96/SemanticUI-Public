@@ -6784,3 +6784,27 @@ button.model-column:hover {
   color: var(--ink);
   font-size: 0.78rem;
 }
+
+/* Full screen: the canvas takes the window. A model over several views
+   is a lot of diagram, and 70vh inside a page that also carries a header
+   and tabs is not enough of it.
+
+   Fixed rather than the Fullscreen API: this keeps the app's own chrome
+   and its escape route, needs no permission, and cannot leave somebody
+   in a state the page does not know it is in. */
+.designer-canvas.is-maximised {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  height: 100vh;
+  width: 100vw;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+}
+
+/* The toolbar rides along, so the way out travels with it. */
+.designer-canvas.is-maximised .designer-tools {
+  bottom: 16px;
+  left: 16px;
+}

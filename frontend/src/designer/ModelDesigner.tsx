@@ -104,6 +104,8 @@ function Toolbar({
   readOnly,
   available,
   onAddView,
+  maximised,
+  onToggleMaximised,
 }: {
   onExpandAll: () => void;
   onCollapseAll: () => void;
@@ -112,6 +114,8 @@ function Toolbar({
   readOnly: boolean;
   available: SemanticViewSummary[];
   onAddView: (view: SemanticViewSummary) => void;
+  maximised: boolean;
+  onToggleMaximised: () => void;
 }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   return (
@@ -167,6 +171,14 @@ function Toolbar({
       <button type="button" title="Collapse every view" onClick={onCollapseAll}>
         Collapse all
       </button>
+      <button
+        type="button"
+        aria-pressed={maximised}
+        title={maximised ? "Leave full screen (Esc)" : "Fill the window"}
+        onClick={onToggleMaximised}
+      >
+        {maximised ? "⤡ Exit full screen" : "⤢ Full screen"}
+      </button>
       {!readOnly && ghosts > 0 && (
         <button
           type="button"
@@ -197,6 +209,7 @@ function Canvas({
   onChange: (next: CompositeDefinition) => void;
 }) {
   const { open, toggle, setOpen } = useExpanded(modelId);
+  const [maximised, setMaximised] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [refusal, setRefusal] = useState<string | null>(null);
   const [selected, setSelected] = useState<DesignerEdge | null>(null);
@@ -223,6 +236,25 @@ function Canvas({
     const id = window.setTimeout(() => fitView(FIT), 0);
     return () => window.clearTimeout(id);
   }, [graph, setNodes, setEdges, fitView]);
+
+  // Going full screen changes the pane, not the graph, so React Flow has
+  // to be told to fit again -- and after the browser has laid the new
+  // size out, or it fits to the old one.
+  useEffect(() => {
+    const id = window.setTimeout(() => fitView(FIT), 60);
+    return () => window.clearTimeout(id);
+  }, [maximised, fitView]);
+
+  // Escape leaves, because a canvas that fills the window with no way
+  // out but a small button is a trap.
+  useEffect(() => {
+    if (!maximised) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMaximised(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [maximised]);
 
   function apply(result: ReturnType<typeof relate>) {
     if (result.ok) {
@@ -281,7 +313,7 @@ function Canvas({
 
   return (
     <div
-      className="designer-canvas"
+      className={`designer-canvas${maximised ? " is-maximised" : ""}`}
       // Expansion is driven from the header button inside a node, which
       // React Flow renders; catching the click here keeps the node
       // component free of callbacks it would have to be handed.
@@ -360,6 +392,8 @@ function Canvas({
             ),
         )}
         onAddView={(view) => apply(addMember(definition, view))}
+        maximised={maximised}
+        onToggleMaximised={() => setMaximised((current) => !current)}
       />
 
       {refusal && (

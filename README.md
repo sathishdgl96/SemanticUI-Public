@@ -680,6 +680,9 @@ Those internal joins are drawn quieter, and clicking one says why it
 cannot be changed: they are Snowflake's, declared by the view. Only the
 mappings you made are yours to edit.
 
+A model over several views is a lot of diagram, so **Full screen** gives
+the canvas the whole window; Escape leaves it.
+
 **Detect** offers the columns two views name the same way, dashed, with
 the evidence on each ("same key column in 2 views"). They are never
 applied on their own — a mapping the app made is one nobody reviewed —

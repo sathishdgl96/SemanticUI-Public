@@ -281,3 +281,41 @@ describe("ModelDesigner", () => {
     expect(screen.queryByRole("button", { name: /suggested/i })).toBeNull();
   });
 });
+
+describe("full screen", () => {
+  it("fills the window and offers the way back", async () => {
+    renderDesigner();
+    const button = await screen.findByRole("button", { name: /full screen/i });
+    expect(button).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(button);
+    expect(document.querySelector(".designer-canvas")).toHaveClass("is-maximised");
+    expect(
+      screen.getByRole("button", { name: /exit full screen/i }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("leaves on Escape, because a full-window canvas needs a way out", async () => {
+    renderDesigner();
+    await userEvent.click(await screen.findByRole("button", { name: /full screen/i }));
+    expect(document.querySelector(".designer-canvas")).toHaveClass("is-maximised");
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(document.querySelector(".designer-canvas")).not.toHaveClass(
+        "is-maximised",
+      ),
+    );
+  });
+
+  it("does not listen for Escape when it is not full screen", async () => {
+    // Otherwise the designer would swallow Escape from anything else on
+    // the page that wanted it.
+    renderDesigner();
+    await screen.findByRole("button", { name: /full screen/i });
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".designer-canvas")).not.toHaveClass(
+      "is-maximised",
+    );
+  });
+});
