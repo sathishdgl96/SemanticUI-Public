@@ -7,6 +7,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  ConnectionMode,
   type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -63,7 +64,7 @@ function useExpanded(modelId: string) {
  *  too because a marker belongs to the SVG that references it. */
 function Markers() {
   return (
-    <svg className="model-defs" aria-hidden="true">
+    <svg className="designer-defs" aria-hidden="true">
       <defs>
         <marker
           id={MANY}
@@ -75,7 +76,7 @@ function Markers() {
           markerUnits="userSpaceOnUse"
           orient="auto-start-reverse"
         >
-          <path d="M 13 7 L 1 1 M 13 7 L 1 7 M 13 7 L 1 13" className="model-marker" />
+          <path d="M 13 7 L 1 1 M 13 7 L 1 7 M 13 7 L 1 13" className="designer-marker" />
         </marker>
         <marker
           id={ONE}
@@ -87,7 +88,7 @@ function Markers() {
           markerUnits="userSpaceOnUse"
           orient="auto-start-reverse"
         >
-          <path d="M 4 1 L 4 13" className="model-marker" />
+          <path d="M 4 1 L 4 13" className="designer-marker" />
         </marker>
       </defs>
     </svg>
@@ -109,7 +110,7 @@ function Toolbar({
 }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   return (
-    <div className="model-tools" role="toolbar" aria-label="Designer view">
+    <div className="designer-tools" role="toolbar" aria-label="Designer view">
       <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomIn()}>
         +
       </button>
@@ -199,6 +200,9 @@ function Canvas({
   }
 
   function onConnect(connection: Connection) {
+    // In loose mode either end can be either role, which is fine: both
+    // ids encode the same alias/table/column and `relate` decides what
+    // the pair means.
     const from = parseHandle(connection.sourceHandle);
     const to = parseHandle(connection.targetHandle);
     if (!from || !to) {
@@ -271,6 +275,12 @@ function Canvas({
           }
           setSelected(edge as DesignerEdge);
         }}
+        // Loose, not strict: strict only lets a SOURCE handle reach a
+        // TARGET one, so dragging between two columns whose ports happen
+        // to face away from each other failed silently. A mapping is
+        // symmetric -- "these mean the same thing" -- so the gesture
+        // should be too.
+        connectionMode={ConnectionMode.Loose}
         fitView
         fitViewOptions={FIT}
         minZoom={0.2}

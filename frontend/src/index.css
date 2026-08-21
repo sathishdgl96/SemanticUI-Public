@@ -6375,6 +6375,16 @@ button.model-column:hover {
   border-style: solid;
 }
 
+/* Scenery, and it has to behave like scenery: a backdrop must never take
+   a click meant for a card inside it, and must never paint over one. */
+.designer-canvas .react-flow__node-backdrop {
+  z-index: 0 !important;
+}
+
+.designer-canvas .react-flow__node-designerTable {
+  z-index: 1 !important;
+}
+
 .designer-backdrop-head {
   display: flex;
   align-items: center;
@@ -6455,12 +6465,22 @@ button.model-column:hover {
 
 /* --- a table inside one ----------------------------------------------- */
 
+/* Fills the box React Flow measured for it. Without this the card
+   shrank to its content inside a 280px wrapper, so the layout dagre
+   planned and the layout on screen were two different things. The
+   report diagram's .model-node carries the same pair for the same
+   reason. */
 .designer-table {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
   font-size: 0.75rem;
+  box-sizing: border-box;
 }
 
 .designer-table-head {
@@ -6531,17 +6551,6 @@ button.model-column:hover {
   white-space: nowrap;
 }
 
-/* Ports are anchors, not affordances, until editing lands. Kept nearly
-   invisible so a card does not read as a pincushion. */
-.designer-port {
-  width: 6px;
-  height: 6px;
-  border: none;
-  background: transparent;
-  min-width: 0;
-  min-height: 0;
-}
-
 .designer-canvas .react-flow__edge-path {
   stroke: var(--accent, #4c6ef5);
   stroke-width: 1.5;
@@ -6595,28 +6604,6 @@ button.model-column:hover {
   min-width: 0;
 }
 
-/* Connectable ports have to be findable once dragging is possible --
-   invisible anchors were right while the canvas was only readable. */
-.designer-canvas .designer-port {
-  width: 8px;
-  height: 8px;
-  background: var(--surface);
-  border: 1.5px solid var(--ink-muted, #8a94a6);
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.designer-column:hover .designer-port,
-.designer-summary-row:hover .designer-port,
-.designer-canvas .react-flow__node:hover .designer-port {
-  opacity: 1;
-}
-
-.designer-canvas .designer-port:hover {
-  border-color: var(--accent, #4c6ef5);
-  background: var(--accent, #4c6ef5);
-}
-
 /* A canvas needs room to be a canvas. Below this the Design tab offers a
    diagram nobody can read OR drag on, so it says so and points at the
    form, which works at any width. */
@@ -6637,4 +6624,93 @@ button.model-column:hover {
   border-radius: 10px;
   color: var(--ink-muted, var(--muted));
   font-size: 0.85rem;
+}
+
+/* The designer's own chrome. It used to borrow .model-tools and
+   .model-marker from the report diagram, whose rules resolve against
+   --m-* tokens scoped to .model-tab -- which do not exist out here. The
+   toolbar became a row of blank 26px squares and the crow's feet lost
+   their stroke, so the canvas looked broken and its buttons did nothing.
+   Sharing a class means sharing everything it depends on. */
+.designer-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.designer-marker {
+  fill: none;
+  stroke: var(--ink-muted, #8a94a6);
+  stroke-width: 1.4px;
+}
+
+.designer-tools {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.designer-tools button {
+  /* Sized to its text: two of these say words, not symbols. */
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.designer-tools button:hover {
+  border-color: var(--accent, #4c6ef5);
+  color: var(--accent, #4c6ef5);
+}
+
+.designer-tools button.primary {
+  background: var(--accent, #4c6ef5);
+  border-color: var(--accent, #4c6ef5);
+  color: #fff;
+}
+
+/* Ports have to be findable before they can be dragged from. Faint at
+   rest so a card is not a pincushion, solid the moment the pointer is on
+   the row that owns them. */
+.designer-canvas .designer-port {
+  width: 9px;
+  height: 9px;
+  background: var(--surface);
+  border: 1.5px solid var(--ink-muted, #8a94a6);
+  opacity: 0.45;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.designer-column:hover .designer-port,
+.designer-summary-row:hover .designer-port {
+  opacity: 1;
+  border-color: var(--accent, #4c6ef5);
+}
+
+.designer-canvas .designer-port:hover {
+  background: var(--accent, #4c6ef5);
+  border-color: var(--accent, #4c6ef5);
+  /* A bigger target than it looks, because 9px is a hard thing to hit. */
+  box-shadow: 0 0 0 4px rgb(76 110 245 / 18%);
+}
+
+/* The line being dragged, so it is obvious a connection is in progress. */
+.designer-canvas .react-flow__connectionline .react-flow__connection-path {
+  stroke: var(--accent, #4c6ef5);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
 }
