@@ -6362,6 +6362,7 @@ button.model-column:hover {
 /* --- a member view ---------------------------------------------------- */
 
 .designer-backdrop {
+  position: relative;
   width: 100%;
   height: 100%;
   border: 1.5px dashed;
@@ -6724,4 +6725,62 @@ button.model-column:hover {
   font-size: 0.68rem;
   line-height: 1.35;
   color: var(--danger, #c92a2a);
+}
+
+/* Removing a view: its own target, because removing one and expanding
+   one are different enough that sharing a hit area would be a trap. */
+.designer-remove {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink-muted, #8a94a6);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.designer-backdrop:hover .designer-remove {
+  opacity: 1;
+}
+
+.designer-remove:hover {
+  background: var(--danger, #c92a2a);
+  color: #fff;
+}
+
+/* The first move, offered on the canvas rather than sending somebody to
+   a form -- a designer that cannot start a model is a viewer. */
+.designer-empty {
+  position: absolute;
+  inset: auto 12px 56px 12px;
+  z-index: 4;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-muted, var(--muted));
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.designer-add {
+  height: 28px;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.78rem;
 }

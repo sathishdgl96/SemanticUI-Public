@@ -182,16 +182,89 @@ describe("ModelDesigner", () => {
     expect(screen.queryByRole("button", { name: /suggested/i })).toBeNull();
   });
 
-  it("says where to start when the model has no views", () => {
+  it("offers the first view on the canvas, rather than sending anybody to a form", async () => {
+    // A designer that cannot start a model is a viewer.
     render(
       <ModelDesigner
         modelId="m1"
-        definition={definition({ members: [] })}
+        definition={definition({ members: [], sharedDimensions: [] })}
         detail={detail()}
+        views={[{ database: "A", schema: "P", name: "SALES_SV", comment: null }]}
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText(/add a view on the fields tab/i)).toBeInTheDocument();
+    expect(await screen.findByText(/add a view to start/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Add a view")).toHaveTextContent("A.P.SALES_SV");
+  });
+
+  it("adds a view to the model from the canvas", async () => {
+    const onChange = vi.fn();
+    render(
+      <ModelDesigner
+        modelId="m1"
+        definition={definition({ members: [], sharedDimensions: [] })}
+        detail={detail()}
+        views={[{ database: "A", schema: "P", name: "SALES_SV", comment: null }]}
+        onChange={onChange}
+      />,
+    );
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Add a view"),
+      "A.P.SALES_SV",
+    );
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const next = onChange.mock.calls[0][0] as CompositeDefinition;
+    expect(next.members).toEqual([
+      { alias: "sales", database: "A", schema: "P", view: "SALES_SV" },
+    ]);
+  });
+
+  it("does not offer a view the model already has", async () => {
+    render(
+      <ModelDesigner
+        modelId="m1"
+        definition={definition()}
+        detail={detail()}
+        views={[
+          { database: "D", schema: "S", name: "SALES_SV", comment: null },
+          { database: "D", schema: "S", name: "BILLING_SV", comment: null },
+        ]}
+        onChange={vi.fn()}
+      />,
+    );
+    const picker = await screen.findByLabelText("Add a view");
+    expect(picker).not.toHaveTextContent("SALES_SV");
+    expect(picker).toHaveTextContent("BILLING_SV");
+  });
+
+  it("removes a view, and the mappings that named it", async () => {
+    const onChange = vi.fn();
+    render(
+      <ModelDesigner
+        modelId="m1"
+        definition={definition({
+          sharedDimensions: [
+            {
+              name: "Customer",
+              bindings: {
+                sales: { table: "CUSTOMER", column: "CUSTOMER_ID" },
+                support: { table: "CLIENT", column: "CUSTOMER_ID" },
+              },
+            },
+          ],
+        })}
+        detail={detail()}
+        onChange={onChange}
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /remove support from this model/i }),
+    );
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const next = onChange.mock.calls[0][0] as CompositeDefinition;
+    expect(next.members.map((m) => m.alias)).toEqual(["sales"]);
+    // One binding is not a shared dimension, so it goes with the view.
+    expect(next.sharedDimensions).toEqual([]);
   });
 
   it("offers nothing to edit when the workspace is read-only", async () => {

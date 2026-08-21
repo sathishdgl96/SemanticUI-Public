@@ -45,6 +45,19 @@ export default function Backdrop({ data }: NodeProps<BackdropNode>) {
             : "cannot be read"}
         </span>
       </button>
+      {/* Its own control rather than part of the header button: removing
+          a view and expanding one are different enough that sharing a
+          target would be a trap. `nodrag` for the same reason the header
+          needs it. */}
+      <button
+        type="button"
+        className="designer-remove nodrag"
+        data-alias={alias}
+        aria-label={`Remove ${alias} from this model`}
+        title={`Remove ${alias}`}
+      >
+        ×
+      </button>
       <p className="designer-backdrop-view" title={view}>
         {view}
       </p>

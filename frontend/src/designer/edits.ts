@@ -244,3 +244,159 @@ export function unrelate(
     },
   };
 }
+
+/**
+ * Adding a view to the model.
+ *
+ * The alias is suggested from the view's name and made unique, because
+ * every field reference in the model is prefixed with it — two members
+ * sharing one would make every reference a coin toss. Suggested, not
+ * imposed: what a team calls a view and what it calls that view's part
+ * in a model are different questions, so the alias stays editable.
+ */
+export function suggestAlias(view: string, taken: string[]): string {
+  const base =
+    view
+      .toLowerCase()
+      .replace(/_?(sv|semantic|view)$/g, "")
+      .replace(/[^a-z0-9_]/g, "_")
+      .replace(/^_+|_+$/g, "") || "view";
+  const start = /^[a-z]/.test(base) ? base : `v${base}`;
+  const used = taken.map((alias) => alias.toLowerCase());
+  if (!used.includes(start)) return start;
+  for (let n = 2; n < 99; n += 1) {
+    if (!used.includes(`${start}${n}`)) return `${start}${n}`;
+  }
+  return `${start}_x`;
+}
+
+export function addMember(
+  definition: CompositeDefinition,
+  view: { database: string; schema: string; name: string },
+): EditResult {
+  const already = definition.members.some(
+    (member) =>
+      member.database.toUpperCase() === view.database.toUpperCase() &&
+      member.schema.toUpperCase() === view.schema.toUpperCase() &&
+      member.view.toUpperCase() === view.name.toUpperCase(),
+  );
+  if (already) {
+    return {
+      ok: false,
+      reason: `${view.name} is already in this model. A composite joins different views.`,
+    };
+  }
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      members: [
+        ...definition.members,
+        {
+          alias: suggestAlias(
+            view.name,
+            definition.members.map((member) => member.alias),
+          ),
+          database: view.database,
+          schema: view.schema,
+          view: view.name,
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Removing a view.
+ *
+ * Its bindings go with it, and any shared dimension left bound to fewer
+ * than two views goes too — one binding is not a shared dimension, and
+ * leaving one would save a model the server refuses. Derived metrics
+ * that referenced the view go for the same reason.
+ */
+export function removeMember(
+  definition: CompositeDefinition,
+  alias: string,
+): EditResult {
+  const key = alias.toLowerCase();
+  const withoutIt = (map: Record<string, Binding>) =>
+    Object.fromEntries(
+      Object.entries(map).filter(([bound]) => bound.toLowerCase() !== key),
+    );
+
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      members: definition.members.filter(
+        (member) => member.alias.toLowerCase() !== key,
+      ),
+      sharedDimensions: definition.sharedDimensions
+        .map((shared) => ({
+          ...shared,
+          bindings: withoutIt(shared.bindings),
+          labels: withoutIt(shared.labels ?? {}),
+        }))
+        .filter((shared) => Object.keys(shared.bindings).length >= 2),
+      derivedMetrics: definition.derivedMetrics.filter(
+        (metric) => !JSON.stringify(metric.expr).includes(`"${alias}:`),
+      ),
+    },
+  };
+}
+
+/** Renaming a view's alias, carrying every reference to it along. */
+export function renameMember(
+  definition: CompositeDefinition,
+  from: string,
+  to: string,
+): EditResult {
+  const clean = to.trim();
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(clean)) {
+    return {
+      ok: false,
+      reason:
+        "A view's name in the model starts with a letter and holds only " +
+        "letters, digits and underscores — it is the prefix on every field.",
+    };
+  }
+  const clash = definition.members.some(
+    (member) =>
+      member.alias.toLowerCase() !== from.toLowerCase() &&
+      member.alias.toLowerCase() === clean.toLowerCase(),
+  );
+  if (clash) return { ok: false, reason: `Another view is already called ${clean}.` };
+
+  const rekey = (map: Record<string, Binding>) =>
+    Object.fromEntries(
+      Object.entries(map).map(([alias, binding]) => [
+        alias.toLowerCase() === from.toLowerCase() ? clean : alias,
+        binding,
+      ]),
+    );
+
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      members: definition.members.map((member) =>
+        member.alias.toLowerCase() === from.toLowerCase()
+          ? { ...member, alias: clean }
+          : member,
+      ),
+      sharedDimensions: definition.sharedDimensions.map((shared) => ({
+        ...shared,
+        bindings: rekey(shared.bindings),
+        labels: shared.labels ? rekey(shared.labels) : undefined,
+      })),
+      // A derived metric names its operands `alias:TABLE.METRIC`, so the
+      // prefix has to move with the view or the metric stops resolving.
+      derivedMetrics: definition.derivedMetrics.map((metric) => ({
+        ...metric,
+        expr: JSON.parse(
+          JSON.stringify(metric.expr).replaceAll(`"${from}:`, `"${clean}:`),
+        ),
+      })),
+    },
+  };
+}

@@ -162,7 +162,9 @@ describe("ModelPage", () => {
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     const saved = updateMock.mock.calls[0][1] as CompositeDefinition;
     expect(saved.members).toHaveLength(1);
-    expect(saved.sharedDimensions[0]?.bindings).not.toHaveProperty("support");
+    // The whole dimension goes, not just its binding: one binding is not
+    // a shared dimension, and saving one is what the server refuses.
+    expect(saved.sharedDimensions).toEqual([]);
   });
 
   it("says what a filter on one view does to the others", async () => {
@@ -533,8 +535,6 @@ describe("the designer tab", () => {
       detail({ definition: definition({ members: [], sharedDimensions: [] }) }),
     );
     renderPage();
-    expect(
-      await screen.findByText(/add a view on the fields tab/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/add a view to start/i)).toBeInTheDocument();
   });
 });

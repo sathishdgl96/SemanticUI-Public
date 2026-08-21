@@ -13,10 +13,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { CompositeDefinition } from "../api/composites";
 import type { CompositeViewDetail } from "../models/availability";
+import type { SemanticViewSummary } from "../api/types";
 import { MANY, ONE } from "../model/graph";
 import Backdrop from "./Backdrop";
 import DesignerTable from "./DesignerTable";
-import { relate, rename, unrelate } from "./edits";
+import { addMember, relate, removeMember, rename, unrelate } from "./edits";
 import { buildDesigner, parseHandle, type DesignerEdge } from "./layout";
 import { ghostKey, ghostsFor } from "./suggest";
 
@@ -101,12 +102,16 @@ function Toolbar({
   ghosts,
   onDetectAll,
   readOnly,
+  available,
+  onAddView,
 }: {
   onExpandAll: () => void;
   onCollapseAll: () => void;
   ghosts: number;
   onDetectAll: () => void;
   readOnly: boolean;
+  available: SemanticViewSummary[];
+  onAddView: (view: SemanticViewSummary) => void;
 }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   return (
@@ -125,6 +130,37 @@ function Toolbar({
       >
         ⤢
       </button>
+      {!readOnly && (
+        <>
+          <label className="sr-only" htmlFor="designer-add-view">
+            Add a view
+          </label>
+          <select
+            id="designer-add-view"
+            className="designer-add"
+            value=""
+            onChange={(event) => {
+              const picked = available.find(
+                (view) =>
+                  `${view.database}.${view.schema}.${view.name}` ===
+                  event.target.value,
+              );
+              event.currentTarget.value = "";
+              if (picked) onAddView(picked);
+            }}
+          >
+            <option value="">+ Add a view…</option>
+            {available.map((view) => {
+              const id = `${view.database}.${view.schema}.${view.name}`;
+              return (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              );
+            })}
+          </select>
+        </>
+      )}
       <button type="button" title="Show every view's tables" onClick={onExpandAll}>
         Expand all
       </button>
@@ -150,12 +186,14 @@ function Canvas({
   definition,
   detail,
   readOnly,
+  views,
   onChange,
 }: {
   modelId: string;
   definition: CompositeDefinition;
   detail: CompositeViewDetail;
   readOnly: boolean;
+  views: SemanticViewSummary[];
   onChange: (next: CompositeDefinition) => void;
 }) {
   const { open, toggle, setOpen } = useExpanded(modelId);
@@ -248,9 +286,13 @@ function Canvas({
       // React Flow renders; catching the click here keeps the node
       // component free of callbacks it would have to be handed.
       onClick={(event) => {
-        const button = (event.target as HTMLElement).closest<HTMLElement>(
-          ".designer-toggle",
-        );
+        const target = event.target as HTMLElement;
+        const drop = target.closest<HTMLElement>(".designer-remove");
+        if (drop?.dataset.alias) {
+          apply(removeMember(definition, drop.dataset.alias));
+          return;
+        }
+        const button = target.closest<HTMLElement>(".designer-toggle");
         if (button?.dataset.alias) toggle(button.dataset.alias);
       }}
     >
@@ -292,6 +334,14 @@ function Canvas({
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
       </ReactFlow>
 
+      {definition.members.length === 0 && (
+        <p className="designer-empty">
+          {readOnly
+            ? "This model has no views yet."
+            : "Add a view to start. Then drag a column onto a column in another view to say they mean the same thing."}
+        </p>
+      )}
+
       <Toolbar
         onExpandAll={() =>
           setOpen(new Set(definition.members.map((m) => m.alias.toLowerCase())))
@@ -300,6 +350,16 @@ function Canvas({
         ghosts={ghosts.length}
         onDetectAll={() => ghosts.forEach((ghost) => acceptGhost(ghost.name))}
         readOnly={readOnly}
+        available={views.filter(
+          (view) =>
+            !definition.members.some(
+              (member) =>
+                member.database === view.database &&
+                member.schema === view.schema &&
+                member.view === view.name,
+            ),
+        )}
+        onAddView={(view) => apply(addMember(definition, view))}
       />
 
       {refusal && (
@@ -394,6 +454,7 @@ export default function ModelDesigner({
   detail,
   loading,
   readOnly = false,
+  views = [],
   onChange,
 }: {
   modelId: string;
@@ -401,13 +462,11 @@ export default function ModelDesigner({
   detail?: CompositeViewDetail;
   loading?: boolean;
   readOnly?: boolean;
+  /** Every semantic view this caller can see, so a model can be built
+   *  here without going to the form for its first move. */
+  views?: SemanticViewSummary[];
   onChange: (next: CompositeDefinition) => void;
 }) {
-  if (definition.members.length === 0) {
-    return (
-      <p className="empty">Add a view on the Fields tab and it will appear here.</p>
-    );
-  }
   if (loading || !detail) {
     return <p className="tile-hint">Reading the views…</p>;
   }
@@ -425,6 +484,7 @@ export default function ModelDesigner({
         definition={definition}
         detail={detail}
         readOnly={readOnly}
+        views={views}
         onChange={onChange}
       />
     </ReactFlowProvider>

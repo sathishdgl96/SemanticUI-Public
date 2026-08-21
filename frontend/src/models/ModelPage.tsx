@@ -1,41 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, apiFetch } from "../api/client";
 import {
   getComposite,
   updateComposite,
-  type Binding,
   type CompositeDefinition,
-  type CompositeMember,
 } from "../api/composites";
 import { createReport } from "../api/reports";
 import type { ReportDefinition, SemanticViewSummary } from "../api/types";
 import Icon from "../ui/Icon";
 import ModelDesigner from "../designer/ModelDesigner";
+import {
+  addMember,
+  removeMember as removeMemberFrom,
+  renameMember as renameMemberIn,
+} from "../designer/edits";
 import type { CompositeViewDetail } from "./availability";
 import DerivedMetrics from "./DerivedMetrics";
 import SharedDimensions from "./SharedDimensions";
 import { useMemberDescribes } from "./useMemberDescribes";
 import ModelPreview from "./ModelPreview";
-
-/** An alias suggested from a view name: SALES_SV -> sales. Only ever a
- *  suggestion -- the field is editable, because what a team calls a view
- *  and what it calls the thing inside a model are different questions. */
-function suggestAlias(view: string, taken: string[]): string {
-  const base =
-    view
-      .toLowerCase()
-      .replace(/_?(sv|semantic|view)$/g, "")
-      .replace(/[^a-z0-9_]/g, "_")
-      .replace(/^_+|_+$/g, "") || "view";
-  const start = /^[a-z]/.test(base) ? base : `v${base}`;
-  if (!taken.includes(start)) return start;
-  for (let n = 2; n < 99; n += 1) {
-    if (!taken.includes(`${start}${n}`)) return `${start}${n}`;
-  }
-  return `${start}_x`;
-}
 
 
 /**
@@ -129,11 +114,6 @@ export default function ModelPage() {
       ),
   });
 
-  const aliases = useMemo(
-    () => (draft?.members ?? []).map((member) => member.alias),
-    [draft],
-  );
-
   if (model.isLoading || !draft) return <p className="empty">Loading…</p>;
   if (model.error) {
     return <p role="alert">This model could not be opened.</p>;
@@ -145,53 +125,24 @@ export default function ModelPage() {
     setDraft((current) => (current ? { ...current, ...next } : current));
   }
 
-  function addMember(fullName: string) {
+  function addTheView(fullName: string) {
     const [database, schema, view] = fullName.split(".");
     if (!database || !schema || !view) return;
-    const member: CompositeMember = {
-      alias: suggestAlias(view, aliases),
-      database,
-      schema,
-      view,
-    };
-    patch({ members: [...draft!.members, member] });
+    const result = addMember(draft!, { database, schema, name: view });
+    if (result.ok) setDraft(result.definition);
+    else setSaveError(result.reason);
   }
 
-  function removeMember(alias: string) {
-    // Bindings that named it go too. Leaving them would make the model
-    // unsaveable with an error about a member that is no longer on screen.
-    patch({
-      members: draft!.members.filter((m) => m.alias !== alias),
-      sharedDimensions: draft!.sharedDimensions
-        .map((shared) => ({
-          ...shared,
-          bindings: Object.fromEntries(
-            Object.entries(shared.bindings).filter(([key]) => key !== alias),
-          ),
-          labels: Object.fromEntries(
-            Object.entries(shared.labels ?? {}).filter(([key]) => key !== alias),
-          ),
-        }))
-        .filter((shared) => Object.keys(shared.bindings).length > 0),
-      derivedMetrics: draft!.derivedMetrics.filter(
-        (metric) => !JSON.stringify(metric.expr).includes(`"${alias}:`),
-      ),
-    });
+  function removeTheView(alias: string) {
+    const result = removeMemberFrom(draft!, alias);
+    if (result.ok) setDraft(result.definition);
   }
 
-  function renameMember(from: string, to: string) {
-    const rename = (map: Record<string, Binding>) =>
-      Object.fromEntries(
-        Object.entries(map).map(([key, value]) => [key === from ? to : key, value]),
-      );
-    patch({
-      members: draft!.members.map((m) => (m.alias === from ? { ...m, alias: to } : m)),
-      sharedDimensions: draft!.sharedDimensions.map((shared) => ({
-        ...shared,
-        bindings: rename(shared.bindings),
-        labels: shared.labels ? rename(shared.labels) : undefined,
-      })),
-    });
+  function renameTheView(from: string, to: string) {
+    const result = renameMemberIn(draft!, from, to);
+    if (result.ok) setDraft(result.definition);
+    // A half-typed alias is not an error worth shouting about; the
+    // refusal only matters once somebody stops typing, and Save says it.
   }
 
 
@@ -287,6 +238,7 @@ export default function ModelPage() {
           detail={shape.data}
           loading={shape.isLoading}
           readOnly={readOnly}
+          views={views.data?.views ?? []}
           onChange={(next) => setDraft(next)}
         />
       )}
@@ -313,7 +265,7 @@ export default function ModelPage() {
                 className="model-alias"
                 value={member.alias}
                 disabled={readOnly}
-                onChange={(event) => renameMember(member.alias, event.target.value)}
+                onChange={(event) => renameTheView(member.alias, event.target.value)}
               />
               <span className="model-view-name">
                 {member.database}.{member.schema}.{member.view}
@@ -323,7 +275,7 @@ export default function ModelPage() {
                 className="icon-button danger"
                 aria-label={`Remove ${member.view}`}
                 disabled={readOnly}
-                onClick={() => removeMember(member.alias)}
+                onClick={() => removeTheView(member.alias)}
               >
                 <Icon name="trash" size={14} />
               </button>
@@ -338,7 +290,7 @@ export default function ModelPage() {
           value=""
           disabled={readOnly}
           onChange={(event) => {
-            addMember(event.target.value);
+            addTheView(event.target.value);
             event.currentTarget.value = "";
           }}
         >
