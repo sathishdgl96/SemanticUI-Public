@@ -585,8 +585,13 @@ button:disabled {
    which spent 744px on chrome before showing a number and put the field list
    third from the left. The builder still uses `.middle`, which is why that
    rule stays. */
+/* Width comes from the inline style the resizer writes; this is the
+   fallback for a first visit and the floor the flex row honours, so the
+   pane never collapses under a long field list. */
 .left {
   width: var(--pane-fields);
+  flex-shrink: 0;
+  position: relative;
 }
 
 .middle {
@@ -6020,3 +6025,50 @@ button.model-column:hover {
 }
 
 .mode-switch button:disabled { opacity: 0.45; }
+
+/* ==========================================================================
+   Resizable panes
+   ========================================================================== */
+
+/* The grab edge. Sits ON the pane's border rather than beside it, so the
+   pane's own width is what the user is setting -- an adjacent element
+   would make the number they drag to differ from the number stored. */
+.pane-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  /* Above the pane's content so a field row never swallows the drag. */
+  z-index: 2;
+  background: transparent;
+  border: none;
+  padding: 0;
+  /* Touch devices scroll a pane by dragging it; claiming the gesture on
+     this sliver only is what keeps both possible. */
+  touch-action: none;
+}
+
+.pane-resizer:hover,
+.pane-resizer:focus-visible {
+  background: var(--accent, #4c6ef5);
+  opacity: 0.35;
+}
+
+.pane-resizer:focus-visible {
+  outline: 2px solid var(--accent, #4c6ef5);
+  outline-offset: -2px;
+  opacity: 0.6;
+}
+
+/* Stacked layout: the panes are rows, so a vertical drag edge would
+   resize nothing. */
+@media (max-width: 960px) {
+  .pane-resizer {
+    display: none;
+  }
+  .left {
+    width: auto !important;
+  }
+}
