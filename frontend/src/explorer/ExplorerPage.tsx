@@ -42,7 +42,6 @@ import WellPanel from "./WellPanel";
 import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
 import PaneResizer from "../ui/PaneResizer";
 import { useResizablePane } from "../ui/useResizablePane";
-import { compositeAvailability } from "../models/availability";
 
 function dragDataOf(active: { data: { current?: Record<string, unknown> } }): DragData | undefined {
   return active.data.current as DragData | undefined;
@@ -503,20 +502,7 @@ export default function ExplorerPage() {
             />
             <h2 className="pane-heading">Fields</h2>
             {selectedView && detail.data && (
-              <FieldPanel
-                detail={detail.data}
-                wells={wells}
-                onAdd={addField}
-                // A model's reachability is per member, which the single
-                // view rule cannot express -- so it is worked out here and
-                // handed down rather than derived from a graph that, for a
-                // model, is deliberately empty.
-                blocked={
-                  selectedView.compositeId
-                    ? compositeAvailability(detail.data, wells)
-                    : undefined
-                }
-              />
+              <FieldPanel detail={detail.data} wells={wells} onAdd={addField} />
             )}
             {selectedView && detail.isLoading && <p>Describing view...</p>}
             {selectedView && detail.isError && (

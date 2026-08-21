@@ -224,3 +224,72 @@ describe("the TPC-H shape that reported this", () => {
     expect(blocked.has("sales.LINEITEMS.TOTAL_QUANTITY")).toBe(false);
   });
 });
+
+describe("the server's own describe, fed to the client's rule", () => {
+  /** Copied from `synthetic_detail` running on a TPC-H shaped model, not
+   *  hand-written: the two sides had never been checked against each
+   *  other, and a key-name drift between them would grey nothing while
+   *  every unit test on either side passed. */
+  const FROM_SERVER = {
+    tables: [{ name: "Sales 360" }, { name: "sales" }, { name: "ops" }],
+    relationships: [],
+    dimensions: [
+      { table: "Sales 360", name: "Customer", dataType: "TEXT" },
+      { table: "sales", name: "PART.BRAND", dataType: "TEXT" },
+      { table: "sales", name: "CUSTOMERS.NAME", dataType: "TEXT" },
+    ],
+    metrics: [
+      { table: "sales", name: "CUSTOMERS.CUSTOMER_COUNT", dataType: "NUMBER" },
+      { table: "sales", name: "LINEITEMS.TOTAL_QUANTITY", dataType: "NUMBER" },
+    ],
+    facts: [],
+    memberGraphs: [
+      {
+        alias: "sales",
+        tables: [
+          { name: "LINEITEMS" },
+          { name: "ORDERS" },
+          { name: "CUSTOMERS" },
+          { name: "PART" },
+        ],
+        relationships: [
+          { name: "li_o", table: "LINEITEMS", refTable: "ORDERS", foreignKey: ["O_ID"], refKey: ["O_ID"] },
+          { name: "li_p", table: "LINEITEMS", refTable: "PART", foreignKey: ["P_ID"], refKey: ["P_ID"] },
+          { name: "o_c", table: "ORDERS", refTable: "CUSTOMERS", foreignKey: ["C_ID"], refKey: ["C_ID"] },
+        ],
+      },
+      { alias: "ops", tables: [{ name: "CLIENT" }], relationships: [] },
+    ],
+  } as CompositeViewDetail;
+
+  it("greys the exact pair the server refuses at run time", () => {
+    // CUSTOMER_COUNT is per CUSTOMERS, which reaches nothing: LINEITEMS
+    // points AT it. So PART is unreachable and the pair is unanswerable.
+    const blocked = compositeAvailability(
+      FROM_SERVER,
+      wells({ values: ["sales.CUSTOMERS.CUSTOMER_COUNT"] }),
+    );
+    expect(blocked.has("sales.PART.BRAND")).toBe(true);
+    // The dimension on the measure's own table stays offered.
+    expect(blocked.has("sales.CUSTOMERS.NAME")).toBe(false);
+  });
+
+  it("greys the measure once the dimension is chosen first", () => {
+    const blocked = compositeAvailability(
+      FROM_SERVER,
+      wells({ axis: ["sales.PART.BRAND"] }),
+    );
+    expect(blocked.has("sales.CUSTOMERS.CUSTOMER_COUNT")).toBe(true);
+    // ...and leaves the measure that CAN break it down, which is the way
+    // out of the refusal.
+    expect(blocked.has("sales.LINEITEMS.TOTAL_QUANTITY")).toBe(false);
+  });
+
+  it("never greys the shared dimension", () => {
+    const blocked = compositeAvailability(
+      FROM_SERVER,
+      wells({ values: ["sales.CUSTOMERS.CUSTOMER_COUNT"] }),
+    );
+    expect(blocked.has("Sales 360.Customer")).toBe(false);
+  });
+});

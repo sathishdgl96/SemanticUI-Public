@@ -1,7 +1,11 @@
 import { useDraggable } from "@dnd-kit/core";
-import { useId, useMemo } from "react";
+import { useMemo } from "react";
 import type { FieldInfo, SemanticViewDetail } from "../api/types";
 import { availability } from "./joins";
+import {
+  compositeAvailability,
+  type CompositeViewDetail,
+} from "../models/availability";
 import { defaultWellFor, type DragData, type FieldKind, type WellId, type Wells } from "./wells";
 
 export type OnAdd = (wellId: WellId, ref: string, kind: FieldKind) => void;
@@ -10,27 +14,22 @@ interface Props {
   detail: SemanticViewDetail;
   wells: Wells;
   onAdd: OnAdd;
-  /** What cannot be added, and why -- ref -> reason. Supplied by the
-   *  caller when the source has its own rules: a model's reachability is
-   *  per member, which this view's own join graph cannot express. */
-  blocked?: Map<string, string>;
 }
 
 function refOf(field: FieldInfo): string {
   return `${field.table}.${field.name}`;
 }
 
-function FieldRow({ field, kind, wells, onAdd, blocked, reasonId }: {
+function FieldRow({ field, kind, wells, onAdd, reason }: {
   field: FieldInfo;
   kind: FieldKind;
   wells: Wells;
   onAdd: Props["onAdd"];
-  /** True when the current selection has ruled this field out. */
-  blocked: boolean;
-  /** The note that explains why, shared by every field blocked for the same
-   *  reason -- see FieldGroup. */
-  reasonId?: string;
+  /** Why the current selection rules this field out, or undefined when it
+   *  does not. Present means blocked; the text is what a hover shows. */
+  reason?: string;
 }) {
+  const blocked = Boolean(reason);
   const ref = refOf(field);
   const data: DragData = { ref, kind };
   // `attributes` already includes an `aria-pressed` that reflects
@@ -43,23 +42,26 @@ function FieldRow({ field, kind, wells, onAdd, blocked, reasonId }: {
     // would succeed where the click was refused.
     disabled: blocked,
   });
-  // dnd-kit puts its own `aria-describedby` in `attributes` (pointing at the
-  // drag instructions), so the two have to be composed rather than one spread
-  // over the other -- which silently dropped this hint when `attributes` was
-  // spread last.
-  const describedBy = [attributes["aria-describedby"], reasonId]
-    .filter(Boolean)
-    .join(" ");
+  // dnd-kit puts its own `aria-describedby` in `attributes` (pointing at
+  // the drag instructions), so the two have to be composed rather than
+  // one spread over the other -- which silently dropped this hint when
+  // `attributes` was spread last.
+  const describedBy = attributes["aria-describedby"];
   return (
     <button
       type="button"
       ref={setNodeRef}
       className="field-row"
       disabled={blocked}
+      // The reason, where the field is. A disabled control gives no
+      // other feedback, so without this a greyed row is a dead end with
+      // no account of itself.
+      title={reason}
       onClick={() => onAdd(defaultWellFor(kind, wells), ref, kind)}
       {...listeners}
       {...attributes}
       aria-describedby={describedBy || undefined}
+      aria-label={reason ? `${refOf(field)} — ${reason}` : undefined}
     >
       <span className="field-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
       {/* The pane is resizable, but a name can still outrun any width a
@@ -83,58 +85,46 @@ function FieldGroup({
   onAdd: Props["onAdd"];
   blocked: Map<string, string>;
 }) {
-  const groupId = useId();
-  // One note per distinct reason, at the head of the group -- not one under
-  // every row. A dozen fields ruled out by a single measure produced a dozen
-  // identical three-line explanations, which buried the two fields that were
-  // still available under the reasons the rest were not.
-  const reasons = useMemo(() => {
-    const seen: string[] = [];
-    for (const field of fields) {
-      const reason = blocked.get(refOf(field));
-      if (reason && !seen.includes(reason)) seen.push(reason);
-    }
-    return seen;
-  }, [fields, blocked]);
-  const idFor = (reason: string) => `${groupId}-${reasons.indexOf(reason)}`;
-
+  // The reason rides on the field it is about -- as its title, so a
+  // pointer finds it, and as its accessible description, so a screen
+  // reader does. It used to be a block of prose above the list, which
+  // said the same three lines however many fields shared the reason and
+  // pushed the ones still available off the top of the pane.
   return (
     <section className="field-group">
       <h4 className="field-group-title">{title}</h4>
-      {reasons.map((reason) => (
-        <p className="field-blocked" key={reason} id={idFor(reason)}>
-          {reason}
-        </p>
+      {fields.map((field) => (
+        <FieldRow
+          key={refOf(field)}
+          field={field}
+          kind={kind}
+          wells={wells}
+          onAdd={onAdd}
+          reason={blocked.get(refOf(field))}
+        />
       ))}
-      {fields.map((field) => {
-        const reason = blocked.get(refOf(field));
-        return (
-          <FieldRow
-            key={refOf(field)}
-            field={field}
-            kind={kind}
-            wells={wells}
-            onAdd={onAdd}
-            blocked={Boolean(reason)}
-            reasonId={reason ? idFor(reason) : undefined}
-          />
-        );
-      })}
     </section>
   );
 }
 
-export default function FieldPanel({
-  detail,
-  wells,
-  onAdd,
-  blocked: supplied,
-}: Props) {
+export default function FieldPanel({ detail, wells, onAdd }: Props) {
   // Which fields the current selection has ruled out. Measures do the ruling
   // out; dimensions almost never do, because the server bridges them. See
   // joins.ts.
-  const computed = useMemo(() => availability(detail, wells), [detail, wells]);
-  const blocked = supplied ?? computed;
+  //
+  // Which RULE applies is decided by the shape of the describe, not by a
+  // flag the caller passes: a detail carrying `memberGraphs` came from a
+  // model, whose reachability is per member. That used to hang on a
+  // `compositeId` the caller had to remember -- and an explore saved
+  // before that field existed reopened without it, so a model silently
+  // fell back to the single-view rule, whose join graph a model's
+  // describe deliberately leaves empty. Nothing was ever greyed.
+  const blocked = useMemo(() => {
+    const model = detail as CompositeViewDetail;
+    return (model.memberGraphs?.length ?? 0) > 0
+      ? compositeAvailability(model, wells)
+      : availability(detail, wells);
+  }, [detail, wells]);
   return (
     <aside className="field-panel">
       {/* Keyboard instructions, which only a keyboard user needs. Always in

@@ -96,3 +96,58 @@ describe("FieldPanel", () => {
     expect(onAdd).toHaveBeenCalledWith("axis", "ORDERS.ORDER_DATE", "dimension");
   });
 });
+
+describe("a model's fields", () => {
+  const MODEL = {
+    tables: [{ name: "Sales 360" }, { name: "sales" }],
+    relationships: [],
+    dimensions: [
+      { table: "Sales 360", name: "Customer", dataType: "TEXT" },
+      { table: "sales", name: "PART.BRAND", dataType: "TEXT" },
+    ],
+    metrics: [
+      { table: "sales", name: "CUSTOMERS.CUSTOMER_COUNT", dataType: "NUMBER" },
+    ],
+    facts: [],
+    memberGraphs: [
+      {
+        alias: "sales",
+        tables: [{ name: "CUSTOMERS" }, { name: "PART" }, { name: "LINEITEMS" }],
+        relationships: [
+          { name: "a", table: "LINEITEMS", refTable: "PART", foreignKey: [], refKey: [] },
+          { name: "b", table: "LINEITEMS", refTable: "CUSTOMERS", foreignKey: [], refKey: [] },
+        ],
+      },
+    ],
+  };
+
+  it("greys an unreachable pair without being told the source is a model", () => {
+    // The rule follows the SHAPE of the describe. It used to follow a
+    // compositeId the caller had to pass, and an explore saved before
+    // that field existed reopened without it -- so a model quietly fell
+    // back to the single-view rule and nothing was ever greyed.
+    render(
+      <FieldPanel
+        detail={MODEL as never}
+        wells={{ axis: [], legend: [], values: ["sales.CUSTOMERS.CUSTOMER_COUNT"] }}
+        onAdd={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /PART\.BRAND/ })).toBeDisabled();
+  });
+
+  it("puts the reason on the field, not in a block above the list", () => {
+    render(
+      <FieldPanel
+        detail={MODEL as never}
+        wells={{ axis: [], legend: [], values: ["sales.CUSTOMERS.CUSTOMER_COUNT"] }}
+        onAdd={vi.fn()}
+      />,
+    );
+    const row = screen.getByRole("button", { name: /PART\.BRAND/ });
+    expect(row).toHaveAttribute("title", expect.stringMatching(/CUSTOMERS/));
+    // The prose block is gone: it said the same three lines however many
+    // fields shared the reason.
+    expect(document.querySelector(".field-blocked")).toBeNull();
+  });
+});

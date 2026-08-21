@@ -872,16 +872,6 @@ button:disabled {
   background: none;
 }
 
-/* Said once at the head of the group, however many rows it accounts for. */
-.field-blocked {
-  margin: 0 0 6px;
-  padding: 4px 6px;
-  border-left: 2px solid var(--border);
-  color: var(--ink-muted);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
 /* ==========================================================================
    Explorer: the selected-fields strip and the stacked sections beside it
    ========================================================================== */
