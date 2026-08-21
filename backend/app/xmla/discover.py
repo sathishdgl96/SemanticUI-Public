@@ -856,8 +856,24 @@ def _level_rows(session, view: dict, fields: list, prefix: tuple = ()) -> list:
         "orderBy": [{"field": r, "direction": "asc"} for r in refs],
         "limit": 1000,
     })
-    detail = session.describe(view["database"], view["schema"], view["name"])
-    sql, params, limit = build_semantic_sql(detail, request, max_rows=1000)
+    from app.xmla.composite_source import is_composite
+
+    if is_composite(view):
+        # A model has no view of its own to query. Its members come from
+        # the same stitched statement everything else about it does.
+        from app.xmla.composite_engine import compile_for_model
+
+        definition = session.model_definition(
+            view["database"], view["schema"], view["name"]
+        )
+        if definition is None:
+            return []
+        sql, params, limit = compile_for_model(
+            session, definition, refs, [], request.filters, max_rows=1000
+        )
+    else:
+        detail = session.describe(view["database"], view["schema"], view["name"])
+        sql, params, limit = build_semantic_sql(detail, request, max_rows=1000)
     result = gateway.run_query(session.conn, sql, max_rows=limit, params=params)
     return result.rows
 

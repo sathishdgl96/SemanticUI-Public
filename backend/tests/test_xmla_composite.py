@@ -439,3 +439,112 @@ class TestRouting:
         with pytest.raises(ApiError) as caught:
             execute_module.handle_execute(FakeModelSession(), request)
         assert caught.value.status == 404
+
+
+class TestFilterMembers:
+    """Excel populates a filter dropdown through DISCOVER, not Execute.
+
+    That path built its SQL from the cube's own view triple, which for a
+    model is the synthetic Models/workspace/name -- so Snowflake answered
+    "does not exist or not authorized", because it does not exist. It has
+    to go through the model's own compiler like everything else.
+    """
+
+    def test_a_models_members_come_from_its_stitched_statement(self, monkeypatch):
+        from app.snowflake import gateway
+        from app.snowflake.gateway import QueryResult
+        from app.xmla import discover as discover_module
+
+        seen: list[str] = []
+
+        def fake_run_query(conn, sql, *, max_rows, params=None):
+            seen.append(sql)
+            return QueryResult(
+                columns=["c0"], rows=[["ACME"], ["Globex"]], truncated=False, sfqid="q"
+            )
+
+        monkeypatch.setattr(gateway, "run_query", fake_run_query)
+
+        session = FakeModelSession()
+        rows = discover_module._level_rows(
+            session, session.view, [("Customer 360", "Customer")]
+        )
+
+        assert rows == [["ACME"], ["Globex"]]
+        # The model's members, not a query against a view that is not there.
+        assert seen and "SEMANTIC_VIEW(" in seen[0]
+        assert '"Models"' not in seen[0]
+        assert '"D"."S"."SALES_SV"' in seen[0]
+
+    def test_a_members_own_field_lists_too(self, monkeypatch):
+        from app.snowflake import gateway
+        from app.snowflake.gateway import QueryResult
+        from app.xmla import discover as discover_module
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            gateway,
+            "run_query",
+            lambda conn, sql, *, max_rows, params=None: (
+                seen.append(sql)
+                or QueryResult(columns=["c0"], rows=[["EU"]], truncated=False, sfqid="q")
+            ),
+        )
+
+        session = FakeModelSession()
+        rows = discover_module._level_rows(
+            session, session.view, [("sales", "CUSTOMER.REGION")]
+        )
+        assert rows == [["EU"]]
+        assert '"CUSTOMER"."REGION"' in seen[0]
+
+    def test_a_prefix_becomes_a_bound_filter(self, monkeypatch):
+        # Drilling one branch of a hierarchy pins the levels above it, and
+        # those values must bind rather than reach the SQL.
+        from app.snowflake import gateway
+        from app.snowflake.gateway import QueryResult
+        from app.xmla import discover as discover_module
+
+        captured: dict = {}
+
+        def fake_run_query(conn, sql, *, max_rows, params=None):
+            captured["sql"], captured["params"] = sql, params
+            return QueryResult(columns=["c0"], rows=[], truncated=False, sfqid="q")
+
+        monkeypatch.setattr(gateway, "run_query", fake_run_query)
+
+        session = FakeModelSession()
+        discover_module._level_rows(
+            session,
+            session.view,
+            [("sales", "CUSTOMER.REGION")],
+            ("EU'; DROP TABLE X --",),
+        )
+        assert "DROP TABLE" not in captured["sql"]
+        assert "EU'; DROP TABLE X --" in captured["params"]
+
+    def test_a_cube_that_is_a_plain_view_is_untouched(self, monkeypatch):
+        from app.snowflake import gateway
+        from app.snowflake.gateway import QueryResult
+        from app.xmla import discover as discover_module
+
+        seen: list[str] = []
+        monkeypatch.setattr(
+            gateway,
+            "run_query",
+            lambda conn, sql, *, max_rows, params=None: (
+                seen.append(sql)
+                or QueryResult(columns=["c0"], rows=[], truncated=False, sfqid="q")
+            ),
+        )
+
+        class PlainSession(FakeModelSession):
+            def describe(self, database, schema, view):
+                return SALES
+
+        session = PlainSession()
+        plain = {"database": "D", "schema": "S", "name": "SALES_SV"}
+        discover_module._level_rows(session, plain, [("CUSTOMER", "REGION")])
+        assert '"D"."S"."SALES_SV"' in seen[0]
+        # One statement, not a stitched one: a view is still a view.
+        assert seen[0].count("SEMANTIC_VIEW(") == 1
