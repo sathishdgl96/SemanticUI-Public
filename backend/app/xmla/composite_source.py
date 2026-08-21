@@ -82,10 +82,13 @@ def synthetic_detail(
     is simply absent, and contributes nothing rather than making the whole
     cube unreadable.
 
-    Relationships are deliberately empty. They exist so `plan_join` can
-    tell which field combinations one view can answer; across a model the
-    join is the conformed dimensions, and every combination the model
-    exposes is answerable by construction.
+    The model's own `relationships` are empty: across members the join is
+    the conformed dimensions, not a declared edge. But each MEMBER keeps
+    its own join graph, and it still binds -- a metric and a dimension
+    that view cannot connect is as unanswerable inside a model as it was
+    outside one. `member_graphs` carries those graphs out so a client can
+    say which fields are still reachable without describing every member
+    itself.
     """
     folder = folder_name(definition)
     dimensions: list[dict] = []
@@ -151,7 +154,33 @@ def synthetic_detail(
         "metrics": metrics,
         "facts": [],
         "hierarchies": [],
+        "memberGraphs": member_graphs(definition, describes),
     }
+
+
+def member_graphs(
+    definition: CompositeDefinition, describes: dict[str, dict]
+) -> list[dict]:
+    """Each member's own tables and relationships, kept per member.
+
+    A model flattens members into one field list, which loses the fact
+    that each view still has a shape of its own. This carries it: enough
+    for a client to answer "given what is already picked, what can still
+    be added" without fetching every member's describe a second time.
+    """
+    out = []
+    for member in definition.members:
+        detail = describes.get(member.alias.lower())
+        if not detail:
+            continue
+        out.append(
+            {
+                "alias": member.alias,
+                "tables": detail.get("tables") or [],
+                "relationships": detail.get("relationships") or [],
+            }
+        )
+    return out
 
 
 def to_model_ref(definition: CompositeDefinition, ref: str) -> str:

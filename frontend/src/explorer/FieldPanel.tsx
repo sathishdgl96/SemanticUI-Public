@@ -10,6 +10,10 @@ interface Props {
   detail: SemanticViewDetail;
   wells: Wells;
   onAdd: OnAdd;
+  /** What cannot be added, and why -- ref -> reason. Supplied by the
+   *  caller when the source has its own rules: a model's reachability is
+   *  per member, which this view's own join graph cannot express. */
+  blocked?: Map<string, string>;
 }
 
 function refOf(field: FieldInfo): string {
@@ -120,11 +124,17 @@ function FieldGroup({
   );
 }
 
-export default function FieldPanel({ detail, wells, onAdd }: Props) {
+export default function FieldPanel({
+  detail,
+  wells,
+  onAdd,
+  blocked: supplied,
+}: Props) {
   // Which fields the current selection has ruled out. Measures do the ruling
   // out; dimensions almost never do, because the server bridges them. See
   // joins.ts.
-  const blocked = useMemo(() => availability(detail, wells), [detail, wells]);
+  const computed = useMemo(() => availability(detail, wells), [detail, wells]);
+  const blocked = supplied ?? computed;
   return (
     <aside className="field-panel">
       {/* Keyboard instructions, which only a keyboard user needs. Always in
