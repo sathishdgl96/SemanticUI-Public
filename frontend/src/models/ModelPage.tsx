@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, apiFetch } from "../api/client";
 import {
@@ -11,12 +11,12 @@ import { createReport } from "../api/reports";
 import type { ReportDefinition, SemanticViewSummary } from "../api/types";
 import Icon from "../ui/Icon";
 import ModelDesigner from "../designer/ModelDesigner";
+import { compositeDetailFromDraft } from "../designer/fromDraft";
 import {
   addMember,
   removeMember as removeMemberFrom,
   renameMember as renameMemberIn,
 } from "../designer/edits";
-import type { CompositeViewDetail } from "./availability";
 import DerivedMetrics from "./DerivedMetrics";
 import SharedDimensions from "./SharedDimensions";
 import { useMemberDescribes } from "./useMemberDescribes";
@@ -88,16 +88,17 @@ export default function ModelPage() {
   const describes = useMemberDescribes(draft?.members ?? []);
   const [tab, setTab] = useState<"design" | "fields">("design");
 
-  // The model's own field list, which the canvas draws from -- the same
-  // describe a report over this model reads, so the two cannot disagree
-  // about what the model contains.
-  const shape = useQuery({
-    queryKey: ["composite-describe", id],
-    queryFn: () =>
-      apiFetch<CompositeViewDetail>(`/api/composites/${id}/describe`),
-    enabled: Boolean(id),
-    retry: false,
-  });
+  // Built from the draft, not fetched. /describe answers for the model
+  // AS SAVED, and the canvas draws it AS EDITED -- so a view added and
+  // not yet saved came back with no fields, and every container reported
+  // itself unreadable for a view that was plainly on screen.
+  const shape = useMemo(
+    () =>
+      draft
+        ? compositeDetailFromDraft(draft, describes.byAlias, describes.unreadable)
+        : undefined,
+    [draft, describes.byAlias, describes.unreadable],
+  );
 
   const buildReport = useMutation({
     mutationFn: () =>
@@ -235,8 +236,8 @@ export default function ModelPage() {
         <ModelDesigner
           modelId={id}
           definition={draft}
-          detail={shape.data}
-          loading={shape.isLoading}
+          detail={shape}
+          loading={describes.loading}
           readOnly={readOnly}
           views={views.data?.views ?? []}
           onChange={(next) => setDraft(next)}
