@@ -27,9 +27,12 @@ model's definition plus each member's real describe, which the caller has
 already fetched on the user's own connection.
 """
 
+import logging
 from collections.abc import Callable
 
 from app.composites.schema import CompositeDefinition
+
+log = logging.getLogger(__name__)
 
 #: The pseudo-database every model appears under, so a cube name stays
 #: three parts and models sort together in Excel's cube list.
@@ -73,7 +76,9 @@ def is_composite(view: dict) -> bool:
 
 
 def synthetic_detail(
-    definition: CompositeDefinition, describes: dict[str, dict]
+    definition: CompositeDefinition,
+    describes: dict[str, dict],
+    failures: dict[str, str] | None = None,
 ) -> dict:
     """The describe a composite cube answers with.
 
@@ -155,6 +160,9 @@ def synthetic_detail(
         "facts": [],
         "hierarchies": [],
         "memberGraphs": member_graphs(definition, describes),
+        #: alias -> why that view has no fields here. Empty when every
+        #: member answered.
+        "memberErrors": dict(failures or {}),
     }
 
 
@@ -209,24 +217,37 @@ def to_model_refs(definition: CompositeDefinition, refs: list[str]) -> list[str]
 
 def member_describes(
     describe: Callable[[str, str, str], dict], definition: CompositeDefinition
-) -> dict[str, dict]:
-    """Each member's real describe, on the caller's own connection.
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Each member's real describe, and why any of them is missing.
 
     Takes the callable rather than whatever object happens to own it: the
     XMLA session and the REST route reach a describe by different routes,
     and asking for the narrow thing spares the caller inventing an object
     to satisfy the wide one.
 
-    A member the caller cannot read is skipped rather than raising: a
-    model naming one view they may not see should still expose the ones
-    they may, and Snowflake refuses the rest when a query actually asks.
+    A member that cannot be described is skipped rather than raising: a
+    model naming one view somebody may not see should still expose the
+    ones they may. But the REASON is kept and returned, and logged --
+    swallowing it outright has now hidden two separate faults, and left
+    the UI asserting "your role cannot see it" when the real cause was a
+    TypeError in this file.
     """
     out: dict[str, dict] = {}
+    failures: dict[str, str] = {}
     for member in definition.members:
         try:
             out[member.alias.lower()] = describe(
                 member.database, member.schema_, member.view
             )
-        except Exception:
-            continue
-    return out
+        except Exception as exc:
+            reason = getattr(exc, "message", None) or str(exc) or exc.__class__.__name__
+            failures[member.alias.lower()] = reason
+            log.warning(
+                "composite member could not be described: alias=%s view=%s.%s.%s: %s",
+                member.alias,
+                member.database,
+                member.schema_,
+                member.view,
+                reason,
+            )
+    return out, failures

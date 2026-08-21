@@ -295,15 +295,13 @@ def describe_composite(
     entry = cache.acquire(db, sess)
 
     with entry.lock:
-        detail = synthetic_detail(
-            definition,
-            member_describes(
-                lambda database, schema, view: cache.describe(
-                    entry, database, schema, view
-                ),
-                definition,
+        described, failures = member_describes(
+            lambda database, schema, view: cache.describe(
+                entry, database, schema, view
             ),
+            definition,
         )
+        detail = synthetic_detail(definition, described, failures)
 
     record(db, "composite.read", user_id=sess.user_id, session_id=sess.id,
            resource_type="composite", resource_id=composite.id,

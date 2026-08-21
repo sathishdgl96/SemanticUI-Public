@@ -126,9 +126,8 @@ class XmlaSession:
                 view = synthetic_view(
                     row, workspace.name if workspace else MODEL_DATABASE
                 )
-                detail = synthetic_detail(
-                    definition, member_describes(self.describe, definition)
-                )
+                described, failures = member_describes(self.describe, definition)
+                detail = synthetic_detail(definition, described, failures)
                 if not detail["dimensions"] and not detail["metrics"]:
                     continue
                 key = (view["database"], view["schema"], view["name"])

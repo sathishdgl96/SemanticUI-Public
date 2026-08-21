@@ -11,7 +11,8 @@ import { columnHandle, type BackdropNode } from "./layout";
  * box, which says two views are related but not on what.
  */
 export default function Backdrop({ data }: NodeProps<BackdropNode>) {
-  const { alias, view, colour, expanded, tableCount, summary, readable } = data;
+  const { alias, view, colour, expanded, tableCount, summary, readable, problem } =
+    data;
   return (
     <div
       className={`designer-backdrop${expanded ? " is-open" : ""}`}
@@ -64,8 +65,9 @@ export default function Backdrop({ data }: NodeProps<BackdropNode>) {
 
       {!readable && (
         <p className="designer-unreadable" role="note">
-          Snowflake did not describe this view. Your role may not be able to
-          see it, or it may have been renamed or dropped.
+          {problem
+            ? `This view could not be described: ${problem}`
+            : "This view returned no fields."}
         </p>
       )}
 

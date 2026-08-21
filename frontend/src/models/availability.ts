@@ -49,6 +49,10 @@ export interface MemberGraph {
 /** A model's describe: a view's shape, plus each member's own graph. */
 export type CompositeViewDetail = SemanticViewDetail & {
   memberGraphs?: MemberGraph[];
+  /** alias -> why that view contributed no fields. Empty when every
+   *  member answered. Carried so the UI can report what actually
+   *  happened rather than assuming it was a permission. */
+  memberErrors?: Record<string, string>;
 };
 
 export function compositeAvailability(

@@ -677,3 +677,53 @@ def test_describe_still_answers_when_one_member_cannot_be_read(client, db, monke
     body = client.get(f"/api/composites/{created['id']}/describe").json()
     assert [g["alias"] for g in body["memberGraphs"]] == ["sales"]
     assert any(f["table"] == "sales" for f in body["dimensions"])
+
+
+def test_describe_says_why_a_member_could_not_be_read(client, db, monkeypatch):
+    """The reason has to travel. Swallowing it left the UI asserting
+    "your role cannot see it" while the real fault was a TypeError in our
+    own code -- which sent somebody looking at Snowflake grants."""
+    sess = sign_in(client, db)
+    ws = workspace(db, sess.user_id)
+    created = client.post("/api/composites", json={"workspaceId": str(ws.id)}).json()
+    client.put(f"/api/composites/{created['id']}", json={"definition": definition()})
+
+    from app.snowflake import provider
+
+    class _Entry:
+        conn = object()
+
+        class _Lock:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, *a):
+                return False
+
+        lock = _Lock()
+
+    class _Cache:
+        def acquire(self, db_, sess_):
+            return _Entry()
+
+        def describe(self, entry, database, schema, view):
+            if view == "SUPPORT_SV":
+                raise RuntimeError("SQL compilation error: Object does not exist")
+            return {
+                "tables": [{"name": "CUSTOMER"}],
+                "relationships": [],
+                "dimensions": [
+                    {"table": "CUSTOMER", "name": "REGION", "dataType": "TEXT"}
+                ],
+                "metrics": [],
+                "facts": [],
+            }
+
+    monkeypatch.setattr(provider, "get_cache", lambda: _Cache())
+
+    body = client.get(f"/api/composites/{created['id']}/describe").json()
+    assert "support" in body["memberErrors"]
+    assert "Object does not exist" in body["memberErrors"]["support"]
+    # The one that answered is unaffected.
+    assert "sales" not in body["memberErrors"]
+    assert [g["alias"] for g in body["memberGraphs"]] == ["sales"]

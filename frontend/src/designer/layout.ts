@@ -36,10 +36,15 @@ export interface BackdropData extends Record<string, unknown> {
   colour: ViewColour;
   expanded: boolean;
   tableCount: number;
-  /** False when this member has no describe: the caller cannot read the
-   *  view, or it is gone. The container then says so instead of
-   *  rendering as an empty box, which is indistinguishable from a bug. */
+  /** False when this member has no describe. The container then says so
+   *  instead of rendering as an empty box, which is indistinguishable
+   *  from a bug. */
   readable: boolean;
+  /** What the warehouse actually said, when it said anything. Reported
+   *  verbatim rather than paraphrased: guessing "your role cannot see
+   *  it" was wrong once already, and sent somebody looking at grants
+   *  when the fault was ours. */
+  problem: string | null;
   /** Shown when collapsed: the columns this view contributes to a
    *  conformed dimension, in the model's order, each an edge anchor. */
   summary: { dimension: string; table: string; column: string }[];
@@ -305,6 +310,7 @@ export function buildDesigner(
         expanded: isOpen,
         tableCount: tables.length,
         readable: Boolean(graph) || tables.length > 0,
+        problem: (detail.memberErrors ?? {})[key] ?? null,
         summary,
       },
     });
