@@ -548,3 +548,85 @@ class TestFilterMembers:
         assert '"D"."S"."SALES_SV"' in seen[0]
         # One statement, not a stitched one: a view is still a view.
         assert seen[0].count("SEMANTIC_VIEW(") == 1
+
+
+class TestFiltersArriveInTwoShapes:
+    """The MDX engine builds filters as plain dicts and lets the request
+    model validate them later; the REST route already holds validated
+    models. Every test here used the second shape, so a rewrite that
+    assumed `.model_copy` passed everything and died on the first real
+    Excel filter."""
+
+    def _engine(self):
+        from app.xmla.composite_engine import _CompositeEngine
+        from app.xmla.mdx import parse_mdx
+
+        session = FakeModelSession()
+        return _CompositeEngine(
+            session,
+            session.view,
+            session.detail,
+            parse_mdx("SELECT FROM [Models.Team.Customer 360]"),
+            session.definition,
+        )
+
+    def test_a_dict_filter_compiles(self):
+        # Exactly what engine.py appends when Excel sends a WHERE tuple.
+        sql, params, _ = self._engine()._compile(
+            ["Customer 360.Customer"],
+            ["sales.ORDERS.REVENUE"],
+            [
+                {
+                    "id": "mdx0",
+                    "field": "sales.CUSTOMER.REGION",
+                    "op": "is",
+                    "values": ["EU"],
+                }
+            ],
+        )
+        assert '"CUSTOMER"."REGION"' in sql
+        assert "EU" in params
+        assert "EU" not in sql
+
+    def test_a_validated_filter_compiles_the_same_way(self):
+        import pydantic
+
+        from app.reports.filters import FilterList
+
+        class W(pydantic.BaseModel):
+            filters: FilterList = []
+
+        validated = W(
+            filters=[
+                {
+                    "id": "mdx0",
+                    "field": "sales.CUSTOMER.REGION",
+                    "op": "is",
+                    "values": ["EU"],
+                }
+            ]
+        ).filters
+        sql, params, _ = self._engine()._compile(
+            ["Customer 360.Customer"], ["sales.ORDERS.REVENUE"], validated
+        )
+        assert '"CUSTOMER"."REGION"' in sql
+        assert params == ["EU"]
+
+    def test_no_filters_at_all(self):
+        sql, params, _ = self._engine()._compile(
+            ["Customer 360.Customer"], ["sales.ORDERS.REVENUE"], []
+        )
+        assert params == []
+        assert "WHERE" not in sql
+
+    def test_a_dict_filter_is_validated_at_the_boundary(self):
+        # A dict used to reach the planner unchecked and fail several
+        # frames later, naming neither the filter nor the field.
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            self._engine()._compile(
+                ["Customer 360.Customer"],
+                ["sales.ORDERS.REVENUE"],
+                [{"id": "x", "field": "sales.CUSTOMER.REGION", "op": "nonsense"}],
+            )

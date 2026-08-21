@@ -15,11 +15,31 @@ views can answer it and stitches them on the conformed dimensions — the
 same one statement the API path builds.
 """
 
+from pydantic import BaseModel
+
 from app.composites.compile import compile_composite
 from app.composites.planner import plan as plan_composite
 from app.config import get_settings
+from app.reports.filters import FilterList
 from app.xmla.composite_source import to_model_ref, to_model_refs
 from app.xmla.engine import _Engine
+
+
+class _Filters(BaseModel):
+    """Somewhere to validate a filter list into its real types.
+
+    The two callers hold filters differently: the MDX engine builds plain
+    dicts and lets `SemanticQueryRequest` validate them on the way out,
+    while the REST route already has validated models. Normalising here
+    means the rewrite below has one shape to work with -- and that a dict
+    is checked at the boundary rather than several frames later.
+    """
+
+    filters: FilterList = []
+
+
+def _validated(filters) -> list:
+    return _Filters(filters=list(filters or [])).filters
 
 
 def compile_for_model(session, definition, dims, metrics, filters, *, max_rows):
@@ -37,7 +57,7 @@ def compile_for_model(session, definition, dims, metrics, filters, *, max_rows):
     model_metrics = to_model_refs(definition, metrics)
     model_filters = [
         item.model_copy(update={"field": to_model_ref(definition, item.field)})
-        for item in filters
+        for item in _validated(filters)
     ]
     stitch = plan_composite(
         definition,
