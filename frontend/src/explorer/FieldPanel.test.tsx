@@ -151,3 +151,56 @@ describe("a model's fields", () => {
     expect(document.querySelector(".field-blocked")).toBeNull();
   });
 });
+
+describe("when the rules cannot run", () => {
+  it("says so, rather than quietly greying nothing", async () => {
+    // A model whose views reported no joins cannot have its unreachable
+    // pairs greyed. Staying silent about that is indistinguishable from
+    // a bug, and was taken for one more than once.
+    const noJoins = {
+      tables: [{ name: "M" }, { name: "sales" }],
+      relationships: [],
+      dimensions: [{ table: "sales", name: "PART.BRAND", dataType: "TEXT" }],
+      metrics: [{ table: "sales", name: "CUSTOMERS.COUNT", dataType: "NUMBER" }],
+      facts: [],
+      memberGraphs: [
+        { alias: "sales", tables: [{ name: "PART" }], relationships: [] },
+      ],
+    };
+    render(
+      <FieldPanel
+        detail={noJoins as never}
+        wells={{ axis: [], legend: [], values: [] }}
+        onAdd={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("note")).toHaveTextContent(/did not report how their tables join/i);
+  });
+
+  it("says nothing when they can", async () => {
+    const withJoins = {
+      tables: [{ name: "M" }, { name: "sales" }],
+      relationships: [],
+      dimensions: [{ table: "sales", name: "PART.BRAND", dataType: "TEXT" }],
+      metrics: [{ table: "sales", name: "CUSTOMERS.COUNT", dataType: "NUMBER" }],
+      facts: [],
+      memberGraphs: [
+        {
+          alias: "sales",
+          tables: [{ name: "PART" }, { name: "CUSTOMERS" }],
+          relationships: [
+            { name: "r", table: "PART", refTable: "CUSTOMERS", foreignKey: [], refKey: [] },
+          ],
+        },
+      ],
+    };
+    render(
+      <FieldPanel
+        detail={withJoins as never}
+        wells={{ axis: [], legend: [], values: [] }}
+        onAdd={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+});

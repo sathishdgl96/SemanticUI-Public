@@ -96,6 +96,17 @@ export function compositeDetailFromDraft(
     facts: [],
     memberGraphs,
     memberErrors,
+    sharedBindings: Object.fromEntries(
+      definition.sharedDimensions.map((shared) => [
+        `${folder}.${shared.name}`,
+        Object.fromEntries(
+          Object.entries(shared.bindings).map(([alias, binding]) => [
+            alias,
+            { table: binding.table, column: binding.column },
+          ]),
+        ),
+      ]),
+    ),
   };
 }
 

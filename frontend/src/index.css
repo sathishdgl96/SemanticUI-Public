@@ -6810,3 +6810,15 @@ button.model-column:hover {
   opacity: 0;
   pointer-events: none;
 }
+
+/* When the panel cannot apply its own rules, it says so. Not greying is
+   otherwise indistinguishable from a bug -- which is exactly what it was
+   taken for. */
+.field-note {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}

@@ -293,3 +293,44 @@ describe("the server's own describe, fed to the client's rule", () => {
     expect(blocked.has("Sales 360.Customer")).toBe(false);
   });
 });
+
+describe("a shared dimension is bound to a real table, and that table counts", () => {
+  const MODEL = {
+    tables: [{ name: "Sales 360" }, { name: "sales" }],
+    relationships: [],
+    dimensions: [
+      { table: "Sales 360", name: "Brand", dataType: "TEXT" },
+      { table: "sales", name: "CUSTOMERS.NAME", dataType: "TEXT" },
+    ],
+    metrics: [
+      { table: "sales", name: "CUSTOMERS.CUSTOMER_COUNT", dataType: "NUMBER" },
+      { table: "sales", name: "LINEITEMS.TOTAL_QUANTITY", dataType: "NUMBER" },
+    ],
+    facts: [],
+    memberGraphs: [
+      {
+        alias: "sales",
+        tables: [{ name: "LINEITEMS" }, { name: "CUSTOMERS" }, { name: "PART" }],
+        relationships: [
+          { name: "a", table: "LINEITEMS", refTable: "PART", foreignKey: [], refKey: [] },
+          { name: "b", table: "LINEITEMS", refTable: "CUSTOMERS", foreignKey: [], refKey: [] },
+        ],
+      },
+    ],
+    // "Brand" is bound to sales.PART.BRAND, so choosing it puts PART in
+    // the branch exactly as picking the column directly would.
+    sharedBindings: { "Sales 360.Brand": { sales: { table: "PART", column: "BRAND" } } },
+  } as CompositeViewDetail;
+
+  it("blocks a measure that cannot reach the table a shared dimension sits on", () => {
+    // The branch does not care that the column arrived as a conformed
+    // dimension: it groups by PART either way, and CUSTOMER_COUNT is per
+    // CUSTOMERS, which does not reach PART.
+    const blocked = compositeAvailability(
+      MODEL,
+      wells({ axis: ["Sales 360.Brand"] }),
+    );
+    expect(blocked.has("sales.CUSTOMERS.CUSTOMER_COUNT")).toBe(true);
+    expect(blocked.has("sales.LINEITEMS.TOTAL_QUANTITY")).toBe(false);
+  });
+});

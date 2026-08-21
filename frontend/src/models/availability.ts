@@ -53,6 +53,12 @@ export type CompositeViewDetail = SemanticViewDetail & {
    *  member answered. Carried so the UI can report what actually
    *  happened rather than assuming it was a permission. */
   memberErrors?: Record<string, string>;
+  /** Which real column each shared dimension IS, per member, keyed by
+   *  the dimension's own field reference. Grouping by "Brand" means
+   *  grouping by PART in one view and BRAND_DIM in another, and a client
+   *  cannot deduce that -- without it, it cannot tell which measures can
+   *  still break the dimension down. */
+  sharedBindings?: Record<string, Record<string, { table: string; column: string }>>;
 };
 
 export function compositeAvailability(
@@ -84,12 +90,34 @@ export function compositeAvailability(
     graphs.map((graph) => [graph.alias.toLowerCase(), graph]),
   );
 
-  /** Tables of this member already named by the selection. */
+  const bindings = detail.sharedBindings ?? {};
+
+  /** Tables of this member already named by the selection.
+   *
+   *  A shared dimension counts. It is not an abstraction the branch ever
+   *  sees: it is bound to a real column, the branch groups by that
+   *  column, and a measure that cannot reach its table is as
+   *  unanswerable as if the column had been picked directly. Leaving
+   *  these out is why choosing a conformed dimension and an unreachable
+   *  measure was only refused at run time. */
   function tablesChosenIn(alias: string, refs: string[]): string[] {
-    return refs
-      .filter((ref) => memberOf(ref).toLowerCase() === alias && !isShared(ref))
-      .map(memberTable)
-      .filter(Boolean);
+    const out: string[] = [];
+    for (const ref of refs) {
+      if (isShared(ref)) {
+        const bound = bindings[ref]?.[alias] ?? bindings[ref]?.[alias.toLowerCase()];
+        const match =
+          bound ??
+          Object.entries(bindings[ref] ?? {}).find(
+            ([bindingAlias]) => bindingAlias.toLowerCase() === alias,
+          )?.[1];
+        if (match?.table) out.push(match.table.toUpperCase());
+        continue;
+      }
+      if (memberOf(ref).toLowerCase() !== alias) continue;
+      const table = memberTable(ref);
+      if (table) out.push(table);
+    }
+    return out;
   }
 
   function block(ref: string, reason: string) {

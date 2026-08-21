@@ -163,6 +163,18 @@ def synthetic_detail(
         #: alias -> why that view has no fields here. Empty when every
         #: member answered.
         "memberErrors": dict(failures or {}),
+        #: Which real column each shared dimension IS, per member. A
+        #: client cannot work out on its own that grouping by "Brand"
+        #: means grouping by PART in one view and BRAND_DIM in another --
+        #: and without that it cannot tell which measures can still break
+        #: it down.
+        "sharedBindings": {
+            f"{folder}.{shared.name}": {
+                alias: {"table": binding.table, "column": binding.column}
+                for alias, binding in shared.bindings.items()
+            }
+            for shared in definition.sharedDimensions
+        },
     }
 
 

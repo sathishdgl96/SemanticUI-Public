@@ -119,12 +119,20 @@ export default function FieldPanel({ detail, wells, onAdd }: Props) {
   // before that field existed reopened without it, so a model silently
   // fell back to the single-view rule, whose join graph a model's
   // describe deliberately leaves empty. Nothing was ever greyed.
-  const blocked = useMemo(() => {
-    const model = detail as CompositeViewDetail;
-    return (model.memberGraphs?.length ?? 0) > 0
-      ? compositeAvailability(model, wells)
-      : availability(detail, wells);
-  }, [detail, wells]);
+  const model = detail as CompositeViewDetail;
+  const isModel = (model.memberGraphs?.length ?? 0) > 0;
+  const blocked = useMemo(
+    () => (isModel ? compositeAvailability(model, wells) : availability(detail, wells)),
+    [detail, model, isModel, wells],
+  );
+
+  // Whether the rules can run at all, said out loud. A model whose views
+  // reported no joins cannot have its unreachable pairs greyed -- and
+  // silently not greying is indistinguishable from a bug, which cost
+  // real time to establish more than once.
+  const joinsKnown =
+    !isModel ||
+    (model.memberGraphs ?? []).some((graph) => (graph.relationships ?? []).length > 0);
   return (
     <aside className="field-panel">
       {/* Keyboard instructions, which only a keyboard user needs. Always in
@@ -143,6 +151,13 @@ export default function FieldPanel({ detail, wells, onAdd }: Props) {
         title="Metrics" kind="metric" fields={detail.metrics}
         wells={wells} onAdd={onAdd} blocked={blocked}
       />
+      {!joinsKnown && (
+        <p className="field-note" role="note">
+          These views did not report how their tables join, so combinations
+          this model cannot answer are not greyed out here. The query will
+          still say which ones it refuses.
+        </p>
+      )}
     </aside>
   );
 }
