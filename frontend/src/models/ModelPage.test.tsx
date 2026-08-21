@@ -78,6 +78,15 @@ function renderPage() {
   );
 }
 
+/** The form lives behind the Fields tab now. These tests are about the
+ *  form, so they go there first; the header (name, Save, Export) sits
+ *  above the tabs and is reachable either way. */
+async function renderFields() {
+  const result = renderPage();
+  await userEvent.click(await screen.findByRole("tab", { name: "Fields" }));
+  return result;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   getMock.mockResolvedValue(detail());
@@ -127,13 +136,13 @@ beforeEach(() => {
 
 describe("ModelPage", () => {
   it("shows the views the model is over", async () => {
-    renderPage();
+    await renderFields();
     expect(await screen.findByText("A.P.SALES_SV")).toBeInTheDocument();
     expect(screen.getByText("A.P.SUPPORT_SV")).toBeInTheDocument();
   });
 
   it("offers only views that are not already members", async () => {
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     const picker = screen.getByLabelText("Add a view");
     // Adding the same view twice would join a table to itself; the server
@@ -145,7 +154,7 @@ describe("ModelPage", () => {
   it("removing a view takes its bindings with it", async () => {
     // Leaving a binding behind makes the model unsaveable with an error
     // naming a view that is no longer on screen.
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SUPPORT_SV");
     await userEvent.click(screen.getByRole("button", { name: /remove SUPPORT_SV/i }));
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
@@ -159,7 +168,7 @@ describe("ModelPage", () => {
   it("says what a filter on one view does to the others", async () => {
     // Power BI made this choice silently and users met it as wrong
     // numbers, so the page has to say which way it is set.
-    renderPage();
+    await renderFields();
     expect(
       await screen.findByText(/shows tickets for the customers that filter left/i),
     ).toBeInTheDocument();
@@ -180,13 +189,13 @@ describe("ModelPage", () => {
         }),
       }),
     );
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     expect(screen.getByRole("button", { name: /add one by hand/i })).toBeDisabled();
   });
 
   it("runs the model and says how many views answered", async () => {
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     await userEvent.click(screen.getByRole("checkbox", { name: "Customer" }));
     await userEvent.click(screen.getByRole("button", { name: /^run$/i }));
@@ -195,7 +204,7 @@ describe("ModelPage", () => {
   });
 
   it("shows the SQL on request, because an answer you cannot audit is one you should not act on", async () => {
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     await userEvent.click(screen.getByRole("checkbox", { name: "Customer" }));
     await userEvent.click(screen.getByRole("button", { name: /^run$/i }));
@@ -207,7 +216,7 @@ describe("ModelPage", () => {
 
   it("a viewer can read the model but not change it", async () => {
     getMock.mockResolvedValue(detail({ myRole: "viewer" }));
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
     expect(screen.getByLabelText("Model name")).toBeDisabled();
@@ -216,7 +225,7 @@ describe("ModelPage", () => {
 
 describe("derived metrics", () => {
   it("builds a metric from two member metrics and an operator", async () => {
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
 
     await userEvent.type(screen.getByLabelText("Call it"), "Revenue per ticket");
@@ -260,7 +269,7 @@ describe("derived metrics", () => {
         }),
       }),
     );
-    renderPage();
+    await renderFields();
     expect(
       await screen.findByText(
         "sales:ORDERS.REVENUE divided by support:TICKETS.TICKET_COUNT",
@@ -277,7 +286,7 @@ describe("derived metrics", () => {
         }),
       }),
     );
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     expect(screen.getByText(/needs two to combine/i)).toBeInTheDocument();
   });
@@ -288,7 +297,7 @@ describe("what means the same thing", () => {
     getMock.mockResolvedValue(
       detail({ definition: definition({ sharedDimensions: [] }) }),
     );
-    renderPage();
+    await renderFields();
     expect(await screen.findByText(/matching columns found/i)).toBeInTheDocument();
     expect(screen.getByText("Customer")).toBeInTheDocument();
     expect(screen.getByText(/same key column in 2 views/i)).toBeInTheDocument();
@@ -299,7 +308,7 @@ describe("what means the same thing", () => {
     getMock.mockResolvedValue(
       detail({ definition: definition({ sharedDimensions: [] }) }),
     );
-    renderPage();
+    await renderFields();
     const panel = await screen.findByText(/matching columns found/i);
     const suggestions = panel.closest(".model-suggestions") as HTMLElement;
     await userEvent.click(
@@ -324,7 +333,7 @@ describe("what means the same thing", () => {
     getMock.mockResolvedValue(
       detail({ definition: definition({ sharedDimensions: [] }) }),
     );
-    renderPage();
+    await renderFields();
     await screen.findByText(/matching columns found/i);
     await userEvent.click(screen.getByRole("button", { name: /not the same/i }));
     expect(screen.queryByText(/matching columns found/i)).toBeNull();
@@ -333,7 +342,7 @@ describe("what means the same thing", () => {
   it("does not re-offer what is already mapped", async () => {
     // The default definition already maps CUSTOMER_ID, so there is
     // nothing left to suggest.
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     expect(screen.queryByText(/matching columns found/i)).toBeNull();
   });
@@ -341,7 +350,7 @@ describe("what means the same thing", () => {
   it("picks the column from a dropdown of what the view actually has", async () => {
     // Free text saved a typo fine and failed at query time, which is a
     // slow way to find one.
-    renderPage();
+    await renderFields();
     await screen.findByRole("option", { name: "ORDERS" });
 
     const table = screen.getByLabelText("Table for sales");
@@ -356,7 +365,7 @@ describe("what means the same thing", () => {
   it("clears the column when the table changes", async () => {
     // A column kept from the previous table is a binding that cannot
     // resolve.
-    renderPage();
+    await renderFields();
     await screen.findByRole("option", { name: "ORDERS" });
     await userEvent.selectOptions(screen.getByLabelText("Table for sales"), "ORDERS");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
@@ -384,7 +393,7 @@ describe("what means the same thing", () => {
         }),
       }),
     );
-    renderPage();
+    await renderFields();
     expect(
       await screen.findByText(/GONE_AWAY \(not in this table\)/),
     ).toBeInTheDocument();
@@ -423,7 +432,7 @@ describe("running the model", () => {
         }),
       }),
     );
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     await userEvent.click(screen.getByRole("checkbox", { name: "Customer" }));
     await userEvent.click(
@@ -438,7 +447,7 @@ describe("running the model", () => {
   });
 
   it("says how many views answered", async () => {
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     await userEvent.click(screen.getByRole("checkbox", { name: "Customer" }));
     await userEvent.click(screen.getByRole("button", { name: /^run$/i }));
@@ -455,7 +464,7 @@ describe("building on a model", () => {
     );
     created.mockResolvedValue({ id: "r9" } as never);
 
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     await userEvent.click(screen.getByRole("button", { name: /build a report/i }));
 
@@ -468,8 +477,64 @@ describe("building on a model", () => {
     getMock.mockResolvedValue(
       detail({ definition: definition({ sharedDimensions: [] }) }),
     );
-    renderPage();
+    await renderFields();
     await screen.findByText("A.P.SALES_SV");
     expect(screen.getByRole("button", { name: /build a report/i })).toBeDisabled();
+  });
+});
+
+describe("the designer tab", () => {
+  it("opens on Design, because seeing the model is the point of having one", async () => {
+    renderPage();
+    expect(await screen.findByRole("tab", { name: "Design" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("draws a backdrop per view, each saying which view it is", async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path === "/api/semantic-views") return Promise.resolve({ views: [] });
+      if (path.includes("/describe")) {
+        return Promise.resolve({
+          tables: [{ name: "Customer 360" }, { name: "sales" }, { name: "support" }],
+          relationships: [],
+          dimensions: [
+            { table: "Customer 360", name: "Customer", dataType: "TEXT" },
+            { table: "sales", name: "CUSTOMER.CUSTOMER_ID", dataType: "TEXT" },
+          ],
+          metrics: [],
+          facts: [],
+          memberGraphs: [
+            { alias: "sales", tables: [{ name: "CUSTOMER" }], relationships: [] },
+            { alias: "support", tables: [{ name: "CLIENT" }], relationships: [] },
+          ],
+        });
+      }
+      return Promise.resolve({
+        tables: [],
+        relationships: [],
+        dimensions: [],
+        metrics: [],
+        facts: [],
+      });
+    });
+
+    renderPage();
+    expect(await screen.findByText("A.P.SALES_SV")).toBeInTheDocument();
+    expect(screen.getByText("A.P.SUPPORT_SV")).toBeInTheDocument();
+    // Collapsed, but not blind: the shared column is listed so its edge
+    // has somewhere to land.
+    expect(screen.getAllByText("Customer").length).toBeGreaterThan(0);
+  });
+
+  it("says where to start when the model has no views yet", async () => {
+    getMock.mockResolvedValue(
+      detail({ definition: definition({ members: [], sharedDimensions: [] }) }),
+    );
+    renderPage();
+    expect(
+      await screen.findByText(/add a view on the fields tab/i),
+    ).toBeInTheDocument();
   });
 });

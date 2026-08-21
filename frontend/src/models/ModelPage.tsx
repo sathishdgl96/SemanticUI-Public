@@ -12,6 +12,8 @@ import {
 import { createReport } from "../api/reports";
 import type { ReportDefinition, SemanticViewSummary } from "../api/types";
 import Icon from "../ui/Icon";
+import ModelDesigner from "../designer/ModelDesigner";
+import type { CompositeViewDetail } from "./availability";
 import DerivedMetrics from "./DerivedMetrics";
 import SharedDimensions from "./SharedDimensions";
 import { useMemberDescribes } from "./useMemberDescribes";
@@ -99,6 +101,18 @@ export default function ModelPage() {
   });
 
   const describes = useMemberDescribes(draft?.members ?? []);
+  const [tab, setTab] = useState<"design" | "fields">("design");
+
+  // The model's own field list, which the canvas draws from -- the same
+  // describe a report over this model reads, so the two cannot disagree
+  // about what the model contains.
+  const shape = useQuery({
+    queryKey: ["composite-describe", id],
+    queryFn: () =>
+      apiFetch<CompositeViewDetail>(`/api/composites/${id}/describe`),
+    enabled: Boolean(id),
+    retry: false,
+  });
 
   const buildReport = useMutation({
     mutationFn: () =>
@@ -240,11 +254,43 @@ export default function ModelPage() {
         </div>
       </header>
 
+      <nav className="model-tabs" role="tablist" aria-label="Model editor">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "design"}
+          className={tab === "design" ? "is-active" : undefined}
+          onClick={() => setTab("design")}
+        >
+          Design
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "fields"}
+          className={tab === "fields" ? "is-active" : undefined}
+          onClick={() => setTab("fields")}
+        >
+          Fields
+        </button>
+      </nav>
+
       {saveError && <p role="alert">{saveError}</p>}
       {readOnly && (
         <p className="tile-hint">Your access to this workspace is read-only.</p>
       )}
 
+      {tab === "design" && (
+        <ModelDesigner
+          modelId={id}
+          definition={draft}
+          detail={shape.data}
+          loading={shape.isLoading}
+        />
+      )}
+
+      {tab === "fields" && (
+      <>
       <section className="model-section">
         <h3>Views in this model</h3>
         <p className="tile-hint">
@@ -365,6 +411,9 @@ export default function ModelPage() {
         readOnly={readOnly}
         onChange={(derivedMetrics) => patch({ derivedMetrics })}
       />
+
+      </>
+      )}
 
       <ModelPreview id={id} definition={draft} />
     </div>
