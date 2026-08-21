@@ -40,6 +40,8 @@ import {
 } from "./vizTypes";
 import WellPanel from "./WellPanel";
 import { addToWell, emptyWells, removeFromWell, wellsToQuery, type DragData, type WellId, type Wells } from "./wells";
+import PaneResizer from "../ui/PaneResizer";
+import { useResizablePane } from "../ui/useResizablePane";
 
 function dragDataOf(active: { data: { current?: Record<string, unknown> } }): DragData | undefined {
   return active.data.current as DragData | undefined;
@@ -279,6 +281,9 @@ export default function ExplorerPage() {
   }
 
   const queryClient = useQueryClient();
+  // Field names are long and fully qualified; how much room they
+  // need is a fact about this person's screen, not about the data.
+  const fieldPane = useResizablePane("explorer.fields.width", 260);
 
   // Where a new explore lands. It arrives in the URL from the workspace
   // you clicked Create in; an explore saved from the rail, with no
@@ -474,7 +479,7 @@ export default function ExplorerPage() {
             columns this replaced spent 744px on chrome before a single
             number was shown, and made the picker the third thing across. */}
         <div className="columns">
-          <div className="left">
+          <div className="left" style={{ width: fieldPane.width }}>
             <h2 className="pane-heading">Views</h2>
             {views.isLoading && <p>Loading views...</p>}
             {views.isError && <p role="alert">Failed to load semantic views.</p>}
@@ -511,6 +516,13 @@ export default function ExplorerPage() {
               </div>
             )}
             {!selectedView && <p>Select a semantic view to begin.</p>}
+            <PaneResizer
+              label="Resize the field list"
+              width={fieldPane.width}
+              onBegin={fieldPane.beginResize}
+              onNudge={fieldPane.nudge}
+              onReset={fieldPane.reset}
+            />
           </div>
 
           <div className="main">

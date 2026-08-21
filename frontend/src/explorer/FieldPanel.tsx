@@ -58,7 +58,12 @@ function FieldRow({ field, kind, wells, onAdd, blocked, reasonId }: {
       aria-describedby={describedBy || undefined}
     >
       <span className="field-glyph">{kind === "metric" ? "Σ" : "⬦"}</span>
-      <span className="field-ref">{ref}</span>
+      {/* The pane is resizable, but a name can still outrun any width a
+          person wants to give it -- so the full one is always one hover
+          (or one focus, for the tooltip's a11y equivalent) away. */}
+      <span className="field-ref" title={ref}>
+        {ref}
+      </span>
       {field.dataType && <small>{field.dataType}</small>}
     </button>
   );
