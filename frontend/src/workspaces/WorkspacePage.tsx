@@ -6,6 +6,7 @@ import { createDashboard, deleteDashboard, listDashboards } from "../api/dashboa
 import {
   createComposite,
   deleteComposite,
+  importComposite,
   listComposites,
 } from "../api/composites";
 import { deleteExplore, listExplores } from "../api/explores";
@@ -351,6 +352,23 @@ export default function WorkspacePage() {
       ),
   });
 
+  // A file picker rather than a panel: a model document has nothing to
+  // override on the way in the way a report's semantic view does, so
+  // there is nothing for a form to ask.
+  const modelFile = useRef<HTMLInputElement>(null);
+
+  const importTheModel = useMutation({
+    mutationFn: async (file: File) =>
+      importComposite(JSON.parse(await file.text()), selectedId || undefined),
+    onSuccess: (composite) => navigate(`/models/${composite.id}`),
+    onError: (failure) =>
+      setCreateError(
+        failure instanceof ApiError
+          ? failure.message
+          : "That file is not a model document.",
+      ),
+  });
+
   const createTheModel = useMutation({
     mutationFn: () => createComposite("Untitled model", selectedId || undefined),
     onSuccess: (composite) => navigate(`/models/${composite.id}`),
@@ -431,6 +449,16 @@ export default function WorkspacePage() {
         separatorBefore: true,
         onSelect: () => setShowImport(true),
       },
+      {
+        id: "import-model",
+        label: "Import a model…",
+        icon: "upload",
+        disabledReason: blocked,
+        onSelect: () => {
+          setCreateError(null);
+          modelFile.current?.click();
+        },
+      },
     ];
   };
 
@@ -484,6 +512,24 @@ export default function WorkspacePage() {
             {creating ? "Creating…" : "Create"}
             <span aria-hidden="true">▾</span>
           </button>
+          {/* Off-screen rather than display:none -- a hidden input cannot
+              be clicked programmatically in every browser, and this one is
+              only ever opened by the menu item above. */}
+          <input
+            ref={modelFile}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            aria-hidden="true"
+            tabIndex={-1}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              // Cleared so choosing the same file twice fires again --
+              // after a failed import that is exactly what someone does.
+              event.target.value = "";
+              if (file) importTheModel.mutate(file);
+            }}
+          />
         </div>
       </header>
 

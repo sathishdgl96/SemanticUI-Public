@@ -27,7 +27,7 @@ model's definition plus each member's real describe, which the caller has
 already fetched on the user's own connection.
 """
 
-from typing import Any
+from collections.abc import Callable
 
 from app.composites.schema import CompositeDefinition
 
@@ -58,7 +58,7 @@ def synthetic_view(composite, workspace_name: str) -> dict:
     """
     # Dots would split the cube name in the wrong place, and a workspace
     # is free to have one in its name.
-    schema = (workspace_name or "Models").replace(".", " ") or "Models"
+    schema = (workspace_name or MODEL_DATABASE).replace(".", " ") or MODEL_DATABASE
     return {
         "database": MODEL_DATABASE,
         "schema": schema,
@@ -177,28 +177,16 @@ def to_model_refs(definition: CompositeDefinition, refs: list[str]) -> list[str]
     return [to_model_ref(definition, ref) for ref in refs]
 
 
-def split_selection(
-    definition: CompositeDefinition, refs: list[str]
-) -> tuple[list[str], list[str]]:
-    """Model refs, split into (dimensions, metrics).
 
-    The planner keeps the two namespaces apart by which list a reference
-    arrives in, and MDX hands measures and attributes over separately —
-    but a *filter* names a field without saying which it is, so this
-    decides from the definition rather than from the shape of the string.
-    """
-    metric_names = {m.name.strip().lower() for m in definition.derivedMetrics}
-    dimensions, metrics = [], []
-    for ref in refs:
-        if ":" not in ref and ref.strip().lower() in metric_names:
-            metrics.append(ref)
-        else:
-            dimensions.append(ref)
-    return dimensions, metrics
-
-
-def member_describes(session: Any, definition: CompositeDefinition) -> dict[str, dict]:
+def member_describes(
+    describe: Callable[[str, str, str], dict], definition: CompositeDefinition
+) -> dict[str, dict]:
     """Each member's real describe, on the caller's own connection.
+
+    Takes the callable rather than whatever object happens to own it: the
+    XMLA session and the REST route reach a describe by different routes,
+    and asking for the narrow thing spares the caller inventing an object
+    to satisfy the wide one.
 
     A member the caller cannot read is skipped rather than raising: a
     model naming one view they may not see should still expose the ones
@@ -207,7 +195,7 @@ def member_describes(session: Any, definition: CompositeDefinition) -> dict[str,
     out: dict[str, dict] = {}
     for member in definition.members:
         try:
-            out[member.alias.lower()] = session.describe(
+            out[member.alias.lower()] = describe(
                 member.database, member.schema_, member.view
             )
         except Exception:

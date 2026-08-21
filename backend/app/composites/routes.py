@@ -294,16 +294,16 @@ def describe_composite(
     cache = get_cache()
     entry = cache.acquire(db, sess)
 
-    class _Probe:
-        """member_describes wants something with .describe; the cache entry
-        is the thing that has it, under the lock the caller holds."""
-
-        @staticmethod
-        def describe(database, schema, view):
-            return cache.describe(entry, database, schema, view)
-
     with entry.lock:
-        detail = synthetic_detail(definition, member_describes(_Probe, definition))
+        detail = synthetic_detail(
+            definition,
+            member_describes(
+                lambda database, schema, view: cache.describe(
+                    entry, database, schema, view
+                ),
+                definition,
+            ),
+        )
 
     record(db, "composite.read", user_id=sess.user_id, session_id=sess.id,
            resource_type="composite", resource_id=composite.id,

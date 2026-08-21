@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { QueryResponse, Visual } from "../api/types";
 import { type SortDirection } from "../query/sortRows";
 import { sortTree } from "./matrixSort";
-import { fieldName } from "../query/fieldName";
+import { columnIndexOf, fieldName } from "../query/fieldName";
 
 interface Props {
   visual: Visual;
@@ -24,10 +24,6 @@ interface MatrixSort {
 
 const ARROW: Record<SortDirection, string> = { asc: "↑", desc: "↓" };
 
-
-function columnIndex(result: QueryResponse, name: string): number {
-  return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());
-}
 
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -101,9 +97,9 @@ export default function MatrixTable({ visual, result }: Props) {
   const valueRefs = visual.wells.values ?? [];
   const showTotals = visual.options.subtotals !== false;
 
-  const rowIdx = rowRefs.map((ref) => columnIndex(result, fieldName(ref)));
-  const colIdx = columnRef ? columnIndex(result, fieldName(columnRef)) : -1;
-  const valueIdx = valueRefs.map((ref) => columnIndex(result, fieldName(ref)));
+  const rowIdx = rowRefs.map((ref) => columnIndexOf(result.columns, ref));
+  const colIdx = columnRef ? columnIndexOf(result.columns, columnRef) : -1;
+  const valueIdx = valueRefs.map((ref) => columnIndexOf(result.columns, ref));
 
   if (rowIdx.some((i) => i < 0) || valueIdx.some((i) => i < 0)) {
     return <p className="tile-hint">Waiting for these fields to come back from the view.</p>;

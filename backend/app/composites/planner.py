@@ -42,10 +42,6 @@ class BranchPlan:
     schema: str
     view: str
     request: SemanticQueryRequest
-    #: Position in `request.dimensions` of each selected shared dimension,
-    #: in the composite's canonical order. These are the join keys, and
-    #: the branch projects them as c0, c1, ... in that same order.
-    key_positions: list[int] = field(default_factory=list)
     #: True when a filter on this member's OWN field narrowed it, which is
     #: what makes it a gate the other branches may be narrowed by.
     locally_filtered: bool = False
@@ -284,7 +280,6 @@ def plan(
                 schema=member.schema_,
                 view=member.view,
                 request=request,
-                key_positions=list(range(len(selected_keys))),
                 locally_filtered=spec["locally_filtered"],
             )
         )

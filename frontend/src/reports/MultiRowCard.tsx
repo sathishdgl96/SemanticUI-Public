@@ -1,15 +1,11 @@
 import type { QueryResponse, Visual } from "../api/types";
-import { fieldName } from "../query/fieldName";
+import { columnIndexOf, fieldName } from "../query/fieldName";
 
 interface Props {
   visual: Visual;
   result: QueryResponse;
 }
 
-
-function columnIndex(result: QueryResponse, name: string): number {
-  return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());
-}
 
 function formatNumber(value: unknown, compact: boolean): string {
   const n = Number(value ?? 0);
@@ -27,8 +23,8 @@ export default function MultiRowCard({ visual, result }: Props) {
   const metricRefs = visual.wells.metrics ?? [];
   const compact = visual.options.format === "compact";
 
-  const dimIdx = dimensionRefs.map((ref) => columnIndex(result, fieldName(ref)));
-  const metricIdx = metricRefs.map((ref) => columnIndex(result, fieldName(ref)));
+  const dimIdx = dimensionRefs.map((ref) => columnIndexOf(result.columns, ref));
+  const metricIdx = metricRefs.map((ref) => columnIndexOf(result.columns, ref));
   if (metricIdx.some((i) => i < 0)) {
     return <p className="tile-hint">Waiting for these fields to come back from the view.</p>;
   }

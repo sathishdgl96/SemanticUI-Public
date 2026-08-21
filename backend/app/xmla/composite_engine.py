@@ -18,7 +18,7 @@ same one statement the API path builds.
 from app.composites.compile import compile_composite
 from app.composites.planner import plan as plan_composite
 from app.config import get_settings
-from app.xmla.composite_source import split_selection, to_model_ref, to_model_refs
+from app.xmla.composite_source import to_model_ref, to_model_refs
 from app.xmla.engine import _Engine
 
 
@@ -68,4 +68,4 @@ def build_engine(session, view, detail, q, definition):
     return _CompositeEngine(session, view, detail, q, definition)
 
 
-__all__ = ["_CompositeEngine", "build_engine", "split_selection"]
+__all__ = ["_CompositeEngine", "build_engine"]

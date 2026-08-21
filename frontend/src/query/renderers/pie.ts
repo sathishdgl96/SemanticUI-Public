@@ -3,7 +3,7 @@ import { CHART_INK } from "../palette";
 import { hexList } from "./categorical";
 import type { PieOptionLike } from "./categorical";
 import { foldByLabel } from "./proportional";
-import { fieldName } from "../fieldName";
+import { columnIndexOf } from "../fieldName";
 
 export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike | null {
   // The author's colours, if any; the shared palette otherwise. See
@@ -11,11 +11,9 @@ export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike 
   const custom = hexList(visual.options.colors);
   const legendRef = (visual.wells.legend ?? [])[0];
   const valueRef = (visual.wells.values ?? [])[0];
-  const name = fieldName;
-  const idx = (n: string) =>
-    result.columns.findIndex((c) => c.name.toUpperCase() === n.toUpperCase());
-  const li = legendRef ? idx(name(legendRef)) : -1;
-  const vi = valueRef ? idx(name(valueRef)) : -1;
+  const idx = (ref: string) => columnIndexOf(result.columns, ref);
+  const li = legendRef ? idx(legendRef) : -1;
+  const vi = valueRef ? idx(valueRef) : -1;
   if (li < 0 || vi < 0) return null;
 
   // Folded to one slice per label: rows at a finer grain than the pie draws

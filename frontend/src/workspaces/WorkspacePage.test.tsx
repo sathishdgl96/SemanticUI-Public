@@ -24,6 +24,7 @@ vi.mock("../api/composites", () => ({
   listComposites: vi.fn().mockResolvedValue({ composites: [] }),
   createComposite: vi.fn(),
   deleteComposite: vi.fn(),
+  importComposite: vi.fn(),
 }));
 vi.mock("../api/library", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/library")>()),
@@ -649,6 +650,59 @@ describe("WorkspacePage URL scoping", () => {
     renderPageAt("/reports?workspace=w0");
     await waitFor(() =>
       expect(listMock).toHaveBeenCalledWith("w0", expect.anything()),
+    );
+  });
+});
+
+describe("importing a model", () => {
+  it("reads the document and opens what it made", async () => {
+    // Export has been a link on the model page since it shipped; without
+    // this the other half of "models import and export" was reachable
+    // only through the API.
+    const { importComposite } = await import("../api/composites");
+    vi.mocked(importComposite).mockResolvedValue({ id: "m9" } as never);
+
+    listMock.mockResolvedValue({ reports: [] });
+    renderPage();
+    await screen.findByRole("button", { name: "Create" });
+    await createA(/import a model/i);
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    const file = new File(
+      [JSON.stringify({ schemaVersion: 1, name: "Customer 360" })],
+      "model.json",
+      { type: "application/json" },
+    );
+    await userEvent.upload(input, file);
+
+    await waitFor(() => expect(importComposite).toHaveBeenCalled());
+    expect(vi.mocked(importComposite).mock.calls[0][0]).toEqual({
+      schemaVersion: 1,
+      name: "Customer 360",
+    });
+  });
+
+  it("says so when the file is not a model document", async () => {
+    listMock.mockResolvedValue({ reports: [] });
+    renderPage();
+    await screen.findByRole("button", { name: "Create" });
+    await createA(/import a model/i);
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    // A .json name, because the input's `accept` filter drops anything
+    // else before onChange ever fires -- the failure being tested is bad
+    // CONTENT, which is what someone actually hits.
+    await userEvent.upload(
+      input,
+      new File(["not json at all"], "model.json", { type: "application/json" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /not a model document/i,
     );
   });
 });

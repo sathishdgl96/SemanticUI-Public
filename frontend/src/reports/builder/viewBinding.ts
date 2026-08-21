@@ -54,11 +54,6 @@ export function valuesUrl(view: ViewRef): string {
       )}/${encodeURIComponent(view.name)}/values`;
 }
 
-/** What to call the source in a sentence. */
-export function sourceLabel(view: ViewRef): string {
-  if (view.compositeId) return view.name || "a model";
-  return `${view.database}.${view.schema}.${view.name}`;
-}
 
 /** Why Chat, Excel and Connect are unavailable on a fresh report. Named once
  *  so the three of them cannot drift into three different explanations. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeUrl, queryUrl, sourceLabel, valuesUrl } from "./viewBinding";
+import { describeUrl, queryUrl, valuesUrl } from "./viewBinding";
 
 const view = { database: "ANALYTICS", schema: "PUBLIC", name: "SALES" };
 const model = { database: "", schema: "", name: "Customer 360", compositeId: "m1" };
@@ -19,10 +19,6 @@ describe("where a source's requests go", () => {
     expect(valuesUrl(model)).toBe("/api/composites/m1/values");
   });
 
-  it("names a view by its path and a model by its name", () => {
-    expect(sourceLabel(view)).toBe("ANALYTICS.PUBLIC.SALES");
-    expect(sourceLabel(model)).toBe("Customer 360");
-  });
 
   it("escapes what goes into a URL", () => {
     expect(describeUrl({ ...view, name: "A B" })).toContain("A%20B");

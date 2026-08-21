@@ -1,7 +1,7 @@
 import type { QueryResponse, Visual } from "../../api/types";
 import { pivotLegend } from "../pivotLegend";
 import { CHART_INK, SERIES_COLORS } from "../palette";
-import { fieldName } from "../fieldName";
+import { columnIndexOf, fieldName } from "../fieldName";
 
 export interface Series {
   name: string;
@@ -87,10 +87,6 @@ export interface CategoricalOptionLike extends LooseRecord {
 export type EChartsOptionLike = PieOptionLike | ScatterOptionLike | CategoricalOptionLike;
 
 
-function columnIndex(result: QueryResponse, name: string): number {
-  return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());
-}
-
 /** Axis categories plus one series per metric (or per legend value). */
 export function categoricalSeries(
   visual: Visual,
@@ -109,11 +105,11 @@ export function categoricalSeries(
     return pivotLegend(result, fieldName(axisRef), fieldName(legendRef), fieldName(metricRefs[0]));
   }
 
-  const axisIndex = columnIndex(result, fieldName(axisRef));
+  const axisIndex = columnIndexOf(result.columns, axisRef);
   if (axisIndex < 0) return { categories: [], series: [] };
   const categories = result.rows.map((row) => String(row[axisIndex] ?? ""));
   const series = metricRefs.flatMap((ref, i) => {
-    const index = columnIndex(result, fieldName(ref));
+    const index = columnIndexOf(result.columns, ref);
     if (index < 0) return [];
     return [{
       name: fieldName(ref),

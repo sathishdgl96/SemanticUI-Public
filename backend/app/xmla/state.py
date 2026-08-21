@@ -88,6 +88,7 @@ class XmlaSession:
         Excel's whole cube list down with it.
         """
         from app.xmla.composite_source import (
+            MODEL_DATABASE,
             member_describes,
             synthetic_detail,
             synthetic_view,
@@ -122,7 +123,9 @@ class XmlaSession:
                     # than no cube.
                     continue
                 workspace = self.db.get(Workspace, row.workspace_id)
-                view = synthetic_view(row, workspace.name if workspace else "Models")
+                view = synthetic_view(
+                    row, workspace.name if workspace else MODEL_DATABASE
+                )
                 detail = synthetic_detail(
                     definition, member_describes(self, definition)
                 )
@@ -148,7 +151,9 @@ class XmlaSession:
         Checked before the cache because a model has no Snowflake object
         to describe -- asking would be an error, not a cache miss.
         """
-        if self._model_details is None and database == "Models":
+        from app.xmla.composite_source import MODEL_DATABASE
+
+        if self._model_details is None and database == MODEL_DATABASE:
             self.list_views()
         synthetic = (self._model_details or {}).get((database, schema, view))
         if synthetic is not None:

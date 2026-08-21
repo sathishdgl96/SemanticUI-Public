@@ -7,12 +7,8 @@ import type { QueryResponse, Visual } from "../../api/types";
 import { CHART_INK, SERIES_COLORS } from "../palette";
 import { hexList } from "./categorical";
 import type { LooseRecord, PieOptionLike } from "./categorical";
-import { fieldName } from "../fieldName";
+import { columnIndexOf, fieldName } from "../fieldName";
 
-
-function columnIndex(result: QueryResponse, name: string): number {
-  return result.columns.findIndex((c) => c.name.toUpperCase() === name.toUpperCase());
-}
 
 interface Slice extends LooseRecord {
   name: string;
@@ -29,8 +25,8 @@ function slices(visual: Visual, result: QueryResponse): Slice[] | null {
   const legendRef = (visual.wells.legend ?? [])[0];
   const valueRef = (visual.wells.values ?? [])[0];
   if (!legendRef || !valueRef) return null;
-  const li = columnIndex(result, fieldName(legendRef));
-  const vi = columnIndex(result, fieldName(valueRef));
+  const li = columnIndexOf(result.columns, legendRef);
+  const vi = columnIndexOf(result.columns, valueRef);
   if (li < 0 || vi < 0) return null;
 
   return foldByLabel(result.rows, li, vi, custom);
@@ -131,7 +127,7 @@ export function gaugeOption(
 ): PieOptionLike | null {
   const valueRef = (visual.wells.value ?? [])[0];
   if (!valueRef) return null;
-  const vi = columnIndex(result, fieldName(valueRef));
+  const vi = columnIndexOf(result.columns, valueRef);
   if (vi < 0) return null;
   // The TOTAL, not the first row. A gauge shows one number, so given rows
   // split by a dimension it was showing whichever group happened to sort
@@ -146,7 +142,7 @@ export function gaugeOption(
   if (!Number.isFinite(value)) return null;
 
   const targetRef = (visual.wells.target ?? [])[0];
-  const ti = targetRef ? columnIndex(result, fieldName(targetRef)) : -1;
+  const ti = targetRef ? columnIndexOf(result.columns, targetRef) : -1;
   const target = ti >= 0 ? sum(ti) : null;
   const max = target && Number.isFinite(target) && target > 0 ? target : value || 1;
 
