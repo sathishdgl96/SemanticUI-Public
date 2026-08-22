@@ -834,8 +834,17 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* The name is what the row is for; the data type is a footnote on it. So the
+   footnote yields its width first — a shrink factor far above the name's, and
+   a floor of zero to shrink into. This used to be `flex: 0 0 auto`, which
+   pinned the badge at full width and left the name to absorb every pixel the
+   pane gave up: narrowing the pane ellipsised the name away and showed the
+   type of a column you could no longer read. */
 .field-row small {
-  flex: 0 0 auto;
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--ink-muted);
   font-size: 10px;
   white-space: nowrap;
