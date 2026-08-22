@@ -9,7 +9,18 @@ import { useSessionContext } from "./useSessionContext";
  * different role, so "which role am I in" is something you should never
  * have to click to find out.
  */
-export function ProfileMenu({ user, account }: { user: string; account: string }) {
+export function ProfileMenu({
+  user,
+  account,
+  onGettingStarted,
+}: {
+  user: string;
+  account: string;
+  /** Reopens the welcome dialog. Lives here rather than as new chrome in the
+   *  topbar: orientation is a per-user thing, and this menu is already where
+   *  per-user things are. */
+  onGettingStarted?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const { context, switchTo } = useSessionContext();
   const container = useRef<HTMLDivElement>(null);
@@ -91,6 +102,18 @@ export function ProfileMenu({ user, account }: { user: string; account: string }
             <p className="profile-menu-error" role="alert">
               That is not available to you.
             </p>
+          ) : null}
+          {onGettingStarted ? (
+            <button
+              type="button"
+              className="link profile-menu-link"
+              onClick={() => {
+                setOpen(false);
+                onGettingStarted();
+              }}
+            >
+              Getting started
+            </button>
           ) : null}
         </div>
       ) : null}

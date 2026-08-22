@@ -235,3 +235,40 @@ def move_report(
     report = service.move_report(db, sess.user_id, report_id, body.workspaceId)
     workspace, role = _context(db, sess.user_id, report)
     return _detail(report, workspace=workspace, role=role)
+
+
+@router.get("/api/reports/{report_id}/provenance")
+def report_provenance(
+    report_id: str,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The About page: what this report is built on, and how current it is.
+
+    The blocks are assembled rather than fetched together on purpose. A model
+    can be certified while its freshness is unreadable -- a stopped warehouse
+    is the ordinary case -- and the page has to render either way, so
+    `source_freshness` reports its own unavailability instead of raising.
+    """
+    from app.reports import provenance
+    from app.semantic import certification
+    from app.semantic.freshness import source_freshness
+
+    report = require_access(db, sess.user_id, report_id, need="viewer")
+    view = {
+        "database": report.view_database,
+        "schema": report.view_schema,
+        "name": report.view_name,
+    }
+
+    cache = get_cache()
+    entry = cache.acquire(db, sess)
+    with entry.lock:
+        detail = cache.describe(entry, *view.values())
+        freshness = source_freshness(entry.conn, detail.get("tables", []))
+
+    return provenance.build(
+        view=view,
+        record=certification.get(db, *view.values()),
+        freshness=freshness,
+    )

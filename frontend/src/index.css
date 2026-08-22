@@ -853,8 +853,17 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* The name is what the row is for; the data type is a footnote on it. So the
+   footnote yields its width first — a shrink factor far above the name's, and
+   a floor of zero to shrink into. This used to be `flex: 0 0 auto`, which
+   pinned the badge at full width and left the name to absorb every pixel the
+   pane gave up: narrowing the pane ellipsised the name away and showed the
+   type of a column you could no longer read. */
 .field-row small {
-  flex: 0 0 auto;
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--ink-muted);
   font-size: 10px;
   white-space: nowrap;
@@ -6822,3 +6831,414 @@ button.model-column:hover {
   font-size: 11px;
   line-height: 1.4;
 }
+
+/* ==========================================================================
+   Waiting, and the three ways this app fails
+   The loading state and the status pages (404, 500, 503) are one family on
+   purpose: whatever goes wrong, it should look like the same product it
+   went wrong in. Both keep the chrome's discipline -- brand yellow, one
+   accent, no illustration -- and say the useful thing plainly.
+   ========================================================================== */
+
+/* --- The branded wait ---------------------------------------------------- */
+
+/* Draws the same picture as the splash inlined in index.html, so React
+   taking over is a continuation and not a flash. When those change, change
+   both -- index.html cannot read this file in time to matter. */
+.loading-screen {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--ink);
+}
+
+/* When the wait IS the screen -- the session check, the login page -- rather
+   than the content area of an already-drawn shell. */
+.loading-screen--page {
+  min-height: 100vh;
+}
+
+.loading-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The brand square, quartered: a cell grid, which is what this tool is for.
+   The fourth cell sits lighter, as though it were still filling. */
+.loading-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  background: linear-gradient(var(--brand) 0 0) 0 0 / 15px 15px no-repeat,
+    linear-gradient(var(--brand) 0 0) 19px 0 / 15px 15px no-repeat,
+    linear-gradient(var(--brand) 0 0) 0 19px / 15px 15px no-repeat,
+    linear-gradient(#f7e08a 0 0) 19px 19px / 15px 15px no-repeat;
+}
+
+.loading-wordmark {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Indeterminate, and honestly so: neither a bundle download nor a session
+   check can report progress, and a percentage that stalls at 90 reads worse
+   than motion that never claimed to know. */
+.loading-track {
+  width: 168px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--grid);
+  overflow: hidden;
+}
+
+.loading-fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--brand);
+  animation: loading-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes loading-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.loading-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+/* Held at zero opacity for ten seconds, then the animation's last frame
+   sticks. A CSS delay rather than a timer, so it needs no script -- and the
+   CSP this app serves forbids inline ones anyway. */
+.loading-slow {
+  font-size: 11px;
+  color: var(--ink-muted);
+  opacity: 0;
+  animation: loading-reveal 400ms ease-out 10s forwards;
+}
+
+@keyframes loading-reveal {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-fill {
+    width: 100%;
+    opacity: 0.55;
+    animation: none;
+  }
+  .loading-slow {
+    animation-duration: 1ms;
+  }
+}
+
+/* --- 404, 500, 503 -------------------------------------------------------- */
+
+.status-page {
+  flex: 1;
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 32px 24px 56px;
+  text-align: center;
+  color: var(--ink);
+}
+
+/* Large, but in --grid rather than --ink: the number is orientation, not the
+   message. It sits behind the sentence in the reading order your eye uses,
+   which is the opposite of the order the markup needs. */
+.status-code {
+  margin: 0;
+  font-size: 84px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--grid);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-headline {
+  margin: 12px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.status-detail {
+  margin: 8px 0 0;
+  max-width: 42ch;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.status-actions {
+  margin: 24px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* The recovery path is one solid button and one quiet link, never two equal
+   buttons: there is always a better answer, and the page should point at it. */
+.status-details {
+  margin: 32px 0 0;
+  max-width: 60ch;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.status-details summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.status-details pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--chrome);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-secondary);
+}
+
+/* The login page draws its wait and its failure on the same dark backdrop as
+   the sign-in card, so both restate their colours the way .login-card does --
+   and both need position, or the scrim (absolute) would paint over them. */
+.login .status-page,
+.login .loading-screen {
+  position: relative;
+  color: #ffffff;
+}
+
+.login .status-code {
+  color: rgb(255 255 255 / 0.22);
+}
+
+.login .status-detail,
+.login .loading-label,
+.login .loading-slow {
+  color: rgb(255 255 255 / 0.72);
+}
+
+.login .loading-track {
+  background: rgb(255 255 255 / 0.18);
+}
+
+/* --- Dialogs, orientation, and what a report is built on ------------------
+   The first modal in the product. Everything before this was a panel docked
+   to an edge, which is why there was no primitive to reuse. */
+
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(37, 36, 35, 0.32);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+
+/* The panel takes focus on open, and a focus ring on a whole dialog reads as
+   an error rather than as position. The trap is what keeps it reachable. */
+.dialog:focus { outline: none; }
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.dialog-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.welcome-lead {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.welcome-arc {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.welcome-arc li { margin-bottom: 6px; }
+
+.welcome-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.profile-menu-link {
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
+  text-align: left;
+}
+
+/* --- The About page ------------------------------------------------------ */
+
+.about-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.about-block {
+  max-width: 760px;
+  margin-bottom: 26px;
+}
+
+.about-block h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.about-model-name {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.about-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--brand);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.about-certified,
+.about-uncertified,
+.about-owner,
+.about-note,
+.about-headline,
+.about-placeholder,
+.about-unavailable {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.about-uncertified,
+.about-placeholder,
+.about-unavailable { color: var(--ink-muted); }
+
+.about-headline { font-weight: 600; }
+
+/* Never allowed to read as part of the headline: it is the sentence that
+   says the headline does not cover everything. */
+.about-partial {
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.about-caveat {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.about-table-wrap { overflow-x: auto; }
+
+.about-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.about-table th,
+.about-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--grid);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.about-table thead th {
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.about-table tbody th { font-weight: 500; }
+
+.about-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+/* Set apart from the report's own pages: it is about the report rather than
+   part of it, and clicking it should not feel like changing page. */
+.page-tab-about { margin-left: 8px; }

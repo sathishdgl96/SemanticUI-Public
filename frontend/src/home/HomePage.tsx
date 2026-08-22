@@ -40,7 +40,7 @@ function definitionOf(
 /** Offered when no dashboard is chosen -- which covers never having
  *  chosen, the chosen one being deleted, and losing access to its
  *  workspace. All three mean the same thing here. */
-function DashboardPicker() {
+function DashboardPicker({ firstRun }: { firstRun: boolean }) {
   const queryClient = useQueryClient();
   const dashboards = useQuery({
     queryKey: ["dashboards", "all"],
@@ -56,6 +56,18 @@ function DashboardPicker() {
   if (dashboards.isLoading) return <p className="tile-hint">Loading…</p>;
 
   if (listed.length === 0) {
+    // Somebody with nothing at all is not one click from a dashboard: they
+    // need a model first, then an explore, then a report to pin from. The
+    // dashboard advice below is right for month two and wrong for minute one.
+    if (firstRun) {
+      return (
+        <p className="tile-hint">
+          Nothing to show here yet.{" "}
+          <Link to="/explore">Explore a model</Link> to see what your Snowflake
+          account already defines — a dashboard is the last step, not the first.
+        </p>
+      );
+    }
     return (
       <p className="tile-hint">
         No dashboards yet. <Link to="/reports?kind=dashboard">Create one</Link>, then pin
@@ -179,7 +191,7 @@ export default function HomePage() {
           />
           </>
         ) : (
-          <DashboardPicker />
+          <DashboardPicker firstRun={home.data?.welcome?.path === "explore"} />
         )}
       </section>
     </main>

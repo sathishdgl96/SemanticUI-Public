@@ -2,7 +2,8 @@
 
 Order is load-bearing. The request-context middleware wraps everything
 so every log line and audit row carries a request id; security headers
-apply to every response, errors included; and the SPA static mount
+apply to every response, errors included; compression sits innermost,
+where a Content-Length still exists for it to measure; and the SPA mount
 registers LAST so it can only claim paths no API route did (its 404
 fallback serves the shell page for client-side deep links).
 """
@@ -13,6 +14,7 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.auth.sessions import purge_expired_sessions
 from app.config import get_settings
@@ -60,6 +62,27 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     request_logger = logging.getLogger("app.request")
 
+    # Registered FIRST, which under Starlette's reverse nesting makes it the
+    # INNERMOST layer -- and that placement is the whole trick.
+    #
+    # `@app.middleware("http")` is BaseHTTPMiddleware, which re-emits every
+    # response as a stream and drops Content-Length on the way. GZip cannot
+    # size a response it cannot measure, so from anywhere outside those two
+    # it compresses unconditionally and `minimum_size` silently does
+    # nothing -- a 20-byte /healthz comes back gzipped. Innermost, it still
+    # sees the route's real Content-Length and can honour the threshold.
+    #
+    # Why it exists at all: this same server hands out the built SPA, and
+    # that bundle is ~2 MB of JavaScript. Uncompressed, the transfer IS the
+    # first-load wait on any real connection -- invisible during local
+    # development, where there is no network to cross.
+    #
+    # compresslevel 6, not the default 9: nothing caches the compressed
+    # bytes, so every request pays that CPU, and 9 buys very little size
+    # over 6. Already-compressed types (png, woff2, zip) are skipped by the
+    # middleware's own exclusion list.
+    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
+
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
         """Baseline browser protections plus the CSRF posture.
@@ -92,8 +115,29 @@ def create_app() -> FastAPI:
             )
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("X-Frame-Options", "DENY")
+        # Three cases, and the order decides them.
+        #
+        # Vite hashes every asset filename, so an asset is immutable by
+        # construction -- a change produces a different name. Saying so lets
+        # a returning browser skip the network entirely instead of paying a
+        # round-trip per asset to be told 304, which on a high-latency link
+        # is several sequential round-trips before anything renders.
+        #
+        # index.html is the opposite: it NAMES those hashes, so a cached copy
+        # pins the app to the build it came from and would boot into 404s
+        # after a deploy. It is matched on content type rather than on path,
+        # which also catches every deep link the SPA fallback answers with
+        # it -- including /assets/typo.js, which must not be cached for a
+        # year as though the missing file were real.
+        content_type = response.headers.get("content-type", "")
         if request.url.path.startswith(("/api", "/auth")):
             response.headers.setdefault("Cache-Control", "no-store")
+        elif content_type.startswith("text/html"):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        elif request.url.path.startswith("/assets/"):
+            response.headers.setdefault(
+                "Cache-Control", "public, max-age=31536000, immutable"
+            )
         if get_settings().environment == "production":
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains"

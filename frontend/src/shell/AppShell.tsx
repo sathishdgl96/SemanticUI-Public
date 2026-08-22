@@ -1,14 +1,17 @@
 import { useBranding } from "./useBranding";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useMe } from "../auth/useMe";
 import { ProfileMenu } from "../session/ProfileMenu";
 import WorkspacesFlyout from "./WorkspacesFlyout";
+import { prefetchRoute, type RouteKey } from "../routes";
 import { amIAppAdmin } from "../api/admin";
 import Icon from "../ui/Icon";
 import AnnouncementBanner from "../announcements/AnnouncementBanner";
+import { dismissWelcome, getHome } from "../api/home";
+import WelcomeDialog from "../welcome/WelcomeDialog";
 
 /** The PowerBI-style frame every authenticated page sits in: near-black top
  *  bar with the brand mark and identity, and the left nav rail with the
@@ -19,6 +22,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
+
+  // The same query key Home uses, so the welcome block costs nothing extra:
+  // whichever of the two mounts first fills the cache for both.
+  const home = useQuery({ queryKey: ["home"], queryFn: getHome, retry: false });
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const welcome = home.data?.welcome;
+  // Shown once, unprompted, on the first authenticated load. `dismissed`
+  // guards the gap between closing it and the server round trip landing --
+  // without it the dialog reopens under the user's hand.
+  const shouldGreet = Boolean(welcome && !welcome.seen) && !dismissed;
+  const markSeen = useMutation({
+    mutationFn: dismissWelcome,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["home"] }),
+  });
+  const closeWelcome = () => {
+    setWelcomeOpen(false);
+    // Only the unprompted showing records that this person has been
+    // oriented. Reopening it from the menu deliberately does not, so going
+    // looking for help never costs somebody a second interruption.
+    if (shouldGreet && !welcome?.seen) {
+      setDismissed(true);
+      markSeen.mutate();
+    }
+  };
   // Asked of everyone, and answered for everyone: the endpoint is not
   // behind the admin gate, so an ordinary page load does not produce an
   // audited denial just to decide whether to draw a nav item.
@@ -53,6 +81,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  /** Hover and focus both start the route's chunk downloading. The pointer
+   *  crossing the rail, or a tab stop landing on it, is the only warning we
+   *  get before the click -- and it is usually enough to have the page in
+   *  memory by the time it arrives, so nothing suspends and no loading
+   *  screen appears. Repeats are free: import() is memoised. */
+  const warm = (key: RouteKey) => ({
+    onPointerEnter: () => prefetchRoute(key),
+    onFocus: () => prefetchRoute(key),
+  });
+
   return (
     <div className="app-shell">
       <header className="app-topbar">
@@ -78,6 +116,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <ProfileMenu
               user={me.data.snowflakeUser}
               account={me.data.snowflakeAccount}
+              onGettingStarted={() => setWelcomeOpen(true)}
             />
           ) : (
             <span className="identity" />
@@ -94,6 +133,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             className="rail-item"
             title="Home"
             end
+            {...warm("home")}
             onClick={() => setWorkspacesOpen(false)}
           >
             <span className="rail-glyph" aria-hidden="true">
@@ -112,6 +152,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 : "rail-item"
             }
             title="Browse"
+            {...warm("reports")}
             onClick={() => setWorkspacesOpen(false)}
           >
             <span className="rail-glyph" aria-hidden="true">
@@ -123,6 +164,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             to="/explore"
             className="rail-item"
             title="Explore"
+            {...warm("explore")}
             onClick={() => setWorkspacesOpen(false)}
           >
             <span className="rail-glyph" aria-hidden="true">
@@ -153,6 +195,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               to="/admin"
               className="rail-item rail-admin"
               title="Administration"
+              {...warm("admin")}
               onClick={() => setWorkspacesOpen(false)}
             >
               <span className="rail-glyph" aria-hidden="true">
@@ -170,6 +213,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      {(welcomeOpen || shouldGreet) && welcome ? (
+        <WelcomeDialog
+          name={branding.name}
+          welcome={welcome}
+          onClose={closeWelcome}
+        />
+      ) : null}
     </div>
   );
 }

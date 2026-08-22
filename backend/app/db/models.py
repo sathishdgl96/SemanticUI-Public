@@ -53,6 +53,13 @@ class User(Base):
     home_dashboard_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, nullable=True
     )
+    #: When this person was oriented. NULL means never, which is the only
+    #: state that opens the welcome dialog unprompted. Per user rather than
+    #: per session or per browser: somebody who has been oriented has been
+    #: oriented, whichever machine they next sign in from.
+    welcomed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class DbSession(Base):
@@ -391,6 +398,60 @@ class CompositeModel(Base):
     #: a state worth being able to reach.
     definition: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+    )
+
+
+class ModelCertification(Base):
+    """One organisation's statement about one semantic view.
+
+    The view itself lives in Snowflake and this table never pretends
+    otherwise: the row is keyed by the view's identity, carries no copy
+    of its shape, and means nothing if the view is dropped.
+
+    `certified_by_role` is the point of the record. Authority to certify
+    is Snowflake's answer, not the app's -- the caller's session has to
+    hold the owning role -- so the audit question later is not "who
+    clicked" but "under whose authority", and only one of those two is
+    worth keeping.
+
+    A Snowflake object tag would put this on the object where every tool
+    could read it. It would also mean this app writing DDL into somebody
+    else's account, so the columns here are deliberately the ones a tag
+    would carry: moving later is a data migration, not a redesign.
+    """
+
+    __tablename__ = "model_certifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "database", "schema", "name", name="uq_model_certifications_view"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: The view's identity, exactly as Snowflake spells it.
+    database: Mapped[str] = mapped_column(String(255))
+    schema: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(255))
+
+    certified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    certified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    #: The Snowflake role whose authority permitted this, not the app role.
+    certified_by_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    #: Who to ask when the numbers look wrong. Free text because the owner
+    #: of a data product is frequently a team, and sometimes a person who
+    #: has no account in this app at all.
+    owner_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_contact: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
     )

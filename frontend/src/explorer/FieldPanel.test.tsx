@@ -95,6 +95,27 @@ describe("FieldPanel", () => {
 
     expect(onAdd).toHaveBeenCalledWith("axis", "ORDERS.ORDER_DATE", "dimension");
   });
+
+  // The narrow-pane fix is CSS: the data type carries a shrink factor far
+  // above the name's, so it gives up its width first. jsdom has no layout
+  // engine and cannot see that. What it CAN hold is the premise the rule
+  // depends on -- the name comes first and the type is the trailing <small>
+  // -- so a refactor that swaps them, or promotes the type out of <small>,
+  // fails here instead of silently restoring the old behavior on screen.
+  it("puts the field name before its data type, with the type as the trailing note", () => {
+    render(
+      <FieldPanel detail={DETAIL} wells={emptyWells()} onAdd={vi.fn()} />,
+    );
+
+    const row = screen.getByRole("button", { name: /ORDERS\.TOTAL_REVENUE/ });
+    const name = row.querySelector(".field-ref");
+    const type = row.querySelector("small");
+
+    expect(name).toHaveTextContent("ORDERS.TOTAL_REVENUE");
+    expect(type).toHaveTextContent("NUMBER(38,2)");
+    // Node.DOCUMENT_POSITION_FOLLOWING: the type comes after the name.
+    expect(name?.compareDocumentPosition(type!)).toBe(4);
+  });
 });
 
 describe("a model's fields", () => {

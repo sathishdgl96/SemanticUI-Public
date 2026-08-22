@@ -62,3 +62,45 @@ def test_create_app_fails_fast_on_invalid_settings(monkeypatch):
             create_app()
     finally:
         get_settings.cache_clear()
+
+
+def test_large_response_is_gzipped():
+    """The built SPA ships ~2 MB of JS from this same server. Uncompressed,
+    that transfer *is* the first-load wait on any real network -- local
+    development never sees it because there is no network to see."""
+    app = create_app()
+
+    @app.get("/big")
+    def big():
+        return {"rows": ["x" * 100] * 200}
+
+    with TestClient(app) as client:
+        r = client.get("/big", headers={"accept-encoding": "gzip"})
+
+    assert r.headers.get("content-encoding") == "gzip"
+    assert r.json()["rows"][0] == "x" * 100
+
+
+def test_small_response_is_left_alone():
+    """Compressing a 30-byte health check costs CPU and saves nothing."""
+    app = create_app()
+
+    with TestClient(app) as client:
+        r = client.get("/healthz", headers={"accept-encoding": "gzip"})
+
+    assert r.headers.get("content-encoding") is None
+    assert r.json() == {"status": "ok"}
+
+
+def test_client_that_cannot_gunzip_still_gets_its_answer():
+    app = create_app()
+
+    @app.get("/big")
+    def big():
+        return {"rows": ["x" * 100] * 200}
+
+    with TestClient(app) as client:
+        r = client.get("/big", headers={"accept-encoding": "identity"})
+
+    assert r.headers.get("content-encoding") is None
+    assert r.json()["rows"][0] == "x" * 100
