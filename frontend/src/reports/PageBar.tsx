@@ -12,6 +12,11 @@ interface Props {
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
+  /** The About tab, when the viewer offers one. It is not a page in the
+   *  definition -- exports stay byte-stable and nothing migrates -- so it
+   *  sits outside `pages` and carries its own selection. */
+  aboutActive?: boolean;
+  onShowAbout?: () => void;
 }
 
 /** The tab strip under the canvas. Structural changes are delegated upward --
@@ -28,6 +33,8 @@ export default function PageBar({
   onDuplicate,
   onDelete,
   onMove,
+  aboutActive,
+  onShowAbout,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -106,6 +113,18 @@ export default function PageBar({
           </button>
         );
       })}
+      {onShowAbout && (
+        /* Last, and after the add buttons in reading order only by accident
+           of the strip's layout: it is a page you read, not one you make. */
+        <button
+          type="button"
+          className={aboutActive ? "page-tab active page-tab-about" : "page-tab page-tab-about"}
+          aria-current={aboutActive ? "page" : undefined}
+          onClick={onShowAbout}
+        >
+          About
+        </button>
+      )}
       {canEdit && (
         <button
           type="button"

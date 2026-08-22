@@ -5,13 +5,15 @@ service account anywhere in this codebase.
 """
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.routes import current_session
 from app.config import get_settings
 from app.db.base import get_db
-from app.db.models import DbSession
-from app.semantic import discovery
+from app.db.models import DbSession, User
+from app.errors import ApiError
+from app.semantic import certification, discovery
 from app.semantic.query import SemanticQueryRequest, bridged_through, build_semantic_sql
 from app.snowflake import gateway
 from app.snowflake.provider import get_cache
@@ -29,7 +31,15 @@ def list_views(
 ) -> dict:
     entry = get_cache().acquire(db, sess)
     with entry.lock:
-        return {"views": discovery.list_semantic_views(entry.conn, database, schema)}
+        views = discovery.list_semantic_views(entry.conn, database, schema)
+    # One query for the whole page, not one per row: the badge must not cost
+    # a round trip per view.
+    certified = certification.certified_keys(db)
+    for view in views:
+        view["certified"] = (
+            view["database"], view["schema"], view["name"]
+        ) in certified
+    return {"views": views}
 
 
 @router.get("/api/semantic-views/{database}/{schema}/{name}")
@@ -180,3 +190,96 @@ def query_semantic(
         # to combinations that occur there, so the UI says which entity.
         "bridgedThrough": bridged_through(detail, req),
     }
+
+
+# --- Certification ---------------------------------------------------------
+# Who may certify a semantic view is Snowflake's answer, never the app's. The
+# owning role comes from SHOW SEMANTIC VIEWS and the caller's own connection is
+# asked whether their session holds it. Every path that cannot establish that
+# refuses: a trust control that fails open produces a badge nobody checked.
+
+
+class CertificationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    certified: bool
+    ownerName: str | None = Field(default=None, max_length=255)
+    ownerContact: str | None = Field(default=None, max_length=255)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+def _owner_of(conn, database: str, schema: str, name: str) -> tuple:
+    """The owning role and its kind, or (None, None) if unreadable."""
+    for view in discovery.list_semantic_views(conn, database, schema):
+        if view.get("name") == name:
+            return view.get("owner"), view.get("ownerRoleType")
+    return None, None
+
+
+def _certification_body(row, *, can_certify: bool) -> dict:
+    return {
+        "certified": bool(row and row.certified),
+        "owner": {
+            "name": row.owner_name if row else None,
+            "contact": row.owner_contact if row else None,
+        },
+        "certifiedBy": (
+            {"role": row.certified_by_role, "at": row.certified_at}
+            if row and row.certified
+            else None
+        ),
+        "note": row.note if row else None,
+        "canCertify": can_certify,
+    }
+
+
+@router.get("/api/semantic-views/{database}/{schema}/{name}/certification")
+def read_certification(
+    database: str,
+    schema: str,
+    name: str,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    entry = get_cache().acquire(db, sess)
+    with entry.lock:
+        owner, kind = _owner_of(entry.conn, database, schema, name)
+        # One round trip, and only here -- never per row of a listing.
+        can = certification.may_certify(entry.conn, owner, kind)
+    row = certification.get(db, database, schema, name)
+    return _certification_body(row, can_certify=can)
+
+
+@router.put("/api/semantic-views/{database}/{schema}/{name}/certification")
+def write_certification(
+    database: str,
+    schema: str,
+    name: str,
+    body: CertificationBody,
+    sess: DbSession = Depends(current_session),
+    db: Session = Depends(get_db),
+) -> dict:
+    entry = get_cache().acquire(db, sess)
+    with entry.lock:
+        owner, kind = _owner_of(entry.conn, database, schema, name)
+        if not certification.may_certify(entry.conn, owner, kind):
+            record(db, "model.certify", user_id=sess.user_id, session_id=sess.id,
+                   resource_type="semantic_view", outcome="denied",
+                   detail={"reason": "not the owning role"})
+            raise ApiError(
+                "FORBIDDEN", 403,
+                "Certifying this model needs the Snowflake role that owns it.",
+            )
+
+    user = db.get(User, sess.user_id)
+    row = certification.put(
+        db, database, schema, name, user=user, role=owner,
+        certified=body.certified, owner_name=body.ownerName,
+        owner_contact=body.ownerContact, note=body.note,
+    )
+    # Two actions rather than one with a flag: "who certified this" and "who
+    # withdrew it" are different questions to ask the trail later.
+    record(db, "model.certify" if body.certified else "model.uncertify",
+           user_id=sess.user_id, session_id=sess.id,
+           resource_type="semantic_view", detail={"role": owner})
+    return _certification_body(row, can_certify=True)

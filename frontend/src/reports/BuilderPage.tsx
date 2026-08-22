@@ -361,6 +361,7 @@ export default function BuilderPage() {
               onPageOp={applyPageOp}
               onDeleteVisual={canEdit ? deleteVisual : undefined}
               onPinVisual={setPinning}
+              reportId={reportId}
             />
             {/* The rail acts on the report: filters, the visual being
                 edited, the fields going into it. In model view there is no

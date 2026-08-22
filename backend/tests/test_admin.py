@@ -232,6 +232,9 @@ EXPECTED_ACTIONS = {
     # preferences worth a line
     "session.context",
     "home.dashboard_set",
+    # model trust
+    "model.certify",
+    "model.uncertify",
     # broadcasts
     "announcement.create",
     "announcement.update",

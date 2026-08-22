@@ -1,8 +1,21 @@
+from datetime import datetime, timedelta, timezone
+
 from app.auth.sessions import SESSION_COOKIE, create_session
 from app.snowflake.provider import get_cache
 from tests.fakes import FakeCol
 
-from tests.test_discovery import DESCRIBE_DESC, DESCRIBE_ROWS, SHOW_DESC
+from tests.test_discovery import (
+    DESCRIBE_DESC,
+    DESCRIBE_ROWS,
+    SHOW_DESC_WITH_OWNER,
+)
+
+INFO_SCHEMA_DESC = [
+    FakeCol("TABLE_SCHEMA"), FakeCol("TABLE_NAME"), FakeCol("LAST_ALTERED"),
+    FakeCol("LAST_DDL"), FakeCol("IS_DYNAMIC"), FakeCol("ROW_COUNT"),
+]
+LOADED = datetime(2026, 8, 22, 6, 15, tzinfo=timezone.utc)
+DEFINED = LOADED - timedelta(days=9)
 
 
 class ScriptedCursor:
@@ -15,6 +28,19 @@ class ScriptedCursor:
         #: When set, plain SELECTs answer with these rows instead of the
         #: default two -- lets a test drive the distinct-values endpoint.
         self.value_rows: list[tuple] | None = None
+        #: What SHOW SEMANTIC VIEWS reports as the owning role, and what
+        #: Snowflake answers when asked whether this session holds it. Both
+        #: are knobs because certification's whole contract is what happens
+        #: for each answer.
+        self.owner: str | None = "DATA_ENG"
+        self.owner_role_type: str | None = "ROLE"
+        self.may_certify: bool | None = True
+        self.freshness_rows: list[tuple] = [
+            ("PUBLIC", "ORDERS_RAW", LOADED, DEFINED, "NO", 42),
+        ]
+        #: Set to make only the INFORMATION_SCHEMA read fail, which is how a
+        #: stopped warehouse presents: the rest of the page still has to draw.
+        self.freshness_error: Exception | None = None
         self._rows: list = []
         self.description: list = []
         self.sfqid = "q-77"
@@ -23,8 +49,22 @@ class ScriptedCursor:
         self.executed.append(sql)
         self.bound.append(params)
         if sql.startswith("SHOW SEMANTIC VIEWS"):
-            self.description = SHOW_DESC
-            self._rows = [("2026-01-01", "SALES", "ANALYTICS", "PUBLIC", None)]
+            # Owner columns included: certification asks Snowflake whether the
+            # caller holds the owning role, and has nothing to ask about
+            # without them.
+            self.description = SHOW_DESC_WITH_OWNER
+            self._rows = [(
+                "2026-01-01", "SALES", "ANALYTICS", "PUBLIC", None,
+                self.owner, self.owner_role_type,
+            )]
+        elif "IS_ROLE_IN_SESSION" in sql or "IS_DATABASE_ROLE_IN_SESSION" in sql:
+            self.description = [FakeCol("PERMITTED")]
+            self._rows = [(self.may_certify,)]
+        elif "INFORMATION_SCHEMA.TABLES" in sql:
+            if self.freshness_error is not None:
+                raise self.freshness_error
+            self.description = INFO_SCHEMA_DESC
+            self._rows = list(self.freshness_rows)
         elif "CURRENT_ACCOUNT()" in sql:
             # The identity probe. Matches what sign_in() stores, so a feed
             # request authenticated with these fakes maps to the same app
@@ -39,7 +79,14 @@ class ScriptedCursor:
             self._rows = [("ACME", "MAIN")]
         elif sql.startswith("DESCRIBE SEMANTIC VIEW"):
             self.description = DESCRIBE_DESC
-            self._rows = list(DESCRIBE_ROWS)
+            # ORDERS resolves to a physical table so freshness has something
+            # to ask about; CUSTOMERS deliberately does not, which is the
+            # ordinary mixed case the About page has to render.
+            self._rows = list(DESCRIBE_ROWS) + [
+                ("TABLE", "ORDERS", None, "BASE_TABLE_DATABASE_NAME", "ANALYTICS"),
+                ("TABLE", "ORDERS", None, "BASE_TABLE_SCHEMA_NAME", "PUBLIC"),
+                ("TABLE", "ORDERS", None, "BASE_TABLE_NAME", "ORDERS_RAW"),
+            ]
         elif self.value_rows is not None:
             self.description = [FakeCol("VALUE", 2)]
             self._rows = list(self.value_rows)

@@ -18,11 +18,22 @@ def quote_ident(name: str) -> str:
     return f'"{name}"'
 
 
-def _execute_dicts(conn: Any, sql: str) -> list[dict]:
+def execute_dicts(conn: Any, sql: str, params: Any = None) -> list[dict]:
+    """A statement's rows as dicts, row-capped, with errors mapped.
+
+    Public because source freshness reads INFORMATION_SCHEMA through the same
+    cap and the same error mapping; duplicating either there would mean one of
+    the two eventually drifting. `params` is for that caller -- SHOW and
+    DESCRIBE cannot take bindings, which is why the module docstring says
+    identifiers go through quote_ident instead.
+    """
     cur = conn.cursor()
     try:
         try:
-            cur.execute(sql)
+            if params is None:
+                cur.execute(sql)
+            else:
+                cur.execute(sql, params)
         except Exception as exc:
             raise map_snowflake_error(exc) from exc
         names = [d.name.lower() for d in (cur.description or [])]
@@ -50,8 +61,16 @@ def list_semantic_views(
             "database": row.get("database_name"),
             "schema": row.get("schema_name"),
             "comment": row.get("comment"),
+            # Who owns the view, and whether that owner is an account role or
+            # a database role -- the two need different questions asked of
+            # Snowflake before anybody may certify the model. Absent on the
+            # TERSE form and on older accounts, and absent must read as
+            # "unknown": an empty role name handed to IS_ROLE_IN_SESSION
+            # would be a question with a misleading answer.
+            "owner": row.get("owner") or None,
+            "ownerRoleType": row.get("owner_role_type") or None,
         }
-        for row in _execute_dicts(conn, sql)
+        for row in execute_dicts(conn, sql)
     ]
 
 
@@ -81,9 +100,9 @@ def _key_list(value: Any) -> list[str]:
 
 def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> dict:
     fqn = f"{quote_ident(database)}.{quote_ident(schema)}.{quote_ident(name)}"
-    rows = _execute_dicts(conn, f"DESCRIBE SEMANTIC VIEW {fqn}")
+    rows = execute_dicts(conn, f"DESCRIBE SEMANTIC VIEW {fqn}")
 
-    tables: list[dict] = []
+    tables: dict[str, dict] = {}
     relationships: dict[str, dict] = {}
     fields: dict[tuple[str, str, str], dict] = {}
     hierarchies: dict[tuple[str, str], dict] = {}
@@ -94,8 +113,31 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
         parent = row.get("parent_entity")
         prop = (row.get("property") or "").upper()
         if kind == "TABLE" and obj_name:
-            if not any(t["name"] == obj_name for t in tables):
-                tables.append({"name": obj_name})
+            # `object_name` is what the model calls the table; the BASE_TABLE_*
+            # properties say which physical table it reads. Source freshness
+            # has to ask INFORMATION_SCHEMA about the latter, so both are kept.
+            # A logical table defined by a SQL query carries DEFINITION and no
+            # base table at all -- recorded rather than guessed at, because
+            # "derived from a query" is a truthful answer and a fabricated
+            # source table is not.
+            entry = tables.setdefault(
+                obj_name,
+                {
+                    "name": obj_name,
+                    "baseDatabase": None,
+                    "baseSchema": None,
+                    "baseTable": None,
+                    "queryBacked": False,
+                },
+            )
+            if prop == "BASE_TABLE_DATABASE_NAME":
+                entry["baseDatabase"] = row.get("property_value")
+            elif prop == "BASE_TABLE_SCHEMA_NAME":
+                entry["baseSchema"] = row.get("property_value")
+            elif prop == "BASE_TABLE_NAME":
+                entry["baseTable"] = row.get("property_value")
+            elif prop == "DEFINITION":
+                entry["queryBacked"] = True
         elif kind == "RELATIONSHIP" and obj_name:
             # `TABLE` is the foreign-key side, `REF_TABLE` the primary-key
             # side, so the pair is directed: it always points from finer grain
@@ -139,7 +181,7 @@ def describe_semantic_view(conn: Any, database: str, schema: str, name: str) -> 
                 field["dataType"] = row.get("property_value")
 
     detail: dict = {
-        "tables": tables,
+        "tables": list(tables.values()),
         "relationships": list(relationships.values()),
         "dimensions": [],
         "metrics": [],
