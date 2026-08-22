@@ -94,7 +94,7 @@ function FreshnessBlock({ freshness }: { freshness: Freshness }) {
       {prefix ? <p className="about-prefix">All from {prefix}</p> : null}
 
       <div className="about-table-wrap">
-        <table className="about-table about-freshness">
+        <table className="about-table">
           <thead>
             <tr>
               <th scope="col">Table</th>
@@ -181,7 +181,7 @@ export default function AboutPage({
           >
             {model.certified ? "Certified" : "Not certified"}
           </span>
-          <span className="about-status-owner">
+          <span>
             {model.owner.name ? (
               <>
                 {model.owner.name}
@@ -195,20 +195,15 @@ export default function AboutPage({
           </span>
         </p>
 
-        <p className="about-status-detail">
-          {model.certified && model.certifiedBy ? (
-            <>
-              Vouched for under the Snowflake role{" "}
-              <code>{model.certifiedBy.role}</code>,{" "}
-              {relativeTime(model.certifiedBy.at)}.
-            </>
-          ) : (
-            "Nobody holding the owning Snowflake role has vouched for this model."
-          )}
-          {!model.owner.name
-            ? " There is nobody listed to ask when the numbers look wrong."
-            : null}
-        </p>
+        {/* Only when there is something to say that the badge above does
+            not already say. "Not certified" needs no sentence explaining
+            that it is not certified. */}
+        {model.certified && model.certifiedBy ? (
+          <p className="about-meta">
+            <code>{model.certifiedBy.role}</code> ·{" "}
+            {relativeTime(model.certifiedBy.at)}
+          </p>
+        ) : null}
 
         {model.note ? <p className="about-note">{model.note}</p> : null}
         {certify}

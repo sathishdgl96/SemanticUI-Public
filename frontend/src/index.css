@@ -7136,22 +7136,37 @@ button.model-column:hover {
 }
 
 /* --- The About page ------------------------------------------------------
-   A page whose job is to be believed, so it is built to be scanned in that
-   order: what the model is, whether anyone stands behind it, how old its
-   inputs are. Everything below the fold is the evidence for the line above
-   it. No new palette and no new typeface -- the chrome stays quiet here for
-   the same reason it does everywhere else. */
+   One size and one family for the whole page. It carried six sizes and two
+   families before, which read as six levels of importance where there are
+   only two: the answer, and the evidence for it.
+
+   Hierarchy comes from weight, colour and space instead. Nothing here is
+   sized to be noticed; the page is scanned top to bottom, and a reader
+   should never have to work out why one line is a pixel larger than the
+   one above it. */
 
 .about-page {
   flex: 1;
   overflow-y: auto;
   padding: 24px 28px 40px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* Controls included: a button or input at its own size would reintroduce
+   exactly what this section exists to remove. */
+.about-page button,
+.about-page input,
+.about-page code,
+.about-page time {
+  font: inherit;
 }
 
 .about-block {
   max-width: 720px;
-  padding-bottom: 22px;
-  margin-bottom: 22px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--grid);
 }
 
@@ -7159,24 +7174,23 @@ button.model-column:hover {
 
 .about-block h3 {
   margin: 0 0 10px;
-  font-size: 11px;
+  font-size: inherit;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-muted);
-}
-
-/* The two sections that are declared and not yet wired sit quieter than the
-   two that carry answers -- present, so their absence is not mistaken for a
-   model with no lineage and no problems, but never competing with them. */
-.about-block--pending { padding-bottom: 12px; margin-bottom: 12px; }
-
-.about-model-name {
-  margin: 0 0 12px;
-  font-family: var(--font-mono);
-  font-size: 15px;
   color: var(--ink);
 }
+
+/* Declared, not yet wired. Quieter than the two blocks carrying answers,
+   but present -- silence here would be indistinguishable from a model with
+   no lineage and no problems. */
+.about-block--pending {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.about-block--pending h3 { font-weight: 500; color: var(--ink-muted); }
+
+.about-model-name { margin: 0 0 12px; }
+.about-model-name strong { font-weight: 600; }
 
 /* The qualifying path is context; the view's own name is the subject. */
 .about-model-scope { color: var(--ink-muted); }
@@ -7184,20 +7198,18 @@ button.model-column:hover {
 .about-status {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 0 0 6px;
-  font-size: 13px;
 }
 
 .about-badge {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 1px 10px;
   border-radius: 11px;
   background: var(--brand);
   color: var(--ink);
-  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
 /* Absence is stated, not coloured as an alarm: an uncertified model is the
@@ -7209,52 +7221,46 @@ button.model-column:hover {
   font-weight: 500;
 }
 
-.about-status-owner { color: var(--ink); }
-.about-contact { color: var(--ink-muted); }
-
-.about-status-detail,
+.about-meta,
 .about-note,
 .about-placeholder,
-.about-unavailable {
+.about-unavailable,
+.about-partial,
+.about-prefix,
+.about-contact,
+.about-source,
+.about-undated,
+.about-cert-denied {
+  color: var(--ink-muted);
+}
+
+.about-meta,
+.about-note,
+.about-placeholder,
+.about-unavailable,
+.about-partial,
+.about-prefix {
   margin: 0 0 6px;
   max-width: 62ch;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--ink-muted);
 }
 
 .about-note { color: var(--ink); }
 
-.about-headline {
-  margin: 0 0 4px;
-  font-size: 14px;
-  color: var(--ink);
-}
-
+.about-headline { margin: 0 0 4px; }
 .about-headline strong { font-weight: 600; }
 
-/* Never allowed to read as part of the headline: it is the sentence saying
-   the headline does not cover everything. */
-.about-partial,
-.about-prefix {
-  margin: 0 0 10px;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-
-.about-prefix { font-family: var(--font-mono); }
+.about-prefix { margin-bottom: 10px; }
 
 .about-table-wrap { overflow-x: auto; }
 
 .about-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
 }
 
 .about-table th,
 .about-table td {
-  padding: 7px 12px 7px 0;
+  padding: 7px 16px 7px 0;
   border-bottom: 1px solid var(--grid);
   text-align: left;
   vertical-align: baseline;
@@ -7262,41 +7268,31 @@ button.model-column:hover {
 }
 
 .about-table thead th {
-  padding-bottom: 5px;
+  padding-bottom: 6px;
   border-bottom-color: var(--ink-muted);
-  font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--ink-muted);
 }
 
 .about-table tbody tr:last-child th,
 .about-table tbody tr:last-child td { border-bottom: none; }
 
-.about-table tbody th {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  color: var(--ink);
+.about-table tbody th { font-weight: 500; }
+
+/* Ages line up on the right, with figures of equal width, so the column
+   reads as one shape rather than seven strings -- which is the only reason
+   it is there. Tabular numerals give that without a second typeface. */
+.about-num {
+  text-align: right;
+  padding-right: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Ages line up on the right so the column can be read as one shape rather
-   than seven strings -- which is the whole reason it is there. */
-.about-num { text-align: right; padding-right: 0; }
-.about-freshness .about-num { font-variant-numeric: tabular-nums; }
-
-.about-source,
-.about-undated { color: var(--ink-muted); }
-
-.about-source { font-family: var(--font-mono); }
-
 .about-tag {
-  margin-left: 7px;
-  padding: 0 5px;
+  margin-left: 8px;
+  padding: 0 6px;
   border: 1px solid var(--grid);
   border-radius: 8px;
-  font-family: var(--font-sans, inherit);
-  font-size: 10px;
   font-weight: 400;
   color: var(--ink-muted);
 }
@@ -7307,29 +7303,22 @@ button.model-column:hover {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 10px 0 0;
+  margin: 12px 0 0;
 }
 
-/* Said rather than hidden: a control that silently is not there reads as a
-   missing feature instead of as a permission somebody does not hold. */
-.about-cert-denied {
-  margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--ink-muted);
-}
+.about-cert-denied { margin: 12px 0 0; }
 
 .about-cert-form {
+  max-width: 440px;
   margin-top: 12px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--grid);
   border-radius: 4px;
-  max-width: 460px;
 }
 
 .about-cert-form label {
   display: block;
   margin-bottom: 10px;
-  font-size: 12px;
   color: var(--ink-muted);
 }
 
@@ -7337,22 +7326,17 @@ button.model-column:hover {
   display: block;
   width: 100%;
   margin-top: 4px;
-  padding: 5px 7px;
+  padding: 5px 8px;
   border: 1px solid var(--grid);
   border-radius: 3px;
-  font-size: 13px;
   color: var(--ink);
 }
 
 .about-cert-error {
-  margin: 8px 0 0;
-  font-size: 12px;
+  margin: 10px 0 0;
   color: var(--danger, #a4262c);
 }
 
-/* Snowflake's own words, in the same monospace the SQL preview uses -- the
-   reason is something you act on, not prose. */
-.about-reason {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
+/* Snowflake's own words, kept verbatim and set no differently: it is a
+   quotation, not a category of text. */
+.about-reason { color: var(--ink-muted); }

@@ -20,15 +20,14 @@ from app.db.models import ModelCertification
 #: a dimension or metric the semantic view no longer has.
 _ISSUE_COLUMNS = ["Issue", "Where", "Detail"]
 
-_LINEAGE_PLACEHOLDER = (
-    "Lineage for this model is not wired up yet. It will show the tables this "
-    "view reads and how they reach each other."
-)
+# Short by intent. The heading already names the section; a paragraph
+# explaining what a section will one day contain is filler on a page whose
+# job is to be scanned. What matters is that the section is DECLARED --
+# silence here would be indistinguishable from a model with no lineage and
+# no problems.
+_LINEAGE_PLACEHOLDER = "Not yet available."
 
-_ISSUES_PLACEHOLDER = (
-    "Automatic checks on this report are not wired up yet. They will flag "
-    "fields a visual or filter still names that the model no longer has."
-)
+_ISSUES_PLACEHOLDER = "No automatic checks yet."
 
 
 def build(

@@ -55,7 +55,7 @@ export default function CertifyPanel({ view }: { view: ViewRef }) {
   if (!current.canCertify) {
     return (
       <p className="about-cert-denied">
-        Only the Snowflake role that owns this model can certify it.
+        Requires the Snowflake role that owns this model.
       </p>
     );
   }
