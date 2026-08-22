@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     Index,
     ForeignKey,
     Integer,
@@ -23,7 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, UtcDateTime
 
 
 def now_utc() -> datetime:
@@ -39,7 +38,7 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     snowflake_account: Mapped[str] = mapped_column(String(255))
     snowflake_user: Mapped[str] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     #: The execution context this user last chose, replayed at the next
     #: login. NULL means they never chose: the token's role and the
     #: account's default warehouse apply instead.
@@ -58,7 +57,7 @@ class User(Base):
     #: per session or per browser: somebody who has been oriented has been
     #: oriented, whichever machine they next sign in from.
     welcomed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
 
 
@@ -71,10 +70,10 @@ class DbSession(Base):
     access_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     refresh_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     access_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     #: The Excel/Power Query bearer: sha256 hex of a token the UI showed
     #: exactly once. Only the hash is stored; presenting the raw token is the
     #: only way in, and it rides on THIS session -- its connection, its user,
@@ -83,7 +82,7 @@ class DbSession(Base):
         String(64), nullable=True, index=True
     )
     connect_token_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
     #: The account chosen at login. Needed because rebuilding an
     #: expired OAuth connection must reach the SAME account -- the
@@ -109,7 +108,7 @@ class Workspace(Base):
     #: account could never resolve the views these reports bind to, so the
     #: grant would be an illusion of access.
     snowflake_account: Mapped[str] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
 
 
 class WorkspaceMember(Base):
@@ -129,7 +128,7 @@ class WorkspaceMember(Base):
     #: Indexed because "which workspaces am I in" runs on every report list.
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     role: Mapped[str] = mapped_column(String(16))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
 
 
 class Report(Base):
@@ -159,9 +158,9 @@ class Report(Base):
     #: who may read it (ADR 0009).
     snowflake_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
     snowflake_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+        UtcDateTime, default=now_utc, onupdate=now_utc
     )
 
 
@@ -181,7 +180,7 @@ class AuditEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     ts: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, index=True
+        UtcDateTime, default=now_utc, index=True
     )
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
@@ -232,9 +231,9 @@ class SavedExplore(Base):
     #: who may read it (ADR 0009).
     snowflake_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
     snowflake_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+        UtcDateTime, default=now_utc, onupdate=now_utc
     )
 
 class UserItemState(Base):
@@ -267,7 +266,7 @@ class UserItemState(Base):
     item_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_viewed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
 
 
@@ -310,9 +309,9 @@ class Dashboard(Base):
     #: one thing, and half a saved layout is not a state worth being able
     #: to reach.
     definition: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+        UtcDateTime, default=now_utc, onupdate=now_utc
     )
 
 
@@ -345,15 +344,15 @@ class Announcement(Base):
     #: somebody turns it off" -- which is right for a standing notice and
     #: wrong for a maintenance window, so both are offered.
     starts_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc
+        UtcDateTime, default=now_utc
     )
     ends_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
     created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+        UtcDateTime, default=now_utc, onupdate=now_utc
     )
 
 
@@ -397,9 +396,9 @@ class CompositeModel(Base):
     #: edited and saved as a single thing, and half a saved mapping is not
     #: a state worth being able to reach.
     definition: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+        UtcDateTime, default=now_utc, onupdate=now_utc
     )
 
 
@@ -442,7 +441,7 @@ class ModelCertification(Base):
     #: The Snowflake role whose authority permitted this, not the app role.
     certified_by_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
     certified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UtcDateTime, nullable=True
     )
 
     #: Who to ask when the numbers look wrong. Free text because the owner
@@ -453,5 +452,5 @@ class ModelCertification(Base):
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now_utc, onupdate=now_utc
+        UtcDateTime, default=now_utc, onupdate=now_utc
     )
