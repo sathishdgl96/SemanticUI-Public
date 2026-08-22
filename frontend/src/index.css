@@ -571,10 +571,22 @@ button:disabled {
   min-height: 0;
 }
 
+/* Both axes named on purpose. Setting overflow on ONE axis makes the CSS
+   engine compute the other as `auto` too (the overflow pairing rule, the
+   same one documented on `.results` below), so `overflow-y: auto` alone
+   quietly turned these panes into horizontal scrollers the moment any child
+   was a pixel wider than the pane -- a scrollbar in a column of names that
+   is meant only to scroll down.
+
+   Hiding it is safe because nothing in here relies on being scrolled to:
+   `.view-item-label`, `.field-ref` and `.chip` all ellipsise, every field
+   row carries its full reference as a title, and the pane itself drags from
+   180 to 640px. */
 .left,
 .middle {
   flex: 0 0 auto;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--pane-padding);
   border-right: 1px solid var(--border);
   background: var(--surface);
