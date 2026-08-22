@@ -13,33 +13,11 @@ import {
 import { atLeast } from "../api/workspaces";
 import Icon from "../ui/Icon";
 import TileGrid from "./TileGrid";
-
-/** The stored document, rebuilt from what the server resolved. Tiles are
- *  references; `detail` returns them resolved, so saving means putting the
- *  reference half back together. */
-function definitionOf(
-  dashboard: DashboardDetail,
-  layouts?: { id: string; x: number; y: number; w: number; h: number }[],
-) {
-  const moved = new Map((layouts ?? []).map((entry) => [entry.id, entry]));
-  return {
-    schemaVersion: 1,
-    name: dashboard.name,
-    tiles: dashboard.tiles.map((tile) => {
-      const next = moved.get(tile.id);
-      return {
-        id: tile.id,
-        reportId: tile.reportId,
-        pageId: tile.pageId,
-        visualId: tile.visualId,
-        title: tile.title,
-        layout: next
-          ? { x: next.x, y: next.y, w: next.w, h: next.h }
-          : tile.layout,
-      };
-    }),
-  };
-}
+import {
+  definitionOf,
+  useTileArrangement,
+  withLayouts,
+} from "./useTileArrangement";
 
 /** One dashboard: visuals gathered from the reports of its workspace. */
 export default function DashboardPage() {
@@ -66,12 +44,19 @@ export default function DashboardPage() {
     onSuccess: invalidate,
   });
 
-  const rearrange = useMutation({
-    mutationFn: (layouts: { id: string; x: number; y: number; w: number; h: number }[]) =>
-      updateDashboard(dashboardId, definitionOf(dashboard.data as DashboardDetail, layouts)),
-    // Deliberately NOT invalidating: the grid already shows the new
-    // arrangement, and refetching would drop every tile's query and make
-    // the whole page flash on a drag that changed nothing but position.
+  // Not a mutation: react-grid-layout reports a layout change on drag stop,
+  // on mount, and again whenever its `layout` prop moves, so firing a
+  // request per event put several writes of one document in the air at
+  // once. See useTileArrangement.
+  const arrangement = useTileArrangement({
+    dashboardId,
+    dashboard: dashboard.data,
+    applySaved: (layouts) =>
+      queryClient.setQueryData(
+        ["dashboard", dashboardId],
+        (old: DashboardDetail | undefined) =>
+          old ? withLayouts(old, layouts) : old,
+      ),
   });
 
   const rename = useMutation({
@@ -151,15 +136,17 @@ export default function DashboardPage() {
         {dashboard.data.tileCount === 1 ? "" : "s"}
       </p>
 
-      {rearrange.isError && (
-        <p role="alert">Could not save the new arrangement.</p>
+      {arrangement.failed && (
+        <p role="alert">
+          Could not save the new arrangement. Still trying.
+        </p>
       )}
 
       <TileGrid
         tiles={dashboard.data.tiles}
         canEdit={canEdit}
         onRemove={(tileId) => unpin.mutate(tileId)}
-        onRearrange={(layouts) => rearrange.mutate(layouts)}
+        onRearrange={arrangement.onRearrange}
       />
 
       {confirmDelete && (

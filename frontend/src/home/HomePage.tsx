@@ -5,37 +5,15 @@ import {
   listDashboards,
   removeTile,
   setHomeDashboard,
-  updateDashboard,
-  type DashboardDetail,
 } from "../api/dashboards";
-import { getHome } from "../api/home";
+import { getHome, type HomePayload } from "../api/home";
 import { atLeast } from "../api/workspaces";
 import TileGrid from "../dashboards/TileGrid";
+import {
+  useTileArrangement,
+  withLayouts,
+} from "../dashboards/useTileArrangement";
 import RecentItems from "./RecentItems";
-
-/** Rebuild the stored document from what the server resolved, so a moved
- *  tile can be saved back. */
-function definitionOf(
-  dashboard: DashboardDetail,
-  layouts?: { id: string; x: number; y: number; w: number; h: number }[],
-) {
-  const moved = new Map((layouts ?? []).map((entry) => [entry.id, entry]));
-  return {
-    schemaVersion: 1,
-    name: dashboard.name,
-    tiles: dashboard.tiles.map((tile) => {
-      const next = moved.get(tile.id);
-      return {
-        id: tile.id,
-        reportId: tile.reportId,
-        pageId: tile.pageId,
-        visualId: tile.visualId,
-        title: tile.title,
-        layout: next ? { x: next.x, y: next.y, w: next.w, h: next.h } : tile.layout,
-      };
-    }),
-  };
-}
 
 /** Offered when no dashboard is chosen -- which covers never having
  *  chosen, the chosen one being deleted, and losing access to its
@@ -116,12 +94,19 @@ export default function HomePage() {
     onSuccess: invalidate,
   });
 
-  const rearrange = useMutation({
-    mutationFn: (layouts: { id: string; x: number; y: number; w: number; h: number }[]) =>
-      updateDashboard(dashboard?.id as string, definitionOf(dashboard as DashboardDetail, layouts)),
-    // Not invalidated on purpose: the grid already shows the new
-    // arrangement, and refetching would drop every tile's query and flash
-    // the whole page on a drag that changed nothing but position.
+  // Same queue the dashboard page uses, and for the same reason: the grid
+  // reports a layout change on drag stop, on mount, and again whenever its
+  // `layout` prop moves. Home nests its dashboard inside its own payload,
+  // so it writes the saved layout back there itself.
+  const arrangement = useTileArrangement({
+    dashboardId: dashboard?.id ?? "",
+    dashboard: dashboard ?? undefined,
+    applySaved: (layouts) =>
+      queryClient.setQueryData(["home"], (old: HomePayload | undefined) =>
+        old?.dashboard
+          ? { ...old, dashboard: withLayouts(old.dashboard, layouts) }
+          : old,
+      ),
   });
 
   const clearChoice = useMutation({
@@ -183,11 +168,16 @@ export default function HomePage() {
         </h2>
         {home.isLoading ? null : dashboard ? (
           <>
+          {arrangement.failed && (
+            <p role="alert" className="tile-hint">
+              Could not save the new arrangement. Still trying.
+            </p>
+          )}
           <TileGrid
             tiles={dashboard.tiles}
             canEdit={canEdit}
             onRemove={(tileId) => unpin.mutate(tileId)}
-            onRearrange={(layouts) => rearrange.mutate(layouts)}
+            onRearrange={arrangement.onRearrange}
           />
           </>
         ) : (
