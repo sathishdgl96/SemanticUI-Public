@@ -13,6 +13,7 @@ const FRESH: Freshness = {
   oldest: "2026-08-22T06:15:00Z",
   complete: true,
   available: true,
+  reason: null,
 };
 
 function provenance(over: Partial<Provenance> = {}): Provenance {
@@ -100,11 +101,32 @@ describe("AboutPage", () => {
     expect(screen.getByText(/not visible to your role/i)).toBeInTheDocument();
   });
 
+  it("says why freshness could not be read, not merely that it could not", () => {
+    // "The query could not be run" with nothing after it is a dead end for
+    // whoever has to fix it. The first real failure here was a placeholder
+    // style Snowflake rejected, and the page said nothing about it.
+    render(
+      <AboutPage
+        data={provenance({
+          freshness: {
+            tables: [], oldest: null, complete: false, available: false,
+            reason: "SQL compilation error: no active warehouse",
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/no active warehouse/i)).toBeInTheDocument();
+  });
+
   it("keeps the model block when freshness could not be read at all", () => {
     render(
       <AboutPage
         data={provenance({
-          freshness: { tables: [], oldest: null, complete: false, available: false },
+          freshness: {
+            tables: [], oldest: null, complete: false, available: false,
+            reason: null,
+          },
         })}
       />,
     );

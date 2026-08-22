@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { FreshnessRow, Provenance } from "../api/provenance";
 import { relativeTime } from "../ui/relativeTime";
 
@@ -32,7 +33,16 @@ function freshnessCell(row: FreshnessRow): string {
  * while its freshness is unreadable -- a stopped warehouse is the ordinary
  * case -- and this page has to render either way.
  */
-export default function AboutPage({ data }: { data: Provenance }) {
+export default function AboutPage({
+  data,
+  certify,
+}: {
+  data: Provenance;
+  /** The certification control, when the page has a live view to offer one
+   *  for. A slot rather than a query, so this component stays presentational
+   *  and every state below can be tested without a server. */
+  certify?: ReactNode;
+}) {
   const { model, freshness, lineage, openIssues } = data;
 
   return (
@@ -70,6 +80,7 @@ export default function AboutPage({ data }: { data: Provenance }) {
           )}
         </p>
         {model.note ? <p className="about-note">{model.note}</p> : null}
+        {certify}
       </section>
 
       <section className="about-block">
@@ -77,6 +88,12 @@ export default function AboutPage({ data }: { data: Provenance }) {
         {!freshness.available ? (
           <p className="about-unavailable">
             Source freshness unavailable — the query could not be run.
+            {freshness.reason ? (
+              <>
+                {" "}
+                <span className="about-reason">{freshness.reason}</span>
+              </>
+            ) : null}
           </p>
         ) : (
           <>

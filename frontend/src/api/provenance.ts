@@ -35,6 +35,10 @@ export interface Freshness {
   /** False when the freshness query itself failed -- a stopped warehouse is
    *  the ordinary case, and the rest of the page still has to render. */
   available: boolean;
+  /** Why, in Snowflake's own words, when it failed. Null when it did not.
+   *  A failure that only says "could not be run" is a dead end for whoever
+   *  has to fix it. */
+  reason: string | null;
 }
 
 export interface ModelTrust {

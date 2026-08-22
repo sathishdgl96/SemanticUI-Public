@@ -7242,3 +7242,10 @@ button.model-column:hover {
 /* Set apart from the report's own pages: it is about the report rather than
    part of it, and clicking it should not feel like changing page. */
 .page-tab-about { margin-left: 8px; }
+
+/* Snowflake's own words, in the same monospace the SQL preview uses -- the
+   reason is something you act on, not prose. */
+.about-reason {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

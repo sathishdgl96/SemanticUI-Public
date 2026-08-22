@@ -26,9 +26,14 @@ absent from the result -- which is why "not visible" is a reported state and
 not an error.
 """
 
+import logging
 from typing import Any
 
+from app.errors import ApiError
 from app.semantic.discovery import execute_dicts, quote_ident
+from app.semantic.predicates import PLACEHOLDER
+
+logger = logging.getLogger(__name__)
 
 # Every `state` a freshness row can carry, and the whole vocabulary the UI
 # has to word:
@@ -61,8 +66,8 @@ def _lookup(conn: Any, database: str, wanted: list[dict]) -> dict[tuple, dict]:
         "SELECT TABLE_SCHEMA, TABLE_NAME, LAST_ALTERED, LAST_DDL, "
         "IS_DYNAMIC, ROW_COUNT "
         f"FROM {quote_ident(database)}.INFORMATION_SCHEMA.TABLES "
-        f"WHERE TABLE_SCHEMA IN ({', '.join(['%s'] * len(schemas))}) "
-        f"AND TABLE_NAME IN ({', '.join(['%s'] * len(names))})"
+        f"WHERE TABLE_SCHEMA IN ({', '.join([PLACEHOLDER] * len(schemas))}) "
+        f"AND TABLE_NAME IN ({', '.join([PLACEHOLDER] * len(names))})"
     )
     rows = execute_dicts(conn, sql, tuple(schemas + names))
     return {
@@ -85,15 +90,25 @@ def source_freshness(conn: Any, tables: list[dict]) -> dict:
 
     found: dict[tuple, dict] = {}
     available = True
+    reason: str | None = None
     by_database: dict[str, list[dict]] = {}
     for table in resolvable:
         by_database.setdefault(table["baseDatabase"], []).append(table)
     for database, wanted in by_database.items():
         try:
             found.update(_lookup(conn, database, wanted))
-        except Exception:
-            # One unreadable database must not lose the ones that answered.
+        except Exception as exc:
+            # One unreadable database must not lose the ones that answered --
+            # but the reason travels. "The query could not be run" with
+            # nothing after it is a dead end for whoever has to fix it, and
+            # everywhere else in this product Snowflake's refusals arrive in
+            # Snowflake's own words.
             available = False
+            reason = exc.message if isinstance(exc, ApiError) else str(exc)
+            logger.warning(
+                "source freshness failed for database %s: %s", database, exc,
+                exc_info=True,
+            )
 
     rows: list[dict] = []
     for table in tables:
@@ -134,4 +149,5 @@ def source_freshness(conn: Any, tables: list[dict]) -> dict:
         # UI never lets one number stand for a partial answer.
         "complete": bool(rows) and all(r["state"] == "updated" for r in rows),
         "available": available,
+        "reason": reason,
     }

@@ -147,3 +147,35 @@ def test_a_failing_query_leaves_the_block_unavailable_rather_than_raising():
 
     assert result["available"] is False
     assert result["oldest"] is None
+
+
+def test_the_statement_binds_with_qmark_not_pyformat():
+    # Every connection in this app is opened with paramstyle="qmark"
+    # (app/snowflake/connect.py). On such a connection "%s" is not a
+    # placeholder at all: Snowflake receives it literally and refuses the
+    # statement, which surfaced as "Source freshness unavailable" on a real
+    # account while every test here still passed -- FakeCursor does not care
+    # which placeholder style a statement uses.
+    conn = conn_returning([("PUBLIC", "ORDERS_RAW", LOADED, DEFINED, "NO", 1)])
+
+    source_freshness(conn, [table("ORDERS")])
+
+    sql = conn.cursor().executed[0]
+    assert "%s" not in sql
+    assert "?" in sql
+    # And the values really are bound, not interpolated into the text.
+    assert conn.cursor().bound[0] == ("PUBLIC", "ORDERS_RAW")
+
+
+def test_a_failure_says_why_rather_than_only_that():
+    # "The query could not be run" with no reason is a dead end for whoever
+    # has to fix it. Snowflake's own words travel, exactly as they do
+    # everywhere else in this product.
+    conn = FakeConnection(
+        FakeCursor(description=INFO_DESC, error=RuntimeError("no active warehouse"))
+    )
+
+    result = source_freshness(conn, [table("ORDERS")])
+
+    assert result["available"] is False
+    assert "warehouse" in (result["reason"] or "")
