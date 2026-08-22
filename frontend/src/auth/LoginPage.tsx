@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../api/client";
 import type { Config } from "../api/types";
+import LoadingScreen from "../ui/LoadingScreen";
 import { AccountPicker } from "./AccountPicker";
 
 type Authenticator = "externalbrowser" | "password" | "keypair";
@@ -41,13 +42,6 @@ export default function LoginPage() {
   const [privateKeyPassphrase, setPrivateKeyPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  if (config.isLoading) return <p>Loading...</p>;
-  if (config.isError || !config.data) return <p>Cannot reach the backend.</p>;
-
-  const { authMode, directLoginMethods } = config.data;
-  const accounts = config.data.accounts ?? [];
-  const chosenAccount = ssoAccount || accounts[0]?.account || "";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -109,14 +103,55 @@ export default function LoginPage() {
     ? { backgroundImage: `url("${branding.loginBackgroundUrl}")` }
     : undefined;
 
-  return (
-    <main
-      className={background ? "login has-background" : "login"}
-      style={background}
-    >
-      {/* A scrim, not a lighter image: whatever a deployment points at,
-          the card above it has to stay readable. */}
-      <div className="login-scrim" aria-hidden="true" />
+  /** The sign-in backdrop, drawn for every state this page can be in.
+   *
+   *  It wraps the wait and the failure too, not just the form. They used to
+   *  render bare on the app's light --page while the form sits on a dark
+   *  one, so arriving at the form flashed white-to-dark. Same frame
+   *  throughout; only what stands inside it changes. */
+  function frame(children: React.ReactNode) {
+    return (
+      <main
+        className={background ? "login has-background" : "login"}
+        style={background}
+      >
+        {/* A scrim, not a lighter image: whatever a deployment points at,
+            the card above it has to stay readable. */}
+        <div className="login-scrim" aria-hidden="true" />
+        {children}
+      </main>
+    );
+  }
+
+  if (config.isLoading) return frame(<LoadingScreen name={branding.name} />);
+
+  // A container that is still booting refuses this call. Saying so and
+  // offering the retry beats a dead sentence the user can only answer with
+  // F5 -- and it is the same status-page furniture as 404 and 500, so the
+  // three ways this app fails look like one product.
+  if (config.isError || !config.data)
+    return frame(
+      <section className="status-page">
+        <h1 className="status-code">503</h1>
+        <h2 className="status-headline">Can't reach the server.</h2>
+        <p className="status-detail">
+          The sign-in service isn't answering. It may still be starting up.
+        </p>
+        <p className="status-actions">
+          <button type="button" className="button" onClick={() => config.refetch()}>
+            Try again
+          </button>
+        </p>
+      </section>,
+    );
+
+  // Past both guards, so the config is present. `submit` above is a function
+  // declaration and is hoisted, which is what lets these sit below it.
+  const { authMode, directLoginMethods } = config.data;
+  const accounts = config.data.accounts ?? [];
+  const chosenAccount = ssoAccount || accounts[0]?.account || "";
+
+  return frame(
       <section className="login-card">
         <h1>
           {branding.logoUrl ? (
@@ -249,7 +284,6 @@ export default function LoginPage() {
           </form>
         </>
       )}
-      </section>
-    </main>
+      </section>,
   );
 }

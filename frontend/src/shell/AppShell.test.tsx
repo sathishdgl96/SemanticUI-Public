@@ -18,7 +18,10 @@ vi.mock("../api/client", () => ({
   },
 }));
 
+vi.mock("../routes", () => ({ prefetchRoute: vi.fn() }));
+
 import { apiFetch } from "../api/client";
+import { prefetchRoute } from "../routes";
 import AppShell from "./AppShell";
 
 const apiFetchMock = vi.mocked(apiFetch);
@@ -206,5 +209,33 @@ describe("AppShell", () => {
     // a stale cache.
     await screen.findByText("Login page");
     expect(qc.getQueryData(["me"])).toBeUndefined();
+  });
+});
+
+describe("AppShell rail prefetching", () => {
+  beforeEach(() => {
+    vi.mocked(prefetchRoute).mockClear();
+  });
+
+  it("starts a page's chunk downloading when the pointer reaches its rail item", async () => {
+    // The pointer crossing the rail is 100-300ms of warning before the
+    // click. Spent on the download, it is most of a small chunk -- and a
+    // route already in memory never suspends, so the loading screen never
+    // appears.
+    stubApi();
+    renderShell();
+
+    await userEvent.hover(await screen.findByRole("link", { name: /explore/i }));
+
+    expect(prefetchRoute).toHaveBeenCalledWith("explore");
+  });
+
+  it("starts it on keyboard focus too, since tabbing never hovers anything", async () => {
+    stubApi();
+    renderShell();
+
+    (await screen.findByRole("link", { name: /explore/i })).focus();
+
+    expect(prefetchRoute).toHaveBeenCalledWith("explore");
   });
 });

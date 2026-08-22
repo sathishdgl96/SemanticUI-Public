@@ -6,6 +6,7 @@ import { apiFetch } from "../api/client";
 import { useMe } from "../auth/useMe";
 import { ProfileMenu } from "../session/ProfileMenu";
 import WorkspacesFlyout from "./WorkspacesFlyout";
+import { prefetchRoute, type RouteKey } from "../routes";
 import { amIAppAdmin } from "../api/admin";
 import Icon from "../ui/Icon";
 import AnnouncementBanner from "../announcements/AnnouncementBanner";
@@ -53,6 +54,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  /** Hover and focus both start the route's chunk downloading. The pointer
+   *  crossing the rail, or a tab stop landing on it, is the only warning we
+   *  get before the click -- and it is usually enough to have the page in
+   *  memory by the time it arrives, so nothing suspends and no loading
+   *  screen appears. Repeats are free: import() is memoised. */
+  const warm = (key: RouteKey) => ({
+    onPointerEnter: () => prefetchRoute(key),
+    onFocus: () => prefetchRoute(key),
+  });
+
   return (
     <div className="app-shell">
       <header className="app-topbar">
@@ -94,6 +105,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             className="rail-item"
             title="Home"
             end
+            {...warm("home")}
             onClick={() => setWorkspacesOpen(false)}
           >
             <span className="rail-glyph" aria-hidden="true">
@@ -112,6 +124,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 : "rail-item"
             }
             title="Browse"
+            {...warm("reports")}
             onClick={() => setWorkspacesOpen(false)}
           >
             <span className="rail-glyph" aria-hidden="true">
@@ -123,6 +136,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             to="/explore"
             className="rail-item"
             title="Explore"
+            {...warm("explore")}
             onClick={() => setWorkspacesOpen(false)}
           >
             <span className="rail-glyph" aria-hidden="true">
@@ -153,6 +167,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               to="/admin"
               className="rail-item rail-admin"
               title="Administration"
+              {...warm("admin")}
               onClick={() => setWorkspacesOpen(false)}
             >
               <span className="rail-glyph" aria-hidden="true">

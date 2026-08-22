@@ -48,6 +48,24 @@ beforeEach(() => {
 });
 
 describe("LoginPage", () => {
+  it("offers a retry when the backend is unreachable, instead of stranding the user", async () => {
+    // A container that is still booting refuses the first /config; without
+    // a retry the only way forward is for the user to know to hit F5.
+    apiFetchMock.mockRejectedValueOnce(new Error("connection refused"));
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: /can't reach the server/i }),
+    ).toBeInTheDocument();
+
+    apiFetchMock.mockResolvedValueOnce({ authMode: "oauth", directLoginMethods: [] });
+    await userEvent.click(screen.getByRole("button", { name: /try again/i }));
+
+    expect(
+      await screen.findByRole("link", { name: /sign in with snowflake/i }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the OAuth link in oauth mode", async () => {
     apiFetchMock.mockResolvedValueOnce({ authMode: "oauth", directLoginMethods: [] });
     renderPage();
