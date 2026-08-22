@@ -7301,14 +7301,6 @@ button.model-column:hover {
   color: var(--ink-muted);
 }
 
-.about-caveat {
-  margin: 10px 0 0;
-  max-width: 62ch;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--ink-muted);
-}
-
 /* --- Certifying a model, for whoever Snowflake says may ------------------ */
 
 .about-cert-actions {

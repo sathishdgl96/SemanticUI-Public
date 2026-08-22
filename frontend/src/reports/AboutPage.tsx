@@ -140,11 +140,6 @@ function FreshnessBlock({ freshness }: { freshness: Freshness }) {
           </tbody>
         </table>
       </div>
-      <p className="about-caveat">
-        Read from Snowflake's table metadata. Background maintenance moves the
-        same timestamp a load does, so this can read slightly fresher than the
-        last load.
-      </p>
     </>
   );
 }
