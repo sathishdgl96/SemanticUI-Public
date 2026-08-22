@@ -1,28 +1,152 @@
 import type { ReactNode } from "react";
-import type { FreshnessRow, Provenance } from "../api/provenance";
+import type { Freshness, FreshnessRow, Provenance } from "../api/provenance";
+import { ageSince, dayStamp } from "../ui/age";
 import { relativeTime } from "../ui/relativeTime";
 
-function when(at: string | null): string {
-  if (!at) return "unknown";
-  return relativeTime(at);
-}
-
-/** What one source row honestly says. The distinction the whole freshness
- *  derivation exists for is here: a definition change is never worded as a
- *  data update. */
-function freshnessCell(row: FreshnessRow): string {
+/** What one source row honestly says when it has no date. The distinction
+ *  the whole freshness derivation exists for lives here: a definition change
+ *  is never worded as a data update. */
+function undated(row: FreshnessRow): string {
   switch (row.state) {
-    case "updated":
-      return `Updated ${when(row.at)}`;
     case "definition-only":
-      return `No update recorded since the definition changed ${when(row.at)}`;
+      return "No data change recorded";
     case "not-visible":
       return "Not visible to your role";
     case "query-backed":
-      return "Derived from a query — no single source table";
+      return "Defined by a query";
     default:
-      return "No source table recorded in the model";
+      return "No source recorded";
   }
+}
+
+/** Stalest first: the table is ordered by the question it answers, so the
+ *  row dragging this report down is the first one read. Sources with no date
+ *  are not stale, they are unknown, so they sort after rather than above. */
+function byStaleness(rows: FreshnessRow[]): FreshnessRow[] {
+  return [...rows].sort((a, b) => {
+    const left = a.state === "updated" && a.at ? Date.parse(a.at) : Infinity;
+    const right = b.state === "updated" && b.at ? Date.parse(b.at) : Infinity;
+    if (left !== right) return left - right;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** The `database.schema` every source shares, or null when they differ.
+ *
+ *  Seven rows of `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.` spend the width of the
+ *  column on the one part identical in all of them. Said once above the
+ *  table, each row keeps only the part that varies. If a model ever spans
+ *  databases the prefix stops being common and the full name comes back. */
+function commonPrefix(rows: FreshnessRow[]): string | null {
+  const sources = rows.map((r) => r.source).filter((s): s is string => !!s);
+  if (sources.length < 2) return null;
+  const prefixes = new Set(
+    sources.map((s) => s.split(".").slice(0, -1).join(".")),
+  );
+  return prefixes.size === 1 ? [...prefixes][0] : null;
+}
+
+function sourceLabel(row: FreshnessRow, prefix: string | null): string {
+  if (!row.source) return "—";
+  return prefix ? row.source.slice(prefix.length + 1) : row.source;
+}
+
+function FreshnessBlock({ freshness }: { freshness: Freshness }) {
+  if (!freshness.available) {
+    return (
+      <p className="about-unavailable">
+        Source freshness unavailable — the query could not be run.
+        {freshness.reason ? (
+          <>
+            {" "}
+            <span className="about-reason">{freshness.reason}</span>
+          </>
+        ) : null}
+      </p>
+    );
+  }
+
+  const rows = byStaleness(freshness.tables);
+  const dated = rows.filter((row) => row.state === "updated" && row.at);
+  const prefix = commonPrefix(rows);
+  const newest = dated.length ? dated[dated.length - 1].at : null;
+
+  return (
+    <>
+      <p className="about-headline" data-testid="freshness-headline">
+        {freshness.oldest ? (
+          <>
+            Oldest source <strong>{dayStamp(freshness.oldest)}</strong>
+            {newest && newest !== freshness.oldest ? (
+              <> · newest {dayStamp(newest)}</>
+            ) : null}
+          </>
+        ) : (
+          "No source has a recorded data change"
+        )}
+      </p>
+      {!freshness.complete ? (
+        <p className="about-partial">
+          Covers the {dated.length} of {rows.length} sources with a recorded
+          change.
+        </p>
+      ) : null}
+      {prefix ? <p className="about-prefix">All from {prefix}</p> : null}
+
+      <div className="about-table-wrap">
+        <table className="about-table about-freshness">
+          <thead>
+            <tr>
+              <th scope="col">Table</th>
+              <th scope="col">Source</th>
+              <th scope="col">Data as of</th>
+              <th scope="col" className="about-num">
+                Age
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const known = row.state === "updated" && row.at;
+              return (
+                <tr key={row.name}>
+                  <th scope="row">
+                    {row.name}
+                    {row.isDynamic ? (
+                      <span className="about-tag">dynamic</span>
+                    ) : null}
+                  </th>
+                  <td className="about-source">{sourceLabel(row, prefix)}</td>
+                  {known ? (
+                    <>
+                      <td>
+                        <time dateTime={row.at ?? undefined}>
+                          {dayStamp(row.at)}
+                        </time>
+                      </td>
+                      <td className="about-num">{ageSince(row.at)}</td>
+                    </>
+                  ) : (
+                    <td className="about-undated" colSpan={2}>
+                      {undated(row)}
+                      {row.state === "definition-only" && row.at
+                        ? ` — definition changed ${dayStamp(row.at)}`
+                        : null}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="about-caveat">
+        Read from Snowflake's table metadata. Background maintenance moves the
+        same timestamp a load does, so this can read slightly fresher than the
+        last load.
+      </p>
+    </>
+  );
 }
 
 /**
@@ -50,130 +174,66 @@ export default function AboutPage({
       <section className="about-block">
         <h3>Model</h3>
         <p className="about-model-name">
-          {model.database}.{model.schema}.<strong>{model.name}</strong>
+          <span className="about-model-scope">
+            {model.database}.{model.schema}.
+          </span>
+          <strong>{model.name}</strong>
         </p>
-        {model.certified ? (
-          <p className="about-certified">
-            <span className="about-badge">Certified</span>
-            {model.certifiedBy ? (
+
+        <p className="about-status">
+          <span
+            className={model.certified ? "about-badge" : "about-badge is-none"}
+          >
+            {model.certified ? "Certified" : "Not certified"}
+          </span>
+          <span className="about-status-owner">
+            {model.owner.name ? (
               <>
-                {" "}
-                under the Snowflake role <code>{model.certifiedBy.role}</code>,{" "}
-                {when(model.certifiedBy.at)}
+                {model.owner.name}
+                {model.owner.contact ? (
+                  <span className="about-contact"> · {model.owner.contact}</span>
+                ) : null}
               </>
-            ) : null}
-          </p>
-        ) : (
-          <p className="about-uncertified">
-            Not certified. Nobody holding the role that owns this model has
-            vouched for it.
-          </p>
-        )}
-        <p className="about-owner">
-          {model.owner.name ? (
+            ) : (
+              "No owner named"
+            )}
+          </span>
+        </p>
+
+        <p className="about-status-detail">
+          {model.certified && model.certifiedBy ? (
             <>
-              Owner: <strong>{model.owner.name}</strong>
-              {model.owner.contact ? ` · ${model.owner.contact}` : null}
+              Vouched for under the Snowflake role{" "}
+              <code>{model.certifiedBy.role}</code>,{" "}
+              {relativeTime(model.certifiedBy.at)}.
             </>
           ) : (
-            "No owner named — there is nobody listed to ask when the numbers look wrong."
+            "Nobody holding the owning Snowflake role has vouched for this model."
           )}
+          {!model.owner.name
+            ? " There is nobody listed to ask when the numbers look wrong."
+            : null}
         </p>
+
         {model.note ? <p className="about-note">{model.note}</p> : null}
         {certify}
       </section>
 
       <section className="about-block">
         <h3>Source freshness</h3>
-        {!freshness.available ? (
-          <p className="about-unavailable">
-            Source freshness unavailable — the query could not be run.
-            {freshness.reason ? (
-              <>
-                {" "}
-                <span className="about-reason">{freshness.reason}</span>
-              </>
-            ) : null}
-          </p>
-        ) : (
-          <>
-            <p className="about-headline" data-testid="freshness-headline">
-              {freshness.oldest
-                ? `Sources last updated ${when(freshness.oldest)}`
-                : "No source update recorded"}
-              {!freshness.complete ? (
-                <span className="about-partial">
-                  {" "}
-                  — covers only the sources listed as updated below.
-                </span>
-              ) : null}
-            </p>
-            <div className="about-table-wrap">
-              <table className="about-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Table</th>
-                    <th scope="col">Source</th>
-                    <th scope="col">Data</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {freshness.tables.map((row) => (
-                    <tr key={row.name}>
-                      <th scope="row">
-                        {row.name}
-                        {row.isDynamic ? (
-                          <span className="about-tag">dynamic</span>
-                        ) : null}
-                      </th>
-                      <td>{row.source ?? "—"}</td>
-                      <td>{freshnessCell(row)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {/* Said here rather than only in the design doc: background
-                maintenance moves the same timestamp a load does, and a page
-                about trust should not quietly round that off. */}
-            <p className="about-caveat">
-              Read from Snowflake's own table metadata. Background maintenance
-              can move this timestamp too, so it may read slightly fresher than
-              the last load.
-            </p>
-          </>
-        )}
+        <FreshnessBlock freshness={freshness} />
       </section>
 
-      <section className="about-block">
+      <section className="about-block about-block--pending">
         <h3>Lineage</h3>
         <p className="about-placeholder">{lineage.placeholder}</p>
       </section>
 
-      <section className="about-block">
+      <section className="about-block about-block--pending">
         <h3>Open issues</h3>
-        <div className="about-table-wrap">
-          <table className="about-table">
-            <thead>
-              <tr>
-                {openIssues.columns.map((column) => (
-                  <th scope="col" key={column}>
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colSpan={openIssues.columns.length}>
-                  <span className="about-placeholder">
-                    {openIssues.placeholder}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        {/* No table furniture for rows that do not exist: a header row above
+            one spanning cell implies a grid somebody could fill. */}
+        <p className="about-placeholder">{openIssues.placeholder}</p>
       </section>
     </section>
   );

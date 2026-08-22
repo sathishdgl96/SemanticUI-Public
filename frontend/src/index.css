@@ -7135,75 +7135,114 @@ button.model-column:hover {
   text-align: left;
 }
 
-/* --- The About page ------------------------------------------------------ */
+/* --- The About page ------------------------------------------------------
+   A page whose job is to be believed, so it is built to be scanned in that
+   order: what the model is, whether anyone stands behind it, how old its
+   inputs are. Everything below the fold is the evidence for the line above
+   it. No new palette and no new typeface -- the chrome stays quiet here for
+   the same reason it does everywhere else. */
 
 .about-page {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 24px 28px 40px;
 }
 
 .about-block {
-  max-width: 760px;
-  margin-bottom: 26px;
+  max-width: 720px;
+  padding-bottom: 22px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--grid);
 }
 
+.about-block:last-child { border-bottom: none; }
+
 .about-block h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--ink-muted);
 }
 
+/* The two sections that are declared and not yet wired sit quieter than the
+   two that carry answers -- present, so their absence is not mistaken for a
+   model with no lineage and no problems, but never competing with them. */
+.about-block--pending { padding-bottom: 12px; margin-bottom: 12px; }
+
 .about-model-name {
-  margin: 0 0 8px;
+  margin: 0 0 12px;
   font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* The qualifying path is context; the view's own name is the subject. */
+.about-model-scope { color: var(--ink-muted); }
+
+.about-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
   font-size: 13px;
 }
 
 .about-badge {
   display: inline-block;
-  padding: 1px 7px;
-  border-radius: 10px;
+  padding: 2px 9px;
+  border-radius: 11px;
   background: var(--brand);
   color: var(--ink);
   font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
-.about-certified,
-.about-uncertified,
-.about-owner,
+/* Absence is stated, not coloured as an alarm: an uncertified model is the
+   ordinary case, not a fault. */
+.about-badge.is-none {
+  background: none;
+  border: 1px solid var(--grid);
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.about-status-owner { color: var(--ink); }
+.about-contact { color: var(--ink-muted); }
+
+.about-status-detail,
 .about-note,
-.about-headline,
 .about-placeholder,
 .about-unavailable {
   margin: 0 0 6px;
-  font-size: 13px;
+  max-width: 62ch;
+  font-size: 12px;
   line-height: 1.55;
-}
-
-.about-uncertified,
-.about-placeholder,
-.about-unavailable { color: var(--ink-muted); }
-
-.about-headline { font-weight: 600; }
-
-/* Never allowed to read as part of the headline: it is the sentence that
-   says the headline does not cover everything. */
-.about-partial {
-  font-weight: 400;
   color: var(--ink-muted);
 }
 
-.about-caveat {
-  margin: 8px 0 0;
+.about-note { color: var(--ink); }
+
+.about-headline {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.about-headline strong { font-weight: 600; }
+
+/* Never allowed to read as part of the headline: it is the sentence saying
+   the headline does not cover everything. */
+.about-partial,
+.about-prefix {
+  margin: 0 0 10px;
   font-size: 11px;
-  line-height: 1.5;
   color: var(--ink-muted);
 }
+
+.about-prefix { font-family: var(--font-mono); }
 
 .about-table-wrap { overflow-x: auto; }
 
@@ -7215,33 +7254,60 @@ button.model-column:hover {
 
 .about-table th,
 .about-table td {
-  padding: 6px 10px;
+  padding: 7px 12px 7px 0;
   border-bottom: 1px solid var(--grid);
   text-align: left;
-  vertical-align: top;
+  vertical-align: baseline;
   white-space: nowrap;
 }
 
 .about-table thead th {
+  padding-bottom: 5px;
+  border-bottom-color: var(--ink-muted);
+  font-size: 10px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--ink-muted);
 }
 
-.about-table tbody th { font-weight: 500; }
+.about-table tbody tr:last-child th,
+.about-table tbody tr:last-child td { border-bottom: none; }
+
+.about-table tbody th {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* Ages line up on the right so the column can be read as one shape rather
+   than seven strings -- which is the whole reason it is there. */
+.about-num { text-align: right; padding-right: 0; }
+.about-freshness .about-num { font-variant-numeric: tabular-nums; }
+
+.about-source,
+.about-undated { color: var(--ink-muted); }
+
+.about-source { font-family: var(--font-mono); }
 
 .about-tag {
-  margin-left: 6px;
+  margin-left: 7px;
   padding: 0 5px;
   border: 1px solid var(--grid);
   border-radius: 8px;
+  font-family: var(--font-sans, inherit);
   font-size: 10px;
   font-weight: 400;
   color: var(--ink-muted);
 }
 
-/* Set apart from the report's own pages: it is about the report rather than
-   part of it, and clicking it should not feel like changing page. */
-.page-tab-about { margin-left: 8px; }
+.about-caveat {
+  margin: 10px 0 0;
+  max-width: 62ch;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
 
 /* --- Certifying a model, for whoever Snowflake says may ------------------ */
 

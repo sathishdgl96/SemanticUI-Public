@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { Freshness, Provenance } from "../api/provenance";
+import type { Freshness, FreshnessRow, Provenance } from "../api/provenance";
 import AboutPage from "./AboutPage";
 
 const FRESH: Freshness = {
@@ -82,7 +82,9 @@ describe("AboutPage", () => {
       />,
     );
 
-    expect(screen.getByText(/no update recorded/i)).toBeInTheDocument();
+    // Says what did not happen, and dates only what did.
+    expect(screen.getByText(/no data change recorded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Updated/)).not.toBeInTheDocument();
   });
 
   it("says a table is invisible to the reader's role rather than blaming the data", () => {
@@ -142,5 +144,81 @@ describe("AboutPage", () => {
 
     expect(screen.getByText(/lineage is not wired up yet/i)).toBeInTheDocument();
     expect(screen.getByText(/checks are not wired up yet/i)).toBeInTheDocument();
+  });
+});
+
+describe("the freshness table is ordered and trimmed for comparison", () => {
+  const source = (name: string, table: string, at: string): FreshnessRow => ({
+    name,
+    source: `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.${table}`,
+    state: "updated",
+    at,
+    isDynamic: false,
+    rowCount: 1,
+  });
+
+  const SPREAD: Freshness = {
+    tables: [
+      source("ORDERS", "ORDERS", "2026-08-20T00:00:00Z"),
+      source("PART", "PART", "2024-12-14T00:00:00Z"),
+      source("NATION", "NATION", "2025-07-09T00:00:00Z"),
+    ],
+    oldest: "2024-12-14T00:00:00Z",
+    complete: true,
+    available: true,
+    reason: null,
+  };
+
+  function rowOrder(): string[] {
+    return screen
+      .getAllByRole("rowheader")
+      .map((cell) => cell.textContent ?? "");
+  }
+
+  it("puts the stalest source first, because that is the one dragging the report", () => {
+    render(<AboutPage data={provenance({ freshness: SPREAD })} />);
+
+    expect(rowOrder()).toEqual(["PART", "NATION", "ORDERS"]);
+  });
+
+  it("states the spread rather than letting the oldest stand for everything", () => {
+    // "Sources last updated Dec 14, 2024" read as a verdict on the whole
+    // model while one of its tables had updated two days earlier.
+    render(<AboutPage data={provenance({ freshness: SPREAD })} />);
+
+    const headline = screen.getByTestId("freshness-headline");
+    expect(headline).toHaveTextContent(/oldest source/i);
+    expect(headline).toHaveTextContent(/newest/i);
+  });
+
+  it("says the shared database and schema once instead of on every row", () => {
+    render(<AboutPage data={provenance({ freshness: SPREAD })} />);
+
+    expect(
+      screen.getByText(/All from SNOWFLAKE_SAMPLE_DATA\.TPCH_SF1/),
+    ).toBeInTheDocument();
+    // The row keeps only the part that varies.
+    expect(screen.getByText("ORDERS", { selector: "td" })).toBeInTheDocument();
+  });
+
+  it("keeps the full name when sources do not share a schema", () => {
+    const mixed: Freshness = {
+      ...SPREAD,
+      tables: [
+        source("ORDERS", "ORDERS", "2026-08-20T00:00:00Z"),
+        { ...source("EXTRA", "EXTRA", "2026-08-19T00:00:00Z"), source: "OTHER_DB.SALES.EXTRA" },
+      ],
+    };
+    render(<AboutPage data={provenance({ freshness: mixed })} />);
+
+    expect(screen.queryByText(/^All from/)).not.toBeInTheDocument();
+    expect(screen.getByText("OTHER_DB.SALES.EXTRA")).toBeInTheDocument();
+  });
+
+  it("carries a machine-readable date beside the one a person reads", () => {
+    render(<AboutPage data={provenance({ freshness: SPREAD })} />);
+
+    const stamps = screen.getAllByText(/2024|2025|2026/, { selector: "time" });
+    expect(stamps[0]).toHaveAttribute("dateTime", "2024-12-14T00:00:00Z");
   });
 });
