@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getProvenance } from "../api/provenance";
 import AboutPage from "./AboutPage";
+import CertifyPanel from "./CertifyPanel";
 
 /**
  * The About tab's data. Split from `AboutPage` so the page itself stays
@@ -26,5 +27,11 @@ export default function AboutPanel({ reportId }: { reportId: string }) {
       </p>
     );
   }
-  return <AboutPage data={provenance.data} />;
+  const { database, schema, name } = provenance.data.model;
+  return (
+    <AboutPage
+      data={provenance.data}
+      certify={<CertifyPanel view={{ database, schema, name }} />}
+    />
+  );
 }
