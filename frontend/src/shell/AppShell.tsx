@@ -1,5 +1,5 @@
 import { useBranding } from "./useBranding";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
@@ -10,6 +10,8 @@ import { prefetchRoute, type RouteKey } from "../routes";
 import { amIAppAdmin } from "../api/admin";
 import Icon from "../ui/Icon";
 import AnnouncementBanner from "../announcements/AnnouncementBanner";
+import { dismissWelcome, getHome } from "../api/home";
+import WelcomeDialog from "../welcome/WelcomeDialog";
 
 /** The PowerBI-style frame every authenticated page sits in: near-black top
  *  bar with the brand mark and identity, and the left nav rail with the
@@ -20,6 +22,31 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [workspacesOpen, setWorkspacesOpen] = useState(false);
+
+  // The same query key Home uses, so the welcome block costs nothing extra:
+  // whichever of the two mounts first fills the cache for both.
+  const home = useQuery({ queryKey: ["home"], queryFn: getHome, retry: false });
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const welcome = home.data?.welcome;
+  // Shown once, unprompted, on the first authenticated load. `dismissed`
+  // guards the gap between closing it and the server round trip landing --
+  // without it the dialog reopens under the user's hand.
+  const shouldGreet = Boolean(welcome && !welcome.seen) && !dismissed;
+  const markSeen = useMutation({
+    mutationFn: dismissWelcome,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["home"] }),
+  });
+  const closeWelcome = () => {
+    setWelcomeOpen(false);
+    // Only the unprompted showing records that this person has been
+    // oriented. Reopening it from the menu deliberately does not, so going
+    // looking for help never costs somebody a second interruption.
+    if (shouldGreet && !welcome?.seen) {
+      setDismissed(true);
+      markSeen.mutate();
+    }
+  };
   // Asked of everyone, and answered for everyone: the endpoint is not
   // behind the admin gate, so an ordinary page load does not produce an
   // audited denial just to decide whether to draw a nav item.
@@ -89,6 +116,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <ProfileMenu
               user={me.data.snowflakeUser}
               account={me.data.snowflakeAccount}
+              onGettingStarted={() => setWelcomeOpen(true)}
             />
           ) : (
             <span className="identity" />
@@ -185,6 +213,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      {(welcomeOpen || shouldGreet) && welcome ? (
+        <WelcomeDialog
+          name={branding.name}
+          welcome={welcome}
+          onClose={closeWelcome}
+        />
+      ) : null}
     </div>
   );
 }

@@ -6299,6 +6299,92 @@ button.model-column:hover {
   background: rgb(255 255 255 / 0.18);
 }
 
+/* --- Dialogs, orientation, and what a report is built on ------------------
+   The first modal in the product. Everything before this was a panel docked
+   to an edge, which is why there was no primitive to reuse. */
+
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(37, 36, 35, 0.32);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+
+/* The panel takes focus on open, and a focus ring on a whole dialog reads as
+   an error rather than as position. The trap is what keeps it reachable. */
+.dialog:focus { outline: none; }
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.dialog-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.welcome-lead {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.welcome-arc {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.welcome-arc li { margin-bottom: 6px; }
+
+.welcome-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.profile-menu-link {
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
+  text-align: left;
+}
+
 /* --- The About page ------------------------------------------------------ */
 
 .about-page {
