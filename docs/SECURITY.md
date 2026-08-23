@@ -6,6 +6,23 @@ a security document that lists only strengths is a marketing document.
 
 Last reviewed: 2026-08-20, against the code at that date.
 
+## Reporting a vulnerability
+
+**Please do not open a public issue for a security problem.**
+
+Report it privately through GitHub's
+[Report a vulnerability](https://github.com/sathishdgl96/firn/security/advisories/new)
+form, or by email to sathishdgl96@gmail.com. Include what you did, what happened, and
+what you expected -- a reproduction is worth more than a severity rating.
+
+This is a single-maintainer project, so the honest service level is:
+acknowledgement within **7 days**, an assessment within **30 days**, and a
+fix released before the report is made public. If a report goes
+unacknowledged for 30 days, disclose it publicly -- silence should not buy
+an indefinite embargo.
+
+Reporters are credited in the advisory unless they ask not to be.
+
 ---
 
 ## 1. The property everything rests on
