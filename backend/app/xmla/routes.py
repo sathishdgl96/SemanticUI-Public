@@ -1,0 +1,213 @@
+r"""POST /xmla: the endpoint Excel's MSOLAP provider talks to.
+
+Auth is HTTP Basic carrying a CONNECT TOKEN in the password field (the
+username is ignored -- Excel requires one, "token" reads well). The token
+was minted by the signed-in app UI and resolves to that app session: its
+user, its workspace rights, its cached Snowflake connection. The adapter
+never opens Snowflake connections of its own. TLS is the deployment's
+business, exactly as it already is for the rest of the API.
+
+Two deliberate oddities, both learned from the client rather than the spec:
+
+* A malformed response does not error in Excel -- it HANGS it. So handler
+  bugs raise and become clean SOAP faults or HTTP errors, never a
+  best-effort envelope.
+* MSOLAP sends a few Discovers BEFORE BeginSession. Those are served on a
+  connection found by credentials digest, so they do not each open a fresh
+  Snowflake login.
+"""
+
+import base64
+import binascii
+import hashlib
+import logging
+import os
+
+from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy.orm import Session
+
+from app.db.base import get_db
+from app.errors import ApiError, AuthExpiredError
+from app.snowflake.provider import get_cache
+from app.xmla import discover
+from app.xmla.soap import envelope, fault, parse_request
+from app.xmla.state import acquire_entry, get_store
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+#: [MS-SSAS] content-type negotiation: NEGO, REQ_SX, REQ_XPRESS, RESP_SX,
+#: RESP_XPRESS. This server speaks plain text/xml both ways, so every
+#: capability bit is 0 and NEGO=1 declares the negotiation settled. The spec
+#: is unambiguous that the flags go on EVERY response -- the 401 challenge
+#: and faults included, which the first build omitted.
+_NEGOTIATION = {"X-Transport-Caps-Negotiation-Flags": "1,0,0,0,0"}
+
+
+def _unauthorized() -> Response:
+    from app.config import get_settings
+
+    return Response(
+        status_code=401,
+        # The realm is what Excel shows in its credential prompt.
+        headers={
+            "WWW-Authenticate": f'Basic realm="{get_settings().app_name.replace(chr(34), "")} XMLA"',
+            **_NEGOTIATION,
+        },
+        content="Connect token required (Basic auth, token as the password)",
+    )
+
+
+def _token(request: Request) -> str | None:
+    """The connect token out of Basic auth; the username half is ignored."""
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Basic "):
+        return None
+    try:
+        decoded = base64.b64decode(header[6:]).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
+    _, sep, password = decoded.partition(":")
+    if not sep:
+        return None
+    return password
+
+
+#: Set SEMANTICUI_XMLA_TRACE to a file path to capture every request and
+#: response verbatim. Diagnostic only; contains no credentials (the
+#: Authorization header is deliberately not written).
+_TRACE = os.environ.get("SEMANTICUI_XMLA_TRACE")
+
+
+def _trace(direction: str, payload, headers=None) -> None:
+    if not _TRACE:
+        return
+    if isinstance(payload, str):
+        payload = payload.encode("utf-8")
+    with open(_TRACE, "ab") as f:
+        marker = chr(10) + "----- " + direction + " -----" + chr(10)
+        f.write(marker.encode())
+        if headers is not None:
+            for name, value in headers:
+                if name.lower() == "authorization":
+                    value = "<redacted>"
+                f.write(f"{name}: {value}".encode() + b"\r\n")
+            f.write(b"\r\n")
+        f.write(payload)
+
+
+@router.post("/xmla")
+async def xmla(request: Request, db: Session = Depends(get_db)) -> Response:
+    body = await request.body()
+    from app.logging import request_id_var, set_user
+
+    _trace(f"request {request_id_var.get() or ''}".rstrip(), body,
+           headers=request.headers.items())
+    try:
+        xmla_request = parse_request(body)
+    except Exception:
+        logger.exception("unparseable XMLA request")
+        out = fault("XMLA_PARSE", "unparseable request")
+        _trace("response", out)
+        return Response(content=out, media_type="text/xml", headers=_NEGOTIATION)
+
+    store = get_store()
+    session = None
+    session_id = xmla_request.session_id
+    if session_id:
+        session = store.get(session_id)
+        if session is not None:
+            set_user(session.user_id)
+
+    if session is None:
+        from app.auth.throttle import auth_window
+
+        client = request.client.host if request.client else "?"
+        throttle_key = f"token:{client}"
+        token = _token(request)
+        if token is None:
+            return _unauthorized()
+        if not auth_window().allowed(throttle_key):
+            return Response(status_code=429, headers=_NEGOTIATION,
+                            content="Too many failed attempts")
+        try:
+            session_id, session = store.open(db, token)
+            set_user(session.user_id)
+        except ApiError as exc:
+            # MSOLAP re-sends a rejected token in a burst; count each
+            # distinct bad token once so the retry storm cannot 429 the
+            # fresh token the user mints to recover.
+            digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            auth_window().register_failure_once(throttle_key, digest)
+            logger.info("XMLA auth failed: %s", exc.message)
+            return _unauthorized()
+
+    if xmla_request.ends_session:
+        store.end(session_id)
+        return Response(
+            content=envelope("<EndSessionResponse/>"),
+            media_type="text/xml",
+            headers=_NEGOTIATION,
+        )
+
+    # The Session header goes back on the BeginSession answer and every one
+    # after it; MSOLAP quotes it on each subsequent call.
+    echo_session = session_id if (xmla_request.wants_session or xmla_request.session_id) else None
+
+    # Shape, never the statement: MDX encodes a pivot's selected member
+    # VALUES as literal keys, and they sit well inside any prefix worth
+    # logging. The sfqid in the query log is the bridge to Snowflake's
+    # own QUERY_HISTORY for anyone who needs the text (ADR 0007).
+    logger.info(
+        "%s %s chars=%d session=%s",
+        xmla_request.verb,
+        xmla_request.request_type or "statement",
+        len(xmla_request.statement or ""),
+        "yes" if xmla_request.session_id else ("new" if xmla_request.wants_session else "-"),
+    )
+    def attempt():
+        entry = acquire_entry(db, session)
+        try:
+            with entry.lock:
+                session.bind(entry, db)
+                if xmla_request.verb == "Discover":
+                    return discover.handle(session, xmla_request)
+                from app.xmla.execute import handle_execute
+
+                return handle_execute(session, xmla_request)
+        except AuthExpiredError:
+            # The Snowflake session died server-side while the connection
+            # still reported open. Discard it so the retry below rebuilds
+            # (OAuth) or answers with the sign-in-again fault (dev) --
+            # never the same dead connection failing gesture after gesture.
+            get_cache().discard(session.db_session_id, entry)
+            raise
+
+    try:
+        try:
+            inner = attempt()
+        except AuthExpiredError:
+            inner = attempt()
+    except ApiError as exc:
+        out = fault(exc.code, exc.message)
+        _trace("response", out)
+        return Response(content=out, media_type="text/xml", headers=_NEGOTIATION)
+    except Exception:
+        logger.exception(
+            "XMLA %s failed (%s)", xmla_request.verb, xmla_request.request_type
+        )
+        return Response(
+            content=fault("XMLA_INTERNAL", "internal error; see server log"),
+            media_type="text/xml",
+            headers=_NEGOTIATION,
+        )
+
+    out = envelope(inner, session_id=echo_session)
+    headers = dict(_NEGOTIATION)
+    if echo_session:
+        # [MS-SSAS] 2.2.2: the session id also travels as an HTTP header,
+        # "retrieved from the response to the BeginSession request".
+        headers["X-AS-SessionID"] = echo_session
+    _trace("response", out, headers=sorted(headers.items()))
+    return Response(content=out, media_type="text/xml", headers=headers)

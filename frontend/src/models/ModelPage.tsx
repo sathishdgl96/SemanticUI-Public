@@ -1,0 +1,377 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ApiError, apiFetch } from "../api/client";
+import {
+  getComposite,
+  updateComposite,
+  type CompositeDefinition,
+} from "../api/composites";
+import { createReport } from "../api/reports";
+import type { ReportDefinition, SemanticViewSummary } from "../api/types";
+import Icon from "../ui/Icon";
+import ModelDesigner from "../designer/ModelDesigner";
+import { compositeDetailFromDraft } from "../designer/fromDraft";
+import {
+  addMember,
+  removeMember as removeMemberFrom,
+  renameMember as renameMemberIn,
+} from "../designer/edits";
+import DerivedMetrics from "./DerivedMetrics";
+import SharedDimensions from "./SharedDimensions";
+import { useMemberDescribes } from "./useMemberDescribes";
+import ModelPreview from "./ModelPreview";
+
+
+/**
+ * Authoring a model over several semantic views.
+ *
+ * The page exists because the mapping cannot be guessed. Two views both
+ * knowing a customer is not evidence that their key columns mean the same
+ * thing, so somebody who understands both says so here, once, and every
+ * question asked of the model afterwards relies on that statement.
+ */
+/** A blank report already pointed at this model, so the builder opens on
+ *  the model's field list instead of asking which view to bind. */
+function reportOverModel(name: string, compositeId: string): ReportDefinition {
+  return {
+    schemaVersion: 3,
+    name,
+    view: { database: "", schema: "", name: "", compositeId },
+    canvas: { columns: 12, rowHeight: 40 },
+    pages: [{ id: "p1", name: "Page 1", visuals: [], filters: [] }],
+    filters: [],
+    hierarchies: [],
+  };
+}
+
+export default function ModelPage() {
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<CompositeDefinition | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const model = useQuery({
+    queryKey: ["composite", id],
+    queryFn: () => getComposite(id),
+    enabled: Boolean(id),
+  });
+
+  // The catalogue of views this user can actually see. Snowflake decides
+  // what is in it, which is why the picker is a list rather than free text.
+  const views = useQuery({
+    queryKey: ["semantic-views"],
+    queryFn: () =>
+      apiFetch<{ views: SemanticViewSummary[] }>("/api/semantic-views"),
+  });
+
+  useEffect(() => {
+    if (model.data && !draft) setDraft(model.data.definition);
+  }, [model.data, draft]);
+
+  const save = useMutation({
+    mutationFn: (definition: CompositeDefinition) =>
+      updateComposite(id, definition),
+    onSuccess: (saved) => {
+      setSaveError(null);
+      setDraft(saved.definition);
+      queryClient.invalidateQueries({ queryKey: ["composite", id] });
+      queryClient.invalidateQueries({ queryKey: ["composites"] });
+    },
+    onError: (failure) =>
+      setSaveError(
+        failure instanceof ApiError ? failure.message : "Could not save this model.",
+      ),
+  });
+
+  const describes = useMemberDescribes(draft?.members ?? []);
+  const [tab, setTab] = useState<"design" | "fields">("design");
+
+  // Built from the draft, not fetched. /describe answers for the model
+  // AS SAVED, and the canvas draws it AS EDITED -- so a view added and
+  // not yet saved came back with no fields, and every container reported
+  // itself unreadable for a view that was plainly on screen.
+  const shape = useMemo(
+    () =>
+      draft
+        ? compositeDetailFromDraft(draft, describes.byAlias, describes.unreadable)
+        : undefined,
+    [draft, describes.byAlias, describes.unreadable],
+  );
+
+  const buildReport = useMutation({
+    mutationFn: () =>
+      createReport(
+        reportOverModel(`${draft?.name ?? "Model"} report`, id),
+        model.data?.workspaceId,
+      ),
+    onSuccess: (report) => navigate(`/reports/${report.id}`),
+    onError: (failure) =>
+      setSaveError(
+        failure instanceof ApiError
+          ? failure.message
+          : "Could not start a report over this model.",
+      ),
+  });
+
+  if (model.isLoading || !draft) return <p className="empty">Loading…</p>;
+  if (model.error) {
+    return <p role="alert">This model could not be opened.</p>;
+  }
+
+  const readOnly = model.data?.myRole === "viewer";
+
+  function patch(next: Partial<CompositeDefinition>) {
+    setDraft((current) => (current ? { ...current, ...next } : current));
+  }
+
+  function addTheView(fullName: string) {
+    const [database, schema, view] = fullName.split(".");
+    if (!database || !schema || !view) return;
+    const result = addMember(draft!, { database, schema, name: view });
+    if (result.ok) setDraft(result.definition);
+    else setSaveError(result.reason);
+  }
+
+  function removeTheView(alias: string) {
+    const result = removeMemberFrom(draft!, alias);
+    if (result.ok) setDraft(result.definition);
+  }
+
+  function renameTheView(from: string, to: string) {
+    const result = renameMemberIn(draft!, from, to);
+    if (result.ok) setDraft(result.definition);
+    // A half-typed alias is not an error worth shouting about; the
+    // refusal only matters once somebody stops typing, and Save says it.
+  }
+
+
+
+  return (
+    <div className="model-page">
+      <header className="model-head">
+        <label className="sr-only" htmlFor="model-name">
+          Model name
+        </label>
+        <input
+          id="model-name"
+          className="model-name"
+          value={draft.name}
+          disabled={readOnly}
+          maxLength={200}
+          onChange={(event) => patch({ name: event.target.value })}
+        />
+        <div className="model-actions">
+          <a className="link" href={`/api/composites/${id}/export`} download>
+            Export
+          </a>
+          <button
+            type="button"
+            disabled={
+              readOnly ||
+              draft.sharedDimensions.length === 0 ||
+              buildReport.isPending
+            }
+            title={
+              draft.sharedDimensions.length === 0
+                ? "Add a shared dimension first — a report needs something to group by."
+                : undefined
+            }
+            onClick={() => {
+              setSaveError(null);
+              buildReport.mutate();
+            }}
+          >
+            {buildReport.isPending ? "Starting…" : "Build a report"}
+          </button>
+          <button
+            type="button"
+            disabled={draft.sharedDimensions.length === 0}
+            onClick={() => navigate(`/explore?model=${encodeURIComponent(id)}`)}
+          >
+            Explore
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={readOnly || save.isPending}
+            onClick={() => {
+              setSaveError(null);
+              save.mutate(draft);
+            }}
+          >
+            {save.isPending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </header>
+
+      <nav className="model-tabs" role="tablist" aria-label="Model editor">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "design"}
+          className={tab === "design" ? "is-active" : undefined}
+          onClick={() => setTab("design")}
+        >
+          Design
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "fields"}
+          className={tab === "fields" ? "is-active" : undefined}
+          onClick={() => setTab("fields")}
+        >
+          Fields
+        </button>
+      </nav>
+
+      {saveError && <p role="alert">{saveError}</p>}
+      {readOnly && (
+        <p className="tile-hint">Your access to this workspace is read-only.</p>
+      )}
+
+      {tab === "design" && (
+        <ModelDesigner
+          modelId={id}
+          definition={draft}
+          detail={shape}
+          describes={describes.byAlias}
+          loading={describes.loading}
+          readOnly={readOnly}
+          views={views.data?.views ?? []}
+          onChange={(next) => setDraft(next)}
+        />
+      )}
+
+      {tab === "fields" && (
+      <>
+      <section className="model-section">
+        <h3>Views in this model</h3>
+        <p className="tile-hint">
+          Each view keeps its own metrics and its own joins. A question is
+          sent to whichever ones it actually asks something of.
+        </p>
+        {draft.members.length === 0 && (
+          <p className="empty">No views yet. Add two to have something to join.</p>
+        )}
+        <ul className="model-members">
+          {draft.members.map((member) => (
+            <li key={`${member.database}.${member.schema}.${member.view}`}>
+              <label className="sr-only" htmlFor={`alias-${member.alias}`}>
+                Alias for {member.view}
+              </label>
+              <input
+                id={`alias-${member.alias}`}
+                className="model-alias"
+                value={member.alias}
+                disabled={readOnly}
+                onChange={(event) => renameTheView(member.alias, event.target.value)}
+              />
+              <span className="model-view-name">
+                {member.database}.{member.schema}.{member.view}
+              </span>
+              <button
+                type="button"
+                className="icon-button danger"
+                aria-label={`Remove ${member.view}`}
+                disabled={readOnly}
+                onClick={() => removeTheView(member.alias)}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <label className="sr-only" htmlFor="add-view">
+          Add a view
+        </label>
+        <select
+          id="add-view"
+          value=""
+          disabled={readOnly}
+          onChange={(event) => {
+            addTheView(event.target.value);
+            event.currentTarget.value = "";
+          }}
+        >
+          <option value="">Add a view…</option>
+          {(views.data?.views ?? [])
+            .map((view) => `${view.database}.${view.schema}.${view.name}`)
+            .filter(
+              (name) =>
+                !draft.members.some(
+                  (m) => `${m.database}.${m.schema}.${m.view}` === name,
+                ),
+            )
+            .map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+        </select>
+      </section>
+
+      <SharedDimensions
+        members={draft.members}
+        describes={describes.byAlias}
+        sharedDimensions={draft.sharedDimensions}
+        readOnly={readOnly}
+        loading={describes.loading}
+        unreadable={describes.unreadable}
+        onChange={(sharedDimensions) => patch({ sharedDimensions })}
+      />
+
+      <section className="model-section">
+        <h3>How the views meet</h3>
+        <div className="model-choices">
+          <span className="field">
+            <label htmlFor="join-type">Rows to keep</label>
+            <select
+              id="join-type"
+              value={draft.joinType}
+              disabled={readOnly}
+              onChange={(event) =>
+                patch({ joinType: event.target.value as "full" | "inner" })
+              }
+            >
+              <option value="full">Everything either view knows about</option>
+              <option value="inner">Only what every view knows about</option>
+            </select>
+          </span>
+          <span className="field">
+            <label htmlFor="cross-filter">A filter on one view</label>
+            <select
+              id="cross-filter"
+              value={draft.crossFilter}
+              disabled={readOnly}
+              onChange={(event) =>
+                patch({ crossFilter: event.target.value as "semi" | "local" })
+              }
+            >
+              <option value="semi">Narrows the other views too</option>
+              <option value="local">Applies to that view only</option>
+            </select>
+          </span>
+        </div>
+        <p className="tile-hint">
+          {draft.crossFilter === "semi"
+            ? "Filtering sales to Europe shows tickets for the customers that filter left — usually what people mean."
+            : "Filtering sales to Europe leaves ticket counts global. Say so out loud, because the two answer differently."}
+        </p>
+      </section>
+
+      <DerivedMetrics
+        definition={draft}
+        readOnly={readOnly}
+        onChange={(derivedMetrics) => patch({ derivedMetrics })}
+      />
+
+      </>
+      )}
+
+      <ModelPreview id={id} definition={draft} />
+    </div>
+  );
+}

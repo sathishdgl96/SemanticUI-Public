@@ -1,0 +1,65 @@
+import type { QueryResponse, Visual } from "../../api/types";
+import { CHART_INK, SERIES_COLORS } from "../palette";
+import { hexList } from "./categorical";
+import type { ScatterOptionLike } from "./categorical";
+import { columnIndexOf, fieldName } from "../fieldName";
+
+export function scatterOption(visual: Visual, result: QueryResponse): ScatterOptionLike | null {
+  // The author's colours, if any; the shared palette otherwise. See
+  // the note on axisChrome.color -- palette.ts is never edited.
+  const custom = hexList(visual.options.colors);
+  const idx = (ref: string) => columnIndexOf(result.columns, ref);
+  const xRef = (visual.wells.x ?? [])[0];
+  const yRef = (visual.wells.y ?? [])[0];
+  const detailRef = (visual.wells.detail ?? [])[0];
+  if (!xRef || !yRef) return null;
+  const xi = idx(xRef);
+  const yi = idx(yRef);
+  if (xi < 0 || yi < 0) return null;
+  const di = detailRef ? idx(detailRef) : -1;
+
+  const groups = new Map<string, [number, number][]>();
+  for (const row of result.rows) {
+    const key = di >= 0 ? String(row[di] ?? "") : "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push([Number(row[xi] ?? 0), Number(row[yi] ?? 0)]);
+  }
+
+  const series = [...groups.entries()].map(([key, points], i) => ({
+    name: key || fieldName(yRef),
+    type: "scatter" as const,
+    data: points,
+    symbolSize: 9, // the >=8px marker floor
+    itemStyle: {
+      color: custom[i] ?? SERIES_COLORS[i % SERIES_COLORS.length],
+      borderColor: CHART_INK.surface,
+      borderWidth: 1,
+    },
+  }));
+
+  // This return needs no cast: it's already structurally a ScatterOptionLike.
+  return {
+    backgroundColor: "transparent",
+    grid: { left: 56, right: 16, top: 16, bottom: series.length > 1 ? 48 : 28 },
+    // Confined to the chart's own box: a tile clips its overflow, so a
+    // tooltip near an edge would otherwise be drawn half outside and read as
+    // truncated data ("ustomer#0001" instead of "Customer#0001").
+    tooltip: { trigger: "item", confine: true },
+    legend: { show: series.length > 1, bottom: 0, textStyle: { color: CHART_INK.secondary } },
+    xAxis: {
+      type: "value",
+      name: fieldName(xRef),
+      nameTextStyle: { color: CHART_INK.muted },
+      splitLine: { lineStyle: { color: CHART_INK.grid } },
+      axisLabel: { color: CHART_INK.muted },
+    },
+    yAxis: {
+      type: "value",
+      name: fieldName(yRef),
+      nameTextStyle: { color: CHART_INK.muted },
+      splitLine: { lineStyle: { color: CHART_INK.grid } },
+      axisLabel: { color: CHART_INK.muted },
+    },
+    series,
+  };
+}

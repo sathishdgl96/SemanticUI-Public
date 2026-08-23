@@ -1,0 +1,7354 @@
+/* ==========================================================================
+   SemanticUI — dense-analytical design system
+   A query tool over typed Snowflake semantic views. Chrome stays quiet and
+   neutral; the eight-color chart palette (src/query/palette.ts) is the only
+   place color carries meaning. Two type roles: system sans for interface
+   voice, monospace for literal database identifiers (field refs, chips,
+   table headers, SQL) — the tool's one typographic signature.
+   ========================================================================== */
+
+:root {
+  /* Fluent/PowerBI language. Chart colors live ONLY in src/query/palette.ts;
+     --brand (#f2c811) is PowerBI's signature yellow and is deliberately
+     distinct from the palette's #eda100 -- chrome never wears a series color. */
+  --page: #faf9f8;
+  --surface: #ffffff;
+  --ink: #252423;
+  --ink-secondary: #605e5c;
+  --ink-muted: #8a8886;
+  --grid: #e1dfdd;
+  --axis: #c8c6c4;
+  --border: #e1dfdd;
+  --accent: #0078d4;
+  --accent-wash: rgba(0, 120, 212, 0.06);
+  --ink-wash: rgba(37, 36, 35, 0.04);
+  --error: #a4262c;
+
+  /* Shell */
+  --chrome: #f3f2f1;
+  --canvas: #eaeaea;
+  --brand: #f2c811;
+  --brand-ink: #252423;
+  --topbar: #252423;
+  --tile-shadow: 0 1.6px 3.6px rgba(0, 0, 0, 0.13), 0 0.3px 0.9px rgba(0, 0, 0, 0.1);
+
+  /* Type */
+  --font-sans: "Segoe UI", "Segoe UI Web (West European)", -apple-system,
+    system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, "SF Mono", monospace;
+
+  /* Density */
+  --row-height: 26px;
+  --pane-padding: 8px;
+  --canvas-padding: 16px;
+  --radius-chip: 4px;
+  --radius-pane: 6px;
+  --pane-fields: 248px;
+  --pane-wells: 248px;
+
+  --transition-fast: 100ms ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  font-family: var(--font-sans);
+}
+
+/* Shared focus treatment: 2px accent outline, 1px offset, everywhere.
+   Never removed without this replacement. The mouse-click case (:focus but
+   not :focus-visible) suppresses the ring since :focus-visible still fires
+   for keyboard users on the same element. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ==========================================================================
+   Forms & controls
+   ========================================================================== */
+
+input,
+select,
+textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--ink-secondary);
+}
+
+button,
+.button {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  /* PowerBI's primary action: brand yellow with dark ink. */
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-weight: 600;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: filter var(--transition-fast), opacity var(--transition-fast);
+}
+
+button:hover,
+.button:hover {
+  filter: none;
+  background: #e0b50f;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+  filter: none;
+}
+
+.link {
+  background: none;
+  color: var(--accent);
+  font-weight: 400;
+  /* Vertical padding brings the hit target to ~24.8px tall (line-height
+     1.4 * 12px font + 8px padding) even though the text stays 12px — the
+     24px floor applies to the clickable box, not the glyph size. */
+  padding: 4px 0 4px 12px;
+  border: none;
+  font-size: 12px;
+}
+
+.link:hover {
+  filter: none;
+  /* Re-asserted: the primary button hover would otherwise paint links
+     brand-yellow on hover. */
+  background: none;
+  text-decoration: underline;
+}
+
+[role="alert"] {
+  color: var(--error);
+  margin: 0;
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .button,
+  .well,
+  .view-item,
+  .field-row,
+  .chip-remove {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Login
+   ========================================================================== */
+
+/* The sign-in page is the whole viewport, with the card centred on it.
+   The background is whatever SEMANTICUI_LOGIN_BACKGROUND_URL points at,
+   or the built-in gradient when a deployment has not said. */
+.login {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  /* The built-in backdrop, for a deployment that has not pointed at an
+     image. Deep and off-centre rather than a flat colour: the card has to
+     sit ON something for the glass above to have anything to blur. */
+  background:
+    radial-gradient(1100px 700px at 12% -15%, rgb(41 98 155 / 0.55) 0%, transparent 62%),
+    radial-gradient(900px 600px at 98% 115%, rgb(23 130 140 / 0.42) 0%, transparent 58%),
+    radial-gradient(700px 500px at 78% 8%, rgb(94 61 148 / 0.28) 0%, transparent 60%),
+    linear-gradient(155deg, #0b1017 0%, #121b26 55%, #0d141d 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+/* A hairline grid over the gradient. Barely visible, and the reason the
+   backdrop reads as a surface rather than a wash. */
+.login::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.028) 1px, transparent 1px);
+  background-size: 46px 46px;
+  pointer-events: none;
+}
+
+/* An image of its own replaces the gradient AND its grid: whatever was
+   chosen is the surface then. */
+.login.has-background::before { display: none; }
+
+.login.has-background {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* A scrim, not a lighter image: whatever a deployment points at, the card
+   above it has to stay readable -- and a photograph with a bright corner
+   is the normal case, not the exception. */
+.login-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgb(8 12 18 / 0.55), rgb(8 12 18 / 0.75));
+  pointer-events: none;
+}
+
+/* Glass, not a white box on a photograph. The card is translucent over
+   whatever the deployment put behind it and blurs it rather than hiding
+   it, which is what makes the background feel deliberate instead of
+   wallpapered over. Everything inside is therefore light-on-dark, so the
+   rules below restate the form's colours rather than inheriting the
+   app's. */
+.login-card {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  padding: 38px 34px 34px;
+  background: rgb(18 24 33 / 0.62);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 14px;
+  box-shadow:
+    0 30px 70px rgb(0 0 0 / 0.45),
+    0 2px 8px rgb(0 0 0 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.09);
+  color: #f4f7fb;
+  /* A no-op where it is unsupported, which degrades to a solid-enough
+     panel rather than to unreadable text -- the alpha above is doing most
+     of the work either way. */
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+.login-card h1 {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 0 0 6px;
+  color: #ffffff;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.login-card h1 .brand-logo { max-height: 30px; }
+
+.login-tagline {
+  margin: 0 0 26px;
+  color: rgb(244 247 251 / 0.66);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.login-card > p {
+  margin: 0 0 16px;
+  color: rgb(244 247 251 / 0.66);
+  font-size: 13px;
+}
+
+/* --- the one thing this page is for --------------------------------------- */
+
+.sso-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Tall, full width, and the only filled thing on the card. The gradient
+   and the inset highlight are what stop a flat rectangle reading as a
+   placeholder. */
+.login .sso-signin .button {
+  width: 100%;
+  height: 46px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, #f7d23c 0%, var(--brand) 55%, #e0b50f 100%);
+  border: 1px solid rgb(0 0 0 / 0.18);
+  border-radius: 8px;
+  color: var(--brand-ink);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 8px 20px rgb(242 200 17 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.45);
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    filter var(--transition-fast);
+}
+
+.login .sso-signin .button:hover {
+  background: linear-gradient(180deg, #f9d84f 0%, #f2c811 55%, #e5ba10 100%);
+  /* A pixel, not a bounce: the button acknowledges the pointer without
+     moving the card around it. */
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 26px rgb(242 200 17 / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.5);
+}
+
+.login .sso-signin .button:active {
+  transform: translateY(0);
+  filter: brightness(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login .sso-signin .button { transition: none; }
+  .login .sso-signin .button:hover { transform: none; }
+}
+
+/* Once pressed, the button IS the progress indicator. In a kiosk or a
+   full-screen window there is no browser chrome to say a navigation is
+   under way, and a control that does nothing visible for two seconds
+   gets pressed again. */
+.login .button.is-busy {
+  cursor: progress;
+  filter: saturate(0.85);
+}
+
+.login .button.is-busy:hover {
+  transform: none;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
+  border: 2px solid currentColor;
+  /* Three sides of the ring, so the gap is what reads as rotation. */
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Still says something without moving: the ring holds, and the label
+   beside it has already changed to say what is happening. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; opacity: 0.6; }
+}
+
+/* --- the direct-credential form, where a deployment still offers one ------ */
+
+.login-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.login-card label,
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgb(244 247 251 / 0.6);
+}
+
+.login-card input,
+.login-card select,
+.login-card textarea {
+  height: 38px;
+  padding: 0 11px;
+  background: rgb(255 255 255 / 0.07);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 7px;
+  color: #f4f7fb;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.login-card textarea { height: auto; padding: 9px 11px; }
+
+.login-card input::placeholder { color: rgb(244 247 251 / 0.34); }
+
+.login-card input:hover,
+.login-card select:hover {
+  border-color: rgb(255 255 255 / 0.3);
+}
+
+.login-card input:focus,
+.login-card select:focus,
+.login-card textarea:focus {
+  outline: none;
+  background: rgb(255 255 255 / 0.11);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(242 200 17 / 0.18);
+}
+
+/* A dark select paints its own list from the page, not the card. */
+.login-card select option { color: var(--ink); background: var(--surface); }
+
+/* The submit on the direct form is the SECOND action on this page, so it
+   is outlined rather than filled -- two filled buttons would be two
+   primary actions. */
+.login-card form > button[type="submit"] {
+  height: 40px;
+  margin-top: 4px;
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 7px;
+  color: #f4f7fb;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-card form > button[type="submit"]:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.16);
+  border-color: rgb(255 255 255 / 0.34);
+}
+
+.login-alternative {
+  margin: 26px 0 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgb(255 255 255 / 0.12);
+  color: rgb(244 247 251 / 0.55);
+  font-size: 12px;
+}
+
+.login .notice {
+  margin: 0 0 16px;
+  padding: 9px 11px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-left: 2px solid var(--brand);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.06);
+  font-size: 12px;
+  color: rgb(244 247 251 / 0.78);
+}
+
+.login [role="alert"] {
+  margin: 0;
+  color: #ffb4b4;
+  font-size: 12px;
+}
+
+.login .field-note {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgb(244 247 251 / 0.45);
+}
+
+.login .button {
+  width: 100%;
+}
+
+/* ==========================================================================
+   Explorer shell
+   ========================================================================== */
+
+.explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  /* Guarantees a gap between "SemanticUI" and the identity text even
+     though `.identity-row`'s flex-grow already consumes all the free
+     space `justify-content: space-between` would otherwise distribute --
+     without it the two run together edge to edge at narrow widths. */
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar strong {
+  flex: 0 0 auto;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+/* `.identity-row` is the flex container (label + Log out); `.identity` is
+   the truncating text alone. Two separate elements so the ellipsis never
+   eats into the Log out control — min-width: 0 is what lets a flex child
+   shrink below its text's intrinsic width instead of pushing its sibling
+   off-screen. */
+.topbar .identity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.topbar .identity {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Log out must never shrink or wrap onto a second line -- it's the one
+   control in the topbar that has to stay operable at any width, so the
+   identity text is what gives way (truncating) instead. */
+.topbar .identity-row .link,
+.topbar .identity-row .add-to-report {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.columns {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Both axes named on purpose. Setting overflow on ONE axis makes the CSS
+   engine compute the other as `auto` too (the overflow pairing rule, the
+   same one documented on `.results` below), so `overflow-y: auto` alone
+   quietly turned these panes into horizontal scrollers the moment any child
+   was a pixel wider than the pane -- a scrollbar in a column of names that
+   is meant only to scroll down.
+
+   Hiding it is safe because nothing in here relies on being scrolled to:
+   `.view-item-label`, `.field-ref` and `.chip` all ellipsise, every field
+   row carries its full reference as a title, and the pane itself drags from
+   180 to 640px. */
+.left,
+.middle {
+  flex: 0 0 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--pane-padding);
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* The explorer is two columns, as Looker is: the field picker against the
+   left edge, and one stack of sections to its right. It used to be four,
+   which spent 744px on chrome before showing a number and put the field list
+   third from the left. The builder still uses `.middle`, which is why that
+   rule stays. */
+/* Width comes from the inline style the resizer writes; this is the
+   fallback for a first visit and the floor the flex row honours, so the
+   pane never collapses under a long field list. */
+.left {
+  width: var(--pane-fields);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.middle {
+  width: var(--pane-wells);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--canvas-padding);
+  background: var(--page);
+}
+
+.main > p {
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+
+/* Section label shown only in the stacked (<960px) layout, where side-by-side
+   panes lose their spatial context and need a textual one instead. Hidden
+   above that breakpoint in the builder, where the panes are still columns.
+   Same small-caps role as .view-tree h3 / .field-group-title. */
+.pane-heading {
+  display: none;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+/* The explorer's sidebar is the exception at every width: views, saved
+   explores and fields are stacked in ONE column, so position no longer says
+   which is which and the labels have to.
+
+   They are also STICKY. A sidebar holding three sections and a hundred field
+   rows scrolls a long way, and a heading that scrolls away stops answering
+   the question it was added for -- "which section am I in?". The hairline and
+   the opaque background are what let a heading sit over the rows passing
+   beneath it without the two overlapping into mush. */
+.explorer .left .pane-heading {
+  display: block;
+  position: sticky;
+  top: calc(var(--pane-padding) * -1);
+  z-index: 1;
+  margin: 18px calc(var(--pane-padding) * -1) 8px;
+  padding: 6px var(--pane-padding) 5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink-secondary);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.explorer .left .pane-heading:first-child {
+  margin-top: calc(var(--pane-padding) * -1);
+}
+
+/* ==========================================================================
+   View tree
+   ========================================================================== */
+
+.view-tree h3 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.view-tree > div:first-child h3 {
+  margin-top: 0;
+}
+
+.view-tree h4 {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  /* 0.06em to match .view-tree h3 / .field-group-title / .well h4 — same
+     small-caps section-label role, resolved to the design-direction doc's
+     value (the more specific identity doc) over the brief's 0.04em. */
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.view-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 2px;
+}
+
+.view-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--row-height);
+  padding: 0 8px;
+  margin: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Same problem .field-ref solves: a UPPER_SNAKE_CASE view name can outrun
+   the pane, more so once the responsive tiers narrow it further. The
+   ellipsis has to live on this inner span rather than on `.view-item`
+   itself -- text-overflow has no effect on a flex container's own box, only
+   on a block (or shrinkable flex-item) box whose content overflows it;
+   min-width: 0 is what lets that flex item shrink below its text's
+   intrinsic width in the first place. */
+/* The member count on a model's row. Right-aligned and quiet: it is
+   what tells a model from a view at a glance, on a row that is
+   otherwise identical to one. */
+.view-item-count {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ink-wash);
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.view-item.selected .view-item-count {
+  background: rgb(255 255 255 / 22%);
+  color: #fff;
+}
+
+.view-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-item:hover {
+  background: var(--ink-wash);
+}
+
+.view-item.selected {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.view-item.selected:hover {
+  background: var(--accent);
+}
+
+/* ==========================================================================
+   Field panel
+   ========================================================================== */
+
+/* Off-screen but still announced -- the same technique as .sr-only, applied
+   conditionally. A screen reader always reads it; a sighted user sees it only
+   while a field row has focus, i.e. exactly when Enter and Space do anything.
+   `clip-path` rather than `display: none`, because display:none would take it
+   out of the accessibility tree along with the screen. */
+.field-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(100%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* `:focus-visible`, not `:focus-within`, and this is load-bearing rather than
+   fussy. `:focus-within` fires on a MOUSE click too: pressing a field row
+   focused it, the hint took 38px of the flow, the whole list jumped down, and
+   the mouseup landed on a different element -- so no click event fired at all
+   and the first field you clicked in the explorer did nothing. `:focus-visible`
+   is set by keyboard focus and not by a click, which is also exactly who this
+   hint is for.
+
+   Browsers without `:has()` simply never reveal it. That loses a hint and
+   nothing else, which is the right way for this to fail. */
+.field-panel:has(.field-row:focus-visible) .field-hint {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  border-bottom: 1px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.field-group {
+  margin-bottom: 4px;
+}
+
+.field-group-title {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: var(--row-height);
+  padding: 0 6px;
+  margin: 0;
+  background: none;
+  color: var(--ink);
+  border: none;
+  border-radius: 4px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: grab;
+  overflow: hidden;
+}
+
+.field-row:hover {
+  background: var(--ink-wash);
+}
+
+.field-row[aria-pressed="true"] {
+  cursor: grabbing;
+  opacity: 0.6;
+  /* The one sanctioned shadow in the system: a 1px hairline ring on the
+     item mid-drag (there is no separate DragOverlay node, so this is the
+     drag overlay's visual). */
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* A UPPER_SNAKE_CASE identifier can run longer than the 248px pane
+   (e.g. `ORDERS.FULFILLMENT_STATUS`). Truncate it with an ellipsis rather
+   than letting it push the data-type badge out or overflow the pane —
+   `min-width: 0` is what lets a flex child shrink below its content size. */
+.field-ref {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The name is what the row is for; the data type is a footnote on it. So the
+   footnote yields its width first — a shrink factor far above the name's, and
+   a floor of zero to shrink into. This used to be `flex: 0 0 auto`, which
+   pinned the badge at full width and left the name to absorb every pixel the
+   pane gave up: narrowing the pane ellipsised the name away and showed the
+   type of a column you could no longer read. */
+.field-row small {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* A field the current selection has ruled out — see explorer/joins.ts. Dimmed
+   rather than hidden: knowing a field exists but is unavailable, and why, is
+   more useful than watching the list silently change length. */
+.field-row:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.field-row:disabled:hover {
+  background: none;
+}
+
+/* ==========================================================================
+   Explorer: the selected-fields strip and the stacked sections beside it
+   ========================================================================== */
+
+/* The three wells run ACROSS the top of the right-hand column rather than
+   down a column of their own. Side by side with the field list they are a
+   drop target that is always on screen, which is what the separate column
+   was for -- without costing a column. */
+.explore-selected {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+/* `.well-panel` is a COLUMN by default (it was a column of wells in a pane of
+   its own). Overriding `display` alone left `flex-direction: column` in force
+   and the wells stacked anyway -- along with the top border and margin that
+   separated them from the pane above, which no longer exists here. */
+.explore-selected .well-panel {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.explore-selected .well {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+}
+
+.explore-selected .well-panel > button {
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.explore-section {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.explore-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid transparent;
+}
+
+.explore-section[data-open="true"] .explore-section-head {
+  border-bottom-color: var(--border);
+}
+
+.explore-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  margin: 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.explore-section-summary {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* Pushed to the right edge, and kept in the header so a folded section's
+   controls (the visual picker, the row limit) stay reachable. */
+.explore-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.explore-section-body {
+  padding: 10px;
+}
+
+/* A swatch and a hex box together: one is how you find a colour, the other is
+   how you match a palette someone handed you. */
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.color-field input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.color-field input[type="text"],
+.color-field input:not([type]) {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.color-field input[aria-invalid="true"] {
+  border-color: var(--danger, #b42318);
+}
+
+/* Two halves of one control: the caret is a continuation of the button beside
+   it, not a second button that happens to sit close. A hairline between them
+   is what says the caret does its own thing -- without it the pair reads as
+   one button with a decoration on the end. */
+.split-button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.split-button > button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 7px;
+}
+
+.split-button > .split-more {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding-left: 5px;
+  padding-right: 6px;
+  box-shadow: inset 1px 0 0 var(--border);
+}
+
+.viz-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.viz-choice {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.viz-choice:hover:not(:disabled) {
+  background: var(--ink-wash);
+}
+
+.viz-choice[aria-pressed="true"] {
+  border-color: var(--border);
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* Dimmed, not removed: the gallery keeps its shape so you learn where a
+   type lives rather than watching the row change length as you select. */
+.viz-choice:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.viz-glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.row-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.row-limit input {
+  width: 72px;
+  margin: 0;
+}
+
+/* Said above the results, not inside a tile: it qualifies the whole answer. */
+.explore-note {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.field-glyph,
+.chip-glyph {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Wells — the typed socket
+   ========================================================================== */
+
+.well-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.well {
+  padding: 8px;
+  border: 1px dashed var(--axis);
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  transition:
+    border-color var(--transition-fast),
+    background-color var(--transition-fast),
+    opacity var(--transition-fast);
+}
+
+.well-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+.well h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  /* --ink-muted (not --ink-secondary) so the well label sits at the same
+     level as its accepted-type declaration (.well-type is already muted) —
+     that's what makes the socket read as a single unit. */
+  color: var(--ink-muted);
+}
+
+.well-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.well-hint {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+/* Drop states — driven by the `data-state` attribute WellPanel sets. None
+   of the three rely on color alone: `eligible`/`over` add a border-style
+   change on top of the accent hue, and `blocked` pairs muted color with
+   `cursor: not-allowed` plus a dimmed, still-legible type declaration. */
+.well[data-state="eligible"] {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.well[data-state="eligible"] .well-type {
+  color: var(--accent);
+}
+
+.well[data-state="over"] {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.well[data-state="over"] .well-type {
+  color: var(--accent);
+}
+
+.well[data-state="blocked"] {
+  border-style: dashed;
+  border-color: var(--ink-muted);
+  background: var(--surface);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   Chips
+   ========================================================================== */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* 24px to fit the 24x24 `.chip-remove` hit target without vertical
+     overflow; right padding trimmed since the remove button's own box
+     now supplies that space, keeping the chip from reading as chunky. */
+  height: 24px;
+  /* Caps the chip at its well's own width -- without this a long ref (once
+     dropped into a well that's only ~200px at the tablet tier, or the full
+     but still finite width of a stacked mobile pane) has nothing to shrink
+     against and pushes past the pane edge instead of truncating. */
+  max-width: 100%;
+  margin: 2px 4px 2px 0;
+  padding: 0 2px 0 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* Same ellipsis pattern as .field-ref / .view-item-label: min-width: 0 lets
+   this flex item shrink below the ref's intrinsic text width so
+   `.chip`'s max-width above actually has something to truncate against. */
+.chip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 24x24 clickable box to clear the WCAG 2.2 target-size floor. The ×
+     glyph itself stays 13px (unchanged) — only the box grows, via
+     flex-centered padding rather than a bigger glyph, so density survives. */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.chip-remove:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   Canvas: chart, results, SQL
+   ========================================================================== */
+
+.query-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.chart-note {
+  margin: -4px 0 12px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.auto-chart {
+  height: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  margin-bottom: 16px;
+}
+
+/* AutoChart renders with `renderer: "svg"`, so axis ticks and labels are
+   plain SVG <text> nodes this selector reaches without touching
+   AutoChart.tsx or buildChartOption.ts. tabular-nums is a no-op on
+   non-numeric text, so applying it broadly here is harmless. */
+.auto-chart text {
+  font-variant-numeric: tabular-nums;
+}
+
+.banner {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--grid);
+  border-left: 3px solid var(--ink-muted);
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.results {
+  margin-bottom: 16px;
+}
+
+/* No `overflow-x: auto` here on purpose: setting overflow on only one axis
+   forces the CSS engine to compute the other axis as `auto` too (the
+   overflow "pairing" rule), which would turn this box into its own
+   scroll container and break `th`'s `position: sticky` -- it would stick
+   to *this* box (whose height always equals its content) rather than to
+   `.main`, so the header would just scroll away with everything else.
+   `.main` already has `overflow: auto` on both axes, so it's what
+   actually handles a table too wide for the canvas; this box only
+   supplies the visual frame. */
+.table-scroll {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+th,
+td {
+  height: var(--row-height);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--grid);
+  text-align: left;
+  white-space: nowrap;
+}
+
+td {
+  font-variant-numeric: tabular-nums;
+}
+
+th {
+  position: sticky;
+  /* `.main` (the sticky positioning ancestor) has its own top padding, so a
+     plain `top: 0` would rest the header `--canvas-padding` below the
+     scrollport's true top edge -- leaving a gap the row above it scrolls
+     through. Canceling that padding here sticks the header flush with the
+     actual top of the visible scroll area instead. */
+  top: calc(-1 * var(--canvas-padding));
+  z-index: 1;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sql-preview {
+  margin-top: 12px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.sql-preview summary {
+  /* 6px vertical padding clears the 24px hit-target floor (11px font *
+     1.4 line-height = 15.4px content + 12px padding = 27.4px); the
+     original 4px gave only ~23.4px, just under it. */
+  padding: 6px 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sql-preview summary:hover {
+  color: var(--ink-secondary);
+}
+
+.sql-preview pre {
+  margin: 6px 0 0;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Responsive
+
+   Three tiers, all CSS-only (no layout logic in JS/React state):
+     >=1280px          three columns, fixed 248px side panes (base rules above)
+     960px - 1279px    three columns, side panes narrowed to keep the canvas usable
+     <960px             single column, stacked in DOM order (view tree, then
+                        fields/wells, then canvas); the explorer stops being a
+                        fixed-height/overflow-hidden shell so the page scrolls
+                        normally instead of trapping scroll inside a short pane
+     <600px             on top of the <960px tier: shorter chart, and the
+                        results table contains its own horizontal scroll
+   ========================================================================== */
+
+@media (min-width: 960px) and (max-width: 1279px) {
+  :root {
+    --pane-fields: 200px;
+    --pane-wells: 200px;
+  }
+}
+
+@media (max-width: 959px) {
+  /* The explorer no longer pins itself to exactly one viewport height with
+     scroll trapped inside `.columns`' children -- it grows with its content
+     and the document itself scrolls, like any normal page. */
+  .explorer {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  /* Keeps "Log out" reachable without scrolling back to the top now that
+     the page (not `.columns`) owns the scroll. */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+
+  /* Block layout, not flex-column: `.left`/`.middle`/`.main` become normal
+     stacked block boxes, each filling the available width and sized to its
+     own content -- exactly what "scrolls with the page" needs, without the
+     min-height/flex-basis bookkeeping a flex column would otherwise need to
+     avoid clipping. DOM order (view tree, fields+wells, canvas) already
+     matches the required stacking order, so no `order` overrides needed. */
+  .columns {
+    display: block;
+    overflow: visible;
+  }
+
+  .left,
+  .middle,
+  .main {
+    width: 100%;
+  }
+
+  /* The wells stop competing for width and stack, so each drop target keeps
+     a usable target area on a phone. */
+  .explore-selected .well-panel {
+    display: block;
+  }
+
+  .explore-selected .well {
+    margin-bottom: 8px;
+  }
+
+  .left,
+  .middle {
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .main {
+    overflow: visible;
+  }
+
+  .pane-heading {
+    display: block;
+  }
+
+  /* `.main` is no longer its own scrolling box at this tier (see above), so
+     a wide results table would otherwise force the page itself to scroll
+     horizontally. Giving `.table-scroll` its own overflow-x keeps a wide
+     table contained in its frame instead -- the sticky `th` rule still
+     applies, it simply now sticks within this box rather than `.main`. */
+  .table-scroll {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 599px) {
+  .auto-chart {
+    height: 200px;
+  }
+}
+
+/* ==========================================================================
+   Reports list
+   ========================================================================== */
+
+.reports {
+  width: 100%;
+  /* Wide enough for a table with seven columns on a laptop, capped so the
+     rows do not stretch to arm's length on a 4K monitor. */
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px clamp(12px, 2vw, 28px);
+}
+
+.reports-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  /* Wraps because the header now carries the workspace switcher as well as
+     the actions. Without this the row overflows below ~400px, which the
+     390px breakpoint check caught. */
+  flex-wrap: wrap;
+}
+
+.reports-head h1 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.reports-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+button.secondary,
+.button.secondary {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 400;
+  border: 1px solid #8a8886;
+}
+
+button.secondary:hover,
+.button.secondary:hover {
+  background: var(--chrome);
+}
+
+.report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+}
+
+.report-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.report-list li:last-child {
+  border-bottom: none;
+}
+
+.report-name {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.report-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.report-view {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.report-updated {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reports .empty {
+  color: var(--ink-secondary);
+}
+
+.confirm {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--grid);
+  border-left: 2px solid var(--error);
+  border-radius: 4px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm p {
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .report-list li {
+    grid-template-columns: 1fr auto;
+    row-gap: 4px;
+  }
+}
+
+/* ==========================================================================
+   Report canvas tiles
+   ========================================================================== */
+
+/* Every piece of text in a tile is sized against the TILE, not the
+   viewport. The chart's own labels are scaled in AutoChart; everything
+   here is HTML -- the title, a KPI's number, a matrix, a card's values --
+   and stayed at whatever px it was written at however small the tile got.
+   That is what left the picture and the words at different scales.
+
+   `inline-size`, not `size`: size containment would stop the tile's
+   HEIGHT depending on its contents, which is exactly what a tile outside
+   the fixed-height grid relies on. */
+.tile {
+  container-type: inline-size;
+  container-name: tile;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  /* PowerBI's tile: white card floating on the gray canvas. */
+  box-shadow: var(--tile-shadow);
+  overflow: hidden;
+}
+
+.tile.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tile-head {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.tile-head h3 {
+  margin: 0;
+  /* A size chosen in the Format pane arrives as --title-size and is
+     honoured -- up to what the tile can hold. clamp's max wins over the
+     value, so a 20px title on a narrow tile comes down rather than
+     running out of the header. */
+  font-size: clamp(10px, var(--title-size, 3.6cqi), 6cqi);
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  /* A flex column, not block layout: `.tile`'s own height is only ever
+     "definite" via `min-height` at the <960px stacked tier (its ancestor
+     `.react-grid-item` is `height: auto` there — see below), and a plain
+     block child's `height: 100%` does not reliably resolve against a
+     containing block whose own `height` CSS property is `auto` even when
+     that block's *painted* size is non-zero (min-height sets the painted
+     size, not a definite `height`). Chart libraries hit this constantly;
+     the standard fix is to make the chart's container a flex item instead
+     of a percentage-height block child, since a flex item's main size is
+     always definite by construction. */
+  display: flex;
+  flex-direction: column;
+}
+
+.tile-body .auto-chart {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  border: none;
+}
+
+.tile-hint {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.tile-error {
+  margin: 0;
+  font-size: 12px;
+}
+
+.kpi-value {
+  margin: 0;
+  /* A KPI is one number and the tile is its frame: it should fill what it
+     is given rather than sit at 28px in a tile twice that tall. */
+  font-size: clamp(15px, 13cqi, 40px);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Matrix ---------------------------------------------------------------
+   Its own scroll container: a wide pivot must not push the canvas sideways. */
+.matrix-scroll {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+.matrix {
+  /* `separate`, not `collapse`: a collapsed border belongs to the TABLE
+     rather than to the cell, so a sticky header leaves its borders
+     behind and the rows scroll through the gap. The borders are drawn
+     per cell below instead. */
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: clamp(9px, 3.2cqi, 13px);
+  width: 100%;
+}
+.matrix th,
+.matrix td {
+  /* Right and bottom only, with the table drawing the outer two, so
+     adjacent cells do not double up now that borders no longer collapse. */
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+.matrix tr > :first-child { border-left: 1px solid var(--border); }
+.matrix thead tr:first-child > * { border-top: 1px solid var(--border); }
+
+.matrix thead th {
+  background: var(--chrome);
+  color: var(--ink);
+  font-weight: 600;
+  position: sticky;
+  z-index: 2;
+}
+
+/* The column-grouping row, when there is one. */
+.matrix thead .matrix-head-groups th { top: 0; }
+
+/* And the labels underneath it. `--matrix-head-offset` is the measured
+   height of the row above -- zero when there is no grouping -- because
+   two sticky rows both pinned at 0 stack on top of each other, which is
+   what made the header look like it was duplicating on scroll. */
+.matrix thead .matrix-head-labels th {
+  top: var(--matrix-head-offset, 0px);
+}
+
+/* A row header stays put horizontally for the same reason a column header
+   stays put vertically: scrolled away from it, every number in the row is
+   unlabelled. */
+.matrix tbody th,
+.matrix tfoot th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  font-weight: 400;
+  color: var(--ink);
+}
+
+/* Where the two sticky axes cross, the corner has to sit above both. */
+.matrix thead th:first-child {
+  left: 0;
+  z-index: 3;
+}
+.matrix .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.matrix tfoot th,
+.matrix tfoot td {
+  background: var(--chrome);
+  font-weight: 600;
+}
+
+/* The totals row stays at the bottom of the box, so a long matrix does
+   not make you scroll to the end to read its total. */
+.matrix tfoot th,
+.matrix tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+.matrix tfoot th { z-index: 3; }
+
+/* The stepped matrix: group rows read as headers, the +/- toggles sit
+   inline, and the Total column is set off from the value columns. */
+.matrix tbody tr.matrix-group th,
+.matrix tbody tr.matrix-group td {
+  font-weight: 600;
+  background: var(--surface-sunken, #f3f2f1);
+}
+
+.matrix-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  width: 1.2em;
+  margin-right: 4px;
+  padding: 0;
+  color: inherit;
+}
+
+.matrix .matrix-total {
+  border-left: 2px solid var(--border-strong, #c8c6c4);
+  font-weight: 600;
+}
+
+.matrix-toolbar {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  padding: 2px 4px;
+}
+
+.matrix-toolbar button {
+  border: 1px solid var(--border, #d2d0ce);
+  background: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 0 5px;
+}
+
+.matrix-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.chip-handle {
+  border: none;
+  background: none;
+  cursor: grab;
+  padding: 0 2px;
+  color: var(--ink-subtle, #605e5c);
+  font-size: 11px;
+  touch-action: none;
+}
+
+.chip[data-dragging] {
+  opacity: 0.5;
+}
+
+.chip[data-drop] {
+  outline: 2px solid var(--accent, #0078d4);
+  outline-offset: 1px;
+}
+
+/* A sheet page: the pivot IS the page. */
+.canvas.sheet {
+  display: block;
+  padding: 12px;
+}
+
+.sheet-tile {
+  height: 100%;
+  min-height: 320px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  overflow: auto;
+}
+
+
+/* --- Multi-row card ------------------------------------------------------ */
+.multi-card {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: auto;
+}
+.multi-card-row {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.multi-card-row:last-child {
+  border-bottom: none;
+}
+.multi-card-title {
+  margin: 0 0 4px;
+  font-size: clamp(10px, 3.4cqi, 13px);
+  font-weight: 600;
+  color: var(--ink);
+}
+.multi-card-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+}
+.multi-card-values dt {
+  font-size: clamp(9px, 3cqi, 12px);
+  color: var(--ink-secondary);
+}
+.multi-card-values dd {
+  margin: 0;
+  font-size: clamp(12px, 4.6cqi, 20px);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Slicer -------------------------------------------------------------- */
+.slicer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.slicer-head {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 18px;
+}
+/* The slicer draws through ValuePicker now, so its scrolling box is the
+   picker's option list rather than a <ul> of its own. */
+.slicer .value-picker {
+  flex: 1;
+  min-height: 0;
+}
+
+.slicer .filter-values {
+  overflow-y: auto;
+}
+
+.slicer .filter-value {
+  padding: 3px 2px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.slicer .filter-value:hover {
+  background: var(--chrome);
+}
+
+.canvas {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px;
+  /* PowerBI's report canvas gray. */
+  background: var(--canvas);
+}
+
+.canvas.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The tile header doubles as the drag handle; say so on hover. */
+.react-grid-item .tile-head {
+  cursor: move;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent);
+  opacity: 0.12;
+  border-radius: var(--radius-pane);
+}
+
+@media (max-width: 959px) {
+  /* Stacked reading mode: tiles flow full width in layout order.
+     (The canvas-column sizing that goes with this lives at the END of this
+     file — `.canvas-column .canvas { flex: 1 }` is declared below this
+     block, so an override here would lose to it on source order.) */
+  .canvas .react-grid-layout {
+    height: auto !important;
+  }
+  .canvas .react-grid-item {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    transform: none !important;
+    margin-bottom: 12px;
+  }
+  .canvas .react-grid-item .tile {
+    min-height: 260px;
+  }
+  .react-grid-item .tile-head {
+    cursor: default;
+  }
+}
+
+.visual-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.picker-item {
+  background: var(--surface);
+  color: var(--ink-secondary);
+  border: 1px solid var(--axis);
+  min-height: 28px;
+  font-size: 14px;
+  padding: 2px;
+}
+
+.picker-item.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.visual-wells {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   Home — what you were last working on, and what you chose to keep in view
+   ========================================================================== */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  /* Home is the first thing anybody sees. It gets the same page box the
+     browse list has, rather than starting hard against the chrome. */
+  padding: 22px clamp(12px, 2vw, 28px) 32px;
+}
+
+.home-head { margin-bottom: 2px; }
+
+.home-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-section-title {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- recents ------------------------------------------------------------- */
+
+/* Cards in a wrapping row rather than a table: ten items is a shortcut,
+   and a shortcut you scan beats a list you read. */
+.recent-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.recent-item:hover {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.recent-kind {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.recent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.recent-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-meta {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* --- pinned widgets ------------------------------------------------------ */
+
+
+
+/* The tile fills the cell and the footer sits under it, so a widget is the
+   report's own visual plus one line saying where it came from. */
+
+
+
+
+
+
+/* A widget with nothing behind it any more. Dashed, because the frame is
+   still yours -- it is the thing inside that went away. */
+
+
+/* One filter instead of a menu per kind: reports, dashboards and explores
+   all live in a workspace and browse the same way. */
+.kind-filter {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--chrome);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.kind-tab {
+  height: 26px;
+  padding: 0 11px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.kind-tab:hover:not([aria-pressed="true"]) {
+  background: rgb(255 255 255 / 0.7);
+  color: var(--ink);
+}
+
+.kind-tab.on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
+}
+
+.item-kind {
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+/* The results keep a floor, so switching to a filter that matches two rows
+   does not collapse the page to a third of its height and back. */
+.library-results {
+  min-height: 340px;
+}
+
+/* The caret on a button that opens a menu. Small and muted -- it says
+   "there is more", it is not part of the label. */
+.reports-actions .cmd-primary span[aria-hidden] {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+/* --- what a workspace list drops as it narrows --------------------------- */
+
+/* By CLASS, on the col AND the cells, so the header and the body can never
+   drift out of step. The previous rules did it by nth-child, written when
+   the table had six columns; adding Type shifted every index and below the
+   breakpoint the headers sat one column left of their own data.
+
+   Priority, least important first: the semantic view is on the item you
+   are about to open, your role rarely varies within one workspace, and the
+   date is the first thing you stop reading. Name never goes. */
+@media (max-width: 1400px) {
+  .content-table col.col-creator { width: 0; }
+  .content-table .cell-creator { display: none; }
+}
+
+@media (max-width: 1240px) {
+  .content-table col.col-detail { width: 0; }
+  .content-table .cell-detail { display: none; }
+}
+
+@media (max-width: 1060px) {
+  .content-table col.col-role { width: 0; }
+  .content-table .cell-role { display: none; }
+}
+
+@media (max-width: 900px) {
+  .content-table col.col-workspace { width: 0; }
+  .content-table .cell-workspace { display: none; }
+}
+
+@media (max-width: 780px) {
+  .content-table col.col-updated { width: 0; }
+  .content-table .cell-updated { display: none; }
+}
+
+/* Past here a table with three columns is pretending. Each row becomes a
+   card: the name, and under it what the remaining columns were saying. */
+@media (max-width: 640px) {
+  .content-table,
+  .content-table tbody,
+  .content-table tr {
+    display: block;
+    width: 100%;
+  }
+
+  .content-table thead { display: none; }
+  .content-table colgroup { display: none; }
+
+  .content-table tbody tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--grid);
+  }
+
+  .content-table tbody td {
+    display: block;
+    padding: 0;
+    border: none;
+    white-space: normal;
+  }
+
+  /* The name takes the middle column; the pin and the delete bracket it,
+     and the kind sits under the name as a caption. */
+  .content-table .cell-name { grid-column: 2; font-weight: 600; }
+  .content-table .cell-kind {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+  .content-table .cell-actions { grid-column: 3; grid-row: 1 / span 2; }
+  .content-table .cell-workspace,
+  .content-table .cell-creator { display: none; }
+  .content-table .cell-pin { grid-column: 1; grid-row: 1 / span 2; }
+  .content-table .cell-glyph { display: none; }
+
+  /* Every row's controls are reachable on a touch screen -- there is no
+     hover to reveal them with. */
+  .content-table .row-actions .icon-button { opacity: 1; }
+
+  .content-table .confirm-row { display: block; }
+  .content-table .confirm-row td { padding: 0; }
+}
+
+/* --- confirming a delete, in the row it is about ------------------------- */
+
+/* It used to render after the table, so clicking row 3 of forty put the
+   question below row 40 -- usually off-screen, always somewhere else. */
+.content-table tr.is-confirming { background: rgba(164, 38, 44, 0.05); }
+
+.content-table .confirm-row td {
+  padding: 0;
+  border-bottom: 1px solid var(--grid);
+  background: rgba(164, 38, 44, 0.05);
+}
+
+.content-table .confirm-row span[role="group"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.content-table .confirm-row [role="alert"] { color: var(--error); }
+
+/* --- announcements ------------------------------------------------------- */
+
+/* Above every page rather than on one: a notice you have to be on Home to
+   see is a notice most people miss. Not dismissible -- one half the
+   readers have turned off is one half the readers do not have. */
+.announcements {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 10px clamp(12px, 2vw, 28px) 0;
+}
+
+.announcement {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.announcement p {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The badge carries the level for anybody scanning rather than reading.
+   Shape and colour together, so it survives being printed in grey. */
+.announcement-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.announcement.level-info {
+  border-left-color: var(--accent);
+  background: var(--accent-wash);
+}
+.announcement.level-info .announcement-badge {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.announcement.level-warning {
+  border-left-color: #d99b28;
+  background: rgba(217, 155, 40, 0.1);
+}
+.announcement.level-warning .announcement-badge {
+  background: #d99b28;
+  color: #ffffff;
+}
+
+.announcement.level-critical {
+  border-left-color: var(--error);
+  background: rgba(164, 38, 44, 0.09);
+}
+.announcement.level-critical .announcement-badge {
+  background: var(--error);
+  color: #ffffff;
+}
+
+/* --- managing them ------------------------------------------------------- */
+
+.announcement-message {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role-pill.status-live { background: rgba(16, 124, 16, 0.12); color: #0e6b0e; }
+.role-pill.status-info { background: var(--accent-wash); color: var(--accent); }
+.role-pill.status-muted { background: var(--ink-wash); color: var(--ink-muted); }
+
+.admin-page .member-add textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+/* The direct-credential form is the alternative, not the offer. */
+.login-alternative {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   The admin area — operations, the activity log, the security board
+   ========================================================================== */
+
+.admin {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 22px clamp(12px, 2vw, 28px) 32px;
+}
+
+.admin-tabs { margin-bottom: 18px; }
+.admin-tabs .kind-tab { text-decoration: none; }
+
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-section-title {
+  margin: 8px 0 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- operations ---------------------------------------------------------- */
+
+.ops-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.ops-banner.ops-ok { border-left: 3px solid #107c10; }
+.ops-banner.ops-down { border-left: 3px solid var(--error); }
+.ops-uptime { margin-left: auto; color: var(--ink-muted); font-size: 12px; }
+
+/* Green or red, and nothing in between: a health check either answered or
+   it did not. */
+.ops-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  flex: 0 0 auto;
+}
+
+.ops-ok > .ops-dot { background: #107c10; }
+.ops-down > .ops-dot { background: var(--error); }
+
+.ops-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.ops-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--grid);
+  font-size: 13px;
+}
+
+.ops-check:last-child { border-bottom: none; }
+.ops-check-name { font-weight: 600; }
+.ops-check-detail { color: var(--ink-muted); font-size: 12px; }
+.ops-check-latency {
+  margin-left: auto;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ops-counts li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.ops-count-value {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-count-label {
+  color: var(--ink-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- the activity log ---------------------------------------------------- */
+
+.admin-user-filter input {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.log-table col.col-when { width: 120px; }
+.log-table col.col-action { width: 170px; }
+.log-table col.col-outcome { width: 96px; }
+.log-table col.col-actor { width: 130px; }
+.log-table col.col-resource { width: 150px; }
+
+.log-action,
+.log-resource,
+.log-detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.log-detail { color: var(--ink-muted); }
+
+/* The request id joins this row to the log stream, and through the query
+   id logged there to Snowflake's own QUERY_HISTORY. */
+.log-request {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+}
+
+/* A row that opens: the summary is what you scan, the record underneath
+   is what you act on. */
+.log-row { cursor: pointer; }
+.log-row.is-open { background: var(--accent-wash); }
+
+.log-detail-row td {
+  padding: 0;
+  background: var(--page);
+  border-bottom: 2px solid var(--border);
+}
+
+.log-record {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+  padding: 14px 16px 6px;
+}
+
+.log-record > div { min-width: 0; }
+.log-record-wide { grid-column: 1 / -1; }
+
+.log-record dt {
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.log-record dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Selectable on purpose: a request id is copied into a log search, and a
+   value you cannot select is a value you retype. */
+.log-copyable {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  user-select: all;
+}
+
+.log-record pre {
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-record-note {
+  margin: 0;
+  padding: 0 16px 14px;
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* The rows below the summary carry their own text; the table's blanket
+   nowrap would clip a request id and a detail blob. */
+.log-detail-row td,
+.log-record dd { white-space: normal; }
+
+.log-paging {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.role-pill.role-denied { background: rgba(164, 38, 44, 0.12); color: var(--error); }
+.role-pill.role-error { background: rgba(217, 155, 40, 0.16); color: #8a5a00; }
+
+/* --- the security board -------------------------------------------------- */
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-pane);
+  font-size: 13px;
+}
+
+.alert-ok { border-left-color: #107c10; }
+.alert-info { border-left-color: var(--accent); }
+.alert-medium { border-left-color: #d99b28; }
+.alert-high { border-left-color: var(--error); }
+
+.alert-severity {
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.alert-high .alert-severity { background: rgba(164, 38, 44, 0.14); color: var(--error); }
+.alert-medium .alert-severity { background: rgba(217, 155, 40, 0.18); color: #8a5a00; }
+.alert-ok .alert-severity { background: rgba(16, 124, 16, 0.14); color: #0e6b0e; }
+
+.alert-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.alert-detail { color: var(--ink-secondary); font-size: 12px; }
+
+.alert-count {
+  margin-left: auto;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A shape, not a chart: no axes, no legend, nothing to read off it but
+   "was it busy, and when". Loading a chart library to draw fourteen
+   rectangles would cost more than the answer is worth. */
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.sparkline-bar {
+  flex: 1 1 auto;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.rail-admin .rail-glyph { color: var(--brand); }
+
+/* ==========================================================================
+   Context menu — the browser's own is suppressed only where this replaces it
+   ========================================================================== */
+
+/* A page-wide `contextmenu` block would take away copy, "open in new tab",
+   spell-check and the inspector, none of which this app has any business
+   withholding. Only the surfaces with their own menu to offer suppress it. */
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.16), 0 1px 3px rgb(0 0 0 / 0.1);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.context-menu-item:hover:not(:disabled) { background: var(--accent-wash); }
+.context-menu-item:disabled { opacity: 0.42; }
+.context-menu-item .icon { color: var(--ink-muted); }
+
+/* Red at rest, not on hover: by the time the pointer is on it the decision
+   is already being made. */
+.context-menu-item.danger { color: var(--error); }
+.context-menu-item.danger .icon { color: var(--error); }
+.context-menu-item.danger:hover:not(:disabled) { background: rgba(164, 38, 44, 0.08); }
+
+.context-menu-rule {
+  margin: 4px 6px;
+  border: none;
+  border-top: 1px solid var(--grid);
+}
+
+/* ==========================================================================
+   Dashboards — visuals from several reports on one workspace canvas
+   ========================================================================== */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dashboard-meta {
+  margin: 8px clamp(12px, 2vw, 20px) 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+/* A canvas for the tiles to sit ON. Without one they floated on the page
+   background and the dashboard had no edges -- a wall of charts with
+   nothing holding them. The faint grid is the same one the report canvas
+   uses, so the two read as the same kind of surface. */
+.tile-grid {
+  min-height: 320px;
+  margin: 10px clamp(12px, 2vw, 20px) clamp(12px, 2vw, 20px);
+  padding: 8px;
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgb(0 0 0 / 0.07) 1px, transparent 0);
+  background-size: 22px 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+/* Home shows the same dashboard, inside a page that already has its own
+   margins. */
+.home .tile-grid { margin: 0; }
+
+.tile-grid-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  margin: 10px clamp(12px, 2vw, 20px);
+  padding: 28px;
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgb(0 0 0 / 0.07) 1px, transparent 0);
+  background-size: 22px 22px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-pane);
+  text-align: center;
+}
+
+.home .tile-grid-empty { margin: 0; }
+
+.tile-cell { display: flex; }
+.tile-cell > * { width: 100%; }
+
+/* A tile with nothing behind it any more. Dashed, because the frame is
+   still the dashboard's -- it is the thing inside that went away. */
+.tile-dead {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-style: dashed;
+}
+
+.tile-dead .tile-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* --- choosing where a visual is pinned ----------------------------------- */
+
+.pin-target-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pin-target {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--ink);
+  font-weight: 400;
+  text-align: left;
+}
+
+.pin-target:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+.pin-target-name { font-size: 13px; font-weight: 600; }
+.pin-target-meta { color: var(--ink-muted); font-size: 11px; }
+
+/* --- home's dashboard picker --------------------------------------------- */
+
+.home-head-actions { display: flex; gap: 8px; }
+
+.home-picker {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.home-picker-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-picker-list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+}
+
+.home-picker-meta { color: var(--ink-muted); font-size: 11px; font-weight: 400; }
+
+.home-section-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-section-title a:hover { color: var(--accent); text-decoration: underline; }
+
+.home-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   Builder shell
+   ========================================================================== */
+
+.builder { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.builder-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  flex: 0 0 auto; min-height: 46px; padding: 7px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  /* The header now carries Save, Move, Ask, Excel, Connect live, Export and
+     Import. Without wrapping it overflows below ~430px, which the 390px
+     breakpoint check caught. */
+  flex-wrap: wrap;
+}
+
+.builder-actions { display: flex; align-items: center; gap: 2px; flex: 0 1 auto; flex-wrap: wrap; }
+.builder-body { display: flex; flex: 1; min-height: 0; }
+
+/* --- Command bar --------------------------------------------------------- */
+
+/* The report's name is the heading of the page, so it is typeset as one --
+   the input chrome is what appears when you go to change it, not before. */
+.command-bar .report-title {
+  border-color: transparent;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  max-width: 340px;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.command-bar .report-title:hover {
+  background: var(--ink-wash);
+}
+.command-bar .report-title:focus {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+
+/* A ghost command. Fluent's command bar and every enterprise tool that
+   followed it: no chrome at rest, a wash on hover, an accent wash while it
+   holds a panel open. Six outlined boxes in a row read as six unrelated
+   decisions; these read as one bar with one filled action in it. */
+.cmd {
+  height: 30px;
+  padding: 0 10px;
+  gap: 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.cmd:hover:not(:disabled) { background: var(--ink-wash); }
+.cmd:active:not(:disabled) { background: rgba(37, 36, 35, 0.09); }
+.cmd:disabled { opacity: 0.4; }
+
+/* A command that is holding something open is in a state, not merely
+   hovered -- so it keeps its wash when the pointer leaves. */
+.cmd[aria-pressed="true"],
+.cmd[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Quieter than the label at rest: the word is what you read, the glyph is
+   what you find it by. */
+.cmd .icon { flex: 0 0 auto; opacity: 0.72; }
+.cmd:hover .icon,
+.cmd[aria-pressed="true"] .icon { opacity: 1; }
+
+/* The one command that changes the report is the one that wears a colour.
+   Disabled it goes flat rather than translucent: a washed-out yellow reads
+   as a rendering fault, a grey one reads as "nothing to save". */
+.cmd-primary {
+  height: 30px;
+  padding: 0 14px;
+  gap: 7px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.cmd-primary .icon { opacity: 0.85; }
+.cmd-primary:disabled {
+  opacity: 1;
+  background: var(--chrome);
+  border-color: var(--border);
+  color: var(--ink-muted);
+}
+
+.cmd-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border);
+  align-self: center;
+}
+
+/* --- Canvas column + page bar -------------------------------------------- */
+
+.canvas-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.canvas-column .canvas {
+  flex: 1;
+  min-height: 0;
+}
+.page-bar {
+  flex: 0 0 30px;
+  display: flex;
+  align-items: stretch;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 0 8px;
+}
+.page-tab {
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  padding: 0 16px;
+  cursor: default;
+}
+.page-tab {
+  cursor: pointer;
+  white-space: nowrap;
+}
+.page-tab:hover {
+  background: var(--chrome);
+}
+.page-tab.active {
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 -3px 0 var(--brand);
+  background: var(--chrome);
+}
+.page-add,
+.page-menu-toggle {
+  border: none;
+  background: none;
+  color: var(--ink);
+  padding: 0 10px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.page-add:hover,
+.page-menu-toggle:hover {
+  background: var(--chrome);
+}
+.page-actions {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.page-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 190px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--tile-shadow);
+  z-index: 30;
+}
+.page-menu span {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+.page-menu button {
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--ink);
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.page-menu button:hover:not(:disabled) {
+  background: var(--chrome);
+}
+.page-menu button:disabled {
+  color: var(--ink-muted, #a19f9d);
+  cursor: default;
+}
+.page-rename {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  gap: 6px;
+}
+.page-rename input {
+  font-size: 12px;
+  padding: 2px 6px;
+  max-width: 160px;
+}
+.page-rename [role="alert"] {
+  font-size: 11px;
+  color: var(--danger, #a4262c);
+}
+
+/* --- The tri-pane rail (Filters | Visualizations | Data) ------------------ */
+
+.builder-rail {
+  flex: 0 0 auto;
+  display: flex;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--chrome);
+  gap: 1px;
+}
+.pane {
+  flex: 0 0 232px;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+}
+.pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px var(--pane-padding) 6px;
+  border-bottom: 1px solid var(--border);
+}
+.pane-head h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-secondary);
+}
+.pane-collapse {
+  background: none;
+  border: none;
+  color: var(--ink-secondary);
+  font-weight: 400;
+  padding: 2px 6px;
+  min-height: 24px;
+  cursor: pointer;
+}
+.pane-collapse:hover {
+  background: var(--chrome);
+  filter: none;
+}
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--pane-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pane-strip {
+  flex: 0 0 28px;
+  width: 28px;
+  background: var(--surface);
+  border: none;
+  border-radius: 0;
+  font-weight: 400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+.pane-strip:hover {
+  background: var(--chrome);
+  filter: none;
+}
+.pane-strip-label {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 1279px) {
+  .pane {
+    flex-basis: 208px;
+    width: 208px;
+  }
+}
+@media (max-width: 1023px) {
+  .builder-body { flex-direction: column; }
+  .builder-rail {
+    flex-direction: column;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+  .pane,
+  .pane-strip {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .pane-strip {
+    flex-direction: row;
+    padding: 6px 12px;
+  }
+  .pane-strip-label {
+    writing-mode: horizontal-tb;
+  }
+  .builder { height: auto; overflow: visible; }
+}
+
+/* A dirty-state / dropped-wells banner sitting directly under the header —
+   same "quiet, left-accent" language as `.banner`, kept as its own class
+   since the builder skeleton names it `.notice` explicitly (also reused,
+   unstyled here, by the login page's redirect-reason paragraph). */
+.builder .notice {
+  margin: 0; padding: 6px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--grid);
+  border-left: 3px solid var(--accent);
+  color: var(--ink-secondary); font-size: 12px;
+}
+
+.fields-pane-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin: 0 0 8px;
+}
+.fields-pane-head h3 { margin: 0; }
+
+/* Fresh report ("pick a view") and vanished-view ("choose another view")
+   both land here — same panel, same tree, so the two flows read as one. */
+.builder-bind {
+  flex: 1; overflow-y: auto; padding: 24px; max-width: 480px;
+}
+.builder-bind > p { margin: 0 0 12px; color: var(--ink-secondary); font-size: 13px; }
+.builder-bind [role="alert"] { color: var(--error); }
+
+/* ==========================================================================
+   Export / Import panels
+   ========================================================================== */
+
+.panel-overlay {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+  padding: 16px;
+  background: rgba(11, 11, 11, 0.25);
+}
+
+/* The surface belongs to the OVERLAY, not to a class each panel remembers to
+   add. Members, Ask and Connect each styled only their own layout and so
+   rendered as bare text over the dimmed page behind them -- unreadable, and
+   indistinguishable from the app being broken. Anything dropped in an overlay
+   from now on is a dialog whether or not its author thought about it. */
+.panel-overlay > * {
+  /* A ceiling as well as the floor each panel sets for itself. Without one a
+     flex item sizes to max-content, and the members panel's closing
+     paragraph stretched the dialog to 1081px -- a line length nobody reads. */
+  max-width: min(720px, 92vw); max-height: calc(100vh - 32px); overflow-y: auto;
+  padding: 16px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-pane);
+  box-shadow: 0 8px 24px rgba(11, 11, 11, 0.18);
+}
+
+.panel {
+  width: 420px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.panel-head h3 { margin: 0; font-size: 14px; }
+.panel-head h2 { margin: 0; font-size: 15px; }
+.panel-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-secondary); }
+.panel-field textarea { font-family: var(--font-mono); font-size: 12px; min-height: 160px; }
+.panel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.panel-actions { display: flex; gap: 8px; }
+.panel [role="alert"] {
+  margin: 0; padding: 6px 8px; border: 1px solid var(--grid); border-left: 2px solid var(--error);
+  border-radius: 4px; background: var(--surface); font-size: 12px;
+}
+
+@media (max-width: 599px) {
+  .panel-overlay { padding: 0; align-items: stretch; }
+  /* Full-bleed for every panel, not just the ones carrying `.panel` --
+     `min-width: min(720px, 94vw)` on a phone is a sideways scroll. */
+  .panel-overlay > * { width: 100%; min-width: 0; max-height: 100vh; border-radius: 0; }
+  .panel-grid { grid-template-columns: 1fr; }
+}
+
+/* --- Filters, hierarchies, drill-down, cross-filtering ------------------- */
+
+.filter-pane,
+.hierarchy-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.filter-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-radius: var(--radius-pane);
+}
+
+/* Drop feedback for dragging a field onto a filter scope. Outline rather
+   than a background change so it cannot be mistaken for selection. */
+.filter-scope.over {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.filter-scope h4,
+.hierarchy-pane h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.filter-editor,
+.hierarchy {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  padding: var(--pane-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-editor-head,
+.hierarchy-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-field {
+  font-weight: 600;
+  /* Field references are long and unbreakable at word boundaries; without
+     this a wide one pushes the whole pane sideways. */
+  overflow-wrap: anywhere;
+}
+
+/* Bounded so a high-cardinality dimension cannot push the pane off-screen. */
+/* A square icon-only control: an action whose glyph says it, and whose name
+   lives in `aria-label` and `title` rather than on screen. */
+.icon-button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* Red at rest, not only on hover: a destructive action should look
+   destructive before the pointer is anywhere near it. */
+.icon-button.danger {
+  color: var(--danger, #b42318);
+}
+
+.icon-button.danger:hover {
+  border-color: var(--danger, #b42318);
+  background: rgba(180, 35, 24, 0.08);
+}
+
+/* ==========================================================================
+   Info tip — an explanation available on request rather than always on screen
+   ========================================================================== */
+
+.filter-scope-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filter-scope-head h4 {
+  margin: 0;
+}
+
+.info-tip {
+  display: contents;
+}
+
+.info-tip-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.info-tip-button:hover,
+.info-tip-button[aria-expanded="true"] {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+/* Takes the whole row of the flex header it opens from, so the text gets the
+   pane's full width instead of squeezing the heading it belongs to. */
+.info-tip-body {
+  flex-basis: 100%;
+  margin: 4px 0 2px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--border);
+  color: var(--ink-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.value-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+/* What is already ticked, listed above the search box. Searching replaces
+   the option list below, so without this the selection would appear to
+   vanish the moment you started typing. */
+.value-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.value-chosen button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--ink-wash);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.value-chosen button:hover {
+  border-color: var(--ink-secondary);
+}
+
+/* No max-height any more: the list is ten rows by construction, so it needs
+   no scroller of its own -- a 200px box inside a pane that already scrolled
+   was two scrollbars for one list. */
+.filter-values {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.filter-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.filter-range,
+.filter-relative {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-range label,
+.filter-relative label {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-add select {
+  width: 100%;
+}
+
+.hierarchy-levels {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hierarchy-levels li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.drill-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--ink-secondary);
+}
+
+.cross-filter-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  /* Deliberately NOT a series colour: chrome painted from the chart palette
+     reads as a data category. */
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+  font-size: 0.8125rem;
+}
+
+
+@media (max-width: 768px) {
+  .filter-range,
+  .filter-relative {
+    flex-direction: column;
+  }
+}
+
+/* --- Workspaces and sharing --------------------------------------------- */
+
+.workspace-switcher {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workspace-create {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.members-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(560px, 92vw);
+}
+
+.panel-subtitle {
+  margin: 2px 0 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  /* Bounded so a large workspace cannot push the Add form off-screen, and
+     with the gutter reserved so appearing scrollbar does not shift the
+     rows sideways. */
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--grid);
+  flex-wrap: wrap;
+}
+
+.member-row:last-child { border-bottom: none; }
+
+/* Initials rather than a picture: there is no profile image anywhere in
+   this app, and a grey silhouette says less than two letters. */
+.member-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.member-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.member-you {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--ink-wash);
+  color: var(--ink-secondary);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* What the role LETS someone do, not the word again. A dropdown of three
+   nouns tells the reader nothing. */
+.member-meaning {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.member-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.member-controls select {
+  min-height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+/* Removing someone is confirmed in the row it is about, rather than in a
+   dialog that has to name them again. */
+.member-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(164, 38, 44, 0.06);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.member-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+.member-add-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.member-add-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.member-add-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.member-add-row .field label {
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.member-add-row input,
+.member-add-row select {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.member-add-row button[type="submit"] { height: 30px; }
+
+.member-note {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* --- the one way to close a panel ---------------------------------------- */
+
+.panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+}
+
+.panel-close:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+@media (max-width: 768px) {
+  .workspace-switcher {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .member-row {
+    align-items: flex-start;
+  }
+  .member-controls { width: 100%; justify-content: flex-end; }
+}
+
+.move-panel {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: var(--pane-padding);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  margin-bottom: 8px;
+}
+
+/* --- Ask ---------------------------------------------------------------- */
+
+/* The chat is a column with a fixed head, a scrolling log and a compose box
+   pinned to the bottom -- the shape every chat has, and the reason the log
+   scrolls rather than the whole dialog: the box you type in should not walk
+   off the screen as the conversation grows. */
+/* Floats in the corner rather than covering the report, the way a support
+   chat does -- you consult it WHILE reading, so a modal was the wrong shape.
+   `resize` because the useful size for "what was the answer" and for "show me
+   the table" are not the same size; `min-height`/`min-width` stop a drag
+   collapsing it into a sliver you cannot grab again. */
+.chat-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(460px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 96px));
+  min-width: 280px;
+  min-height: 220px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  resize: both;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  box-shadow: 0 12px 32px rgba(11, 11, 11, 0.22);
+  /* The log owns the scrolling, so the panel itself must not also scroll --
+     and `resize` needs a non-visible overflow to work at all. */
+  overflow: hidden;
+}
+
+/* On a phone there is no corner to float in: take the bottom half of the
+   screen and stop offering a resize handle nobody can grab. */
+@media (max-width: 599px) {
+  .chat-panel {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 70vh;
+    border-radius: var(--radius-pane) var(--radius-pane) 0 0;
+    resize: none;
+  }
+}
+
+.chat-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 4px;
+}
+
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Right-aligned and tinted: the two speakers have to be tellable apart at a
+   glance, which is most of what makes a log read as a conversation. */
+.chat-question {
+  align-self: flex-end;
+  max-width: 80%;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 12px 12px 2px 12px;
+  background: var(--ink-wash);
+  font-size: 13px;
+}
+
+.chat-answer {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.chat-audit summary {
+  color: var(--ink-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat-audit pre {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  background: var(--chrome);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.chat-compose {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-compose input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ask-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(640px, 92vw);
+}
+
+.ask-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ask-panel form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ask-panel input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ask-explanation {
+  font-weight: 600;
+  margin: 0;
+}
+
+.ask-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.spec-summary dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.spec-summary dt {
+  color: var(--ink-muted);
+}
+
+.spec-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 768px) {
+  .ask-panel form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* --- Excel export and live connection ------------------------------------ */
+
+.connect-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(720px, 94vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.connect-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The manual route is still here, folded away: most people want the file, and
+   the ones who cannot use it need four steps rather than a paragraph. */
+.connect-manual summary {
+  color: var(--ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.connect-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.connect-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connect-sql {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  padding: var(--pane-padding);
+}
+
+.connect-sql-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connect-sql pre {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  /* Wrapped rather than scrolled: a statement you cannot see all of is one
+     you cannot check before pasting it. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Brand mark (top bar, login) ----------------------------------------- */
+
+.brand-logo {
+  height: 22px;
+  max-width: 160px;
+  object-fit: contain;
+}
+
+.brand-mark {
+  width: 14px;
+  height: 14px;
+  background: var(--brand);
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -1px;
+}
+
+/* --- App shell (PowerBI frame) ------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-topbar {
+  flex: 0 0 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--topbar);
+  color: #ffffff;
+}
+
+.app-topbar .brand {
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-topbar .identity {
+  color: #d2d0ce;
+  font-size: 12px;
+}
+
+.topbar-link {
+  color: #ffffff;
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+.nav-rail {
+  flex: 0 0 48px;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome);
+  border-right: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.rail-item {
+  /* Overrides the yellow primary button default: rail items are chrome. */
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--ink-secondary);
+  font-weight: 400;
+  width: 48px;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 0;
+  text-decoration: none;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.rail-glyph {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.rail-label {
+  font-size: 9px;
+}
+
+.rail-item:hover {
+  background: #e8e6e4;
+  filter: none;
+}
+
+/* NavLink sets .active; PowerBI marks the current surface with the brand bar. */
+.rail-item.active {
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--brand);
+  background: #ffffff;
+}
+
+.app-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  /* The content sat flush against the top bar and the rail. A page needs
+     to start somewhere, and "immediately under the chrome" reads as
+     crowded on every screen. */
+  padding: 4px 0 0;
+  background: var(--page);
+  /* The gutter is reserved whether or not there is anything to scroll.
+     Without it, a filter that shortens the list removes the scrollbar,
+     the scroll box gets ~15px wider, and the centred page under it jumps
+     sideways -- which reads as the whole page resizing. */
+  scrollbar-gutter: stable;
+}
+
+/* The builder manages its own scrolling regions. */
+.app-content > .builder {
+  height: 100%;
+}
+
+.ws-flyout {
+  position: absolute;
+  left: 48px;
+  top: 0;
+  bottom: 0;
+  width: min(300px, 80vw);
+  z-index: 40;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--tile-shadow);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.ws-flyout-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ws-flyout-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.ws-flyout-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ws-flyout-item {
+  background: none;
+  border: none;
+  font-weight: 400;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ws-flyout-item:hover {
+  background: var(--chrome);
+  filter: none;
+}
+
+.ws-glyph {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.ws-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.ws-meta {
+  grid-column: 2;
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.explorer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* --- Workspace content page (PowerBI workspace view) --------------------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ws-title {
+  min-width: 0;
+}
+
+.ws-subtitle {
+  margin: 2px 0 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.content-table {
+  width: 100%;
+  /* Fixed, so the columns keep their widths when the filter changes what
+     is in them. Under `auto` every switch between Reports and Dashboards
+     re-measured all seven and the table visibly jumped. */
+  table-layout: fixed;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+/* Explicit widths, because `table-layout: fixed` takes them from the first
+   row and the first row is whatever the filter happened to leave. Name
+   takes what is left. */
+/* `--w` is the width the reader dragged to, if any; the fallback is the
+   default. A custom property rather than an inline `width` so the
+   narrow-screen rules below can still override it -- an inline width wins
+   over every media query, and the table would overflow the moment the
+   window narrowed. Name has no default: it takes what is left. */
+.content-table col.col-pin { width: var(--w, 36px); }
+.content-table col.col-glyph { width: var(--w, 30px); }
+.content-table col.col-name { width: var(--w, auto); }
+.content-table col.col-kind { width: var(--w, 104px); }
+.content-table col.col-detail { width: var(--w, 220px); }
+.content-table col.col-workspace { width: var(--w, 150px); }
+.content-table col.col-creator { width: var(--w, 130px); }
+.content-table col.col-role { width: var(--w, 92px); }
+.content-table col.col-updated { width: var(--w, 140px); }
+.content-table col.col-actions { width: var(--w, 46px); }
+
+/* --- sortable and resizable headers -------------------------------------- */
+
+.content-table th { position: relative; }
+
+.content-table th .th-sort {
+  /* The whole header cell is the target, so the click does not have to
+     find the word. */
+  width: 100%;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+.content-table th[aria-sort] .th-sort { color: var(--accent); }
+
+/* Sits ON the border between two columns, half in each. */
+.col-grip {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  z-index: 1;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-grip::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  left: 2px;
+  width: 2px;
+  height: 60%;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.col-grip:hover::after { background: var(--accent); }
+
+.content-table td,
+.content-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-secondary);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.content-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.content-table tbody tr:hover {
+  background: var(--chrome);
+}
+
+.content-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.content-table .type-glyph {
+  width: 28px;
+  color: var(--ink-secondary);
+}
+
+.content-table .report-view {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.content-table .row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* --- Data pane (PowerBI) -------------------------------------------------- */
+
+.data-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.data-search {
+  width: 100%;
+}
+
+.data-table-head {
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  min-height: 24px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono);
+}
+
+.data-table-head:hover {
+  background: var(--chrome);
+  filter: none;
+}
+
+.data-chevron {
+  font-size: 10px;
+  color: var(--ink-secondary);
+}
+
+.data-table-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.data-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+  padding-left: 8px;
+  border-radius: 2px;
+}
+
+.data-row:hover {
+  background: var(--chrome);
+}
+
+.data-row .field-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.data-check {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+/* --- PBI filter cards and visual gallery --------------------------------- */
+
+.filter-pane > h3 {
+  display: none; /* the pane frame already titles it */
+}
+
+.filter-editor {
+  box-shadow: none;
+  background: var(--surface);
+}
+
+.filter-editor .filter-field {
+  font-size: 12px;
+}
+
+.visual-picker {
+  display: grid;
+  grid-template-columns: repeat(5, 32px);
+  gap: 4px;
+}
+
+.visual-picker .picker-item {
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--ink-secondary);
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.visual-picker .picker-item:hover {
+  background: var(--chrome);
+  filter: none;
+}
+
+.visual-picker .picker-item.selected {
+  border: 2px solid var(--accent);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.well {
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.well-hint {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+/* ==========================================================================
+   Small screens
+   --------------------------------------------------------------------------
+   Phones and small tablets. The rules below are layout changes, not a
+   shrink: a 48px vertical rail beside a 320px canvas leaves nothing to look
+   at, and a six-column table does not become readable by getting narrower.
+
+   Three moves carry most of it:
+     - the nav rail becomes a bottom tab bar (thumb reach, and it stops
+       stealing horizontal room from the canvas);
+     - wide tables shed the columns that are context rather than identity;
+     - anything the finger has to hit grows to a 44px target.
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  /* --- Shell ------------------------------------------------------------ */
+  .app-body {
+    /* Column, so the rail can sit under the content rather than beside it. */
+    flex-direction: column;
+  }
+  .nav-rail {
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: space-around;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    padding-top: 0;
+    /* Last in the column: a bottom bar, where a thumb already is. */
+    order: 2;
+  }
+  .rail-item {
+    flex: 1;
+    width: auto;
+    min-height: 48px;
+  }
+  .rail-item.active {
+    /* The indicator moves with the bar: a left edge means nothing on a
+       horizontal strip. */
+    box-shadow: inset 0 3px 0 var(--brand);
+  }
+  .app-content {
+    order: 1;
+    flex: 1;
+  }
+  .ws-flyout {
+    left: 0;
+    right: 0;
+    bottom: 48px;
+    width: auto;
+    border-right: none;
+  }
+  .app-topbar .identity {
+    /* The account is context, not navigation; the name alone would push
+       Log out off a 320px bar. */
+    display: none;
+  }
+
+  /* --- Report list ------------------------------------------------------ */
+  .reports {
+    padding: 12px;
+  }
+  .reports-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .reports-actions {
+    flex-wrap: wrap;
+  }
+  .content-table td,
+  .content-table th {
+    padding: 10px 8px;
+  }
+  .content-table .report-name {
+    /* A tap target, not a text link. */
+    display: inline-block;
+    padding: 4px 0;
+  }
+
+  /* --- Builder ---------------------------------------------------------- */
+  .builder-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .command-bar .report-title {
+    width: 100%;
+  }
+  .builder-actions {
+    /* Scrolls sideways rather than wrapping into four stacked rows and
+       pushing the canvas off screen. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+  .builder-actions button {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+  .cmd-sep {
+    display: none;
+  }
+  .canvas {
+    padding: 8px;
+  }
+  .page-bar {
+    overflow-x: auto;
+    flex: 0 0 40px;
+  }
+  .page-tab,
+  .page-add,
+  .page-menu-toggle {
+    min-height: 40px;
+    flex: 0 0 auto;
+  }
+  .page-menu {
+    /* Anchored to the bar rather than the button, which can sit anywhere
+       along a scrolled strip. */
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 88px;
+    min-width: 0;
+  }
+  .page-menu button {
+    min-height: 44px;
+  }
+
+  /* --- Panes ------------------------------------------------------------ */
+  .pane-head {
+    min-height: 44px;
+  }
+  .pane-strip {
+    min-height: 44px;
+  }
+  .data-row,
+  .field-row {
+    min-height: 40px;
+  }
+  .filter-value {
+    min-height: 40px;
+    padding: 8px 4px;
+  }
+
+  /* --- Visuals ---------------------------------------------------------- */
+  .canvas .react-grid-item .tile {
+    /* Enough room for a chart to say something once it is full width.
+       Set on the tile rather than on `.tile-body`, so the header is counted
+       inside the height instead of being added on top of it. */
+    min-height: 300px;
+  }
+  .matrix th,
+  .matrix td {
+    padding: 6px;
+  }
+  .multi-card-values {
+    gap: 12px;
+  }
+}
+
+/* Tablets: the rail stays, the tri-pane does not. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .builder-actions {
+    flex-wrap: wrap;
+  }
+  .tile-body {
+    min-height: 200px;
+  }
+}
+
+/* Nothing on any screen may scroll the page sideways. Wide content -- a
+   matrix, a results table, a code block -- scrolls inside its own box. */
+html,
+body {
+  overflow-x: hidden;
+}
+
+/* Canvas flow on small screens.
+   --------------------------------------------------------------------------
+   Deliberately last in the file: `.canvas-column .canvas { flex: 1 }` is
+   declared further up, and these have the same specificity, so only source
+   order settles it.
+
+   `.builder` is `height: auto` at this tier, so a `flex: 1` canvas column is
+   resolving a percentage of nothing: it collapses to a near-zero box, and the
+   grid then paints its tiles straight over the page bar and the pane headers
+   that follow it in the document. Sizing to content restores ordinary flow --
+   canvas, then page bar, then panes, each pushing the next down -- and lets
+   the page itself do the scrolling instead of a nested region. */
+@media (max-width: 959px) {
+  .canvas-column,
+  .canvas-column .canvas,
+  .canvas {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .builder-body {
+    flex: 0 0 auto;
+  }
+}
+
+/* The aggregation picker on a well chip. Only raw FACT fields get one --
+   a view-defined metric already knows how it is measured. */
+.chip-aggregation {
+  border: none;
+  background: none;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  padding: 0 2px;
+  max-width: 96px;
+  cursor: pointer;
+}
+.chip-aggregation:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+
+/* --- Format pane ---------------------------------------------------------
+   PowerBI's paint roller. Grouped sections, each a short stack of controls,
+   so a long pane still scans. */
+.pane-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.pane-tabs .pane-tab {
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.pane-tabs .pane-tab:hover {
+  background: var(--chrome);
+}
+.pane-tabs .pane-tab.active {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
+.format-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.format-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.format-section:last-child {
+  border-bottom: none;
+}
+.format-section h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-secondary);
+}
+.format-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.format-field {
+  font-size: 11px;
+  color: var(--ink-secondary);
+}
+.format-pane input[type="text"],
+.format-pane input[type="number"],
+.format-pane input:not([type]),
+.format-pane select {
+  width: 100%;
+  font-size: 12px;
+}
+
+/* A filter card closes once it is doing something, so a pane of four
+   filters is four lines rather than four scrollers. */
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  /* Explicit: a <button> centres its content, and `text-align` does not
+     reach flex children. With the old "Remove filter" text button beside it
+     the summary was squeezed left anyway; against a 24px icon it drifted to
+     the middle of the card. */
+  justify-content: flex-start;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
+  font-weight: 400;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+.filter-toggle:hover {
+  background: none;
+  text-decoration: underline;
+}
+.filter-caret {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font-size: 11px;
+  width: 10px;
+}
+.filter-toggle .filter-field {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-search {
+  width: 100%;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+/* --- Explore: filters and saved explores --------------------------------- */
+.explore-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+/* Where a new explore will land, said before Save is pressed rather than
+   discovered afterwards in a list. */
+.explore-target select {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.explore-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.explore-save input {
+  font-size: 12px;
+  min-width: 180px;
+}
+.explore-save [role="alert"] {
+  font-size: 12px;
+}
+.saved-explores {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.saved-explore {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--ink);
+  font-weight: 400;
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.saved-explore:hover {
+  background: var(--chrome);
+}
+.saved-explore.open {
+  background: var(--chrome);
+  box-shadow: inset 3px 0 0 var(--brand);
+  font-weight: 600;
+}
+.saved-explore-name {
+  font-size: 13px;
+}
+.saved-explore small {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+   Library: search, facets, pins
+   Browsing controls shared by the reports and explores lists. Facet labels
+   are interface voice, so they take --font-sans -- the monospace `.chip`
+   above is for literal field references and means something different.
+   ========================================================================== */
+
+.searchbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 320px;
+  padding: 0 4px 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+}
+
+.searchbar:hover {
+  border-color: var(--ink-secondary);
+}
+
+/* The container owns the border, so the field inside must not draw a second
+   one; the ring is raised to the container for the same reason. */
+.searchbar:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.searchbar-glyph {
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.searchbar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.searchbar-input:hover {
+  border-color: transparent;
+}
+
+.searchbar-input:focus {
+  outline: none;
+}
+
+/* We render our own clear button; WebKit's native one would be a second ✕. */
+.searchbar-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.searchbar-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 24x24 to clear the WCAG 2.2 target-size floor, as `.chip-remove` does. */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.searchbar-clear:hover {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+.facets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.facets-count {
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.facet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 6px 2px 8px;
+  background: var(--accent-wash);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.facet-chip:hover {
+  border-color: var(--accent);
+}
+
+.facet-chip-label {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facet-chip-remove {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.facet-chip:hover .facet-chip-remove {
+  color: var(--ink);
+}
+
+.star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  /* Muted until pinned: an unpinned row should read as unmarked, not as a
+     control competing with the report name beside it. */
+  color: var(--ink-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.star:hover:not(:disabled) {
+  background: var(--ink-wash);
+  color: var(--ink);
+}
+
+.star-on {
+  color: var(--brand);
+}
+
+.star-on:hover:not(:disabled) {
+  color: var(--brand);
+}
+
+.star:disabled {
+  opacity: 0.5;
+}
+
+/* --------------------------------------------------------------------------
+   Library: the browse bar
+   The controls above a list -- search, the pinned toggle, sort. The bar
+   wraps rather than scrolls: on a narrow pane the sort dropping below the
+   search field reads better than either being clipped.
+   ========================================================================== */
+
+/* The browse controls are a band of their own, not a line of widgets
+   crowding the table. Padding and a rule under it separate "how you are
+   narrowing the list" from "the list". */
+.library-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  /* An 8px gap put the controls right on top of the table. This is a band
+     of its own now: room around the controls, room under it, and a rule so
+     "how you are narrowing the list" reads as separate from the list. */
+  padding: 12px 14px;
+  margin: 0 0 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+}
+
+/* The facet chips belong to the bar above them, not to the table below. */
+.library-bar + * { margin-top: 0; }
+
+/* The explorer's rail is half the width of the reports page. Nothing
+   here may wrap: with wrapping on, the search grows to full width and
+   pushes the pinned-only toggle onto a line of its own beneath it,
+   where it reads as a stray control rather than a filter on the search
+   beside it. The search shrinks instead. */
+.library-bar-compact {
+  flex-wrap: nowrap;
+}
+
+.library-bar-compact .searchbar {
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.library-bar-compact .toggle-button {
+  flex: 0 0 auto;
+}
+
+/* A pressed state needs to be legible without colour alone, so the pressed
+   button also gains a border and weight. */
+.toggle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--ink-secondary);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.toggle-button:hover {
+  background: var(--chrome);
+  color: var(--ink);
+}
+
+.toggle-button.on {
+  background: var(--accent-wash);
+  color: var(--ink);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.library-sort select {
+  min-height: 28px;
+  padding: 0 6px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--axis);
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+/* The pin column: as narrow as the control, so the name still starts near
+   the left edge where the eye looks for it. */
+.pin-cell {
+  width: 32px;
+  padding-right: 0;
+  text-align: center;
+}
+
+/* A list filtered to nothing states the filter and offers the way out, so
+   it never reads as data having gone missing. */
+.reports .empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--ink-secondary);
+}
+
+.reports .empty p {
+  margin: 0;
+}
+
+.saved-explore-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.saved-explore-row .saved-explore {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Faint until hovered, never absent. At opacity 0 the control could not
+   be found without hovering -- and a touch device never hovers, so
+   pinning an explore was unreachable there entirely. Faint keeps the
+   names dominant, which is what the eye scans a narrow rail for, while
+   still saying the control is there. */
+.saved-explore-row .star {
+  opacity: 0.45;
+  flex: 0 0 auto;
+  transition: opacity 120ms ease;
+}
+
+.saved-explore-row:hover .star,
+.saved-explore-row .star:focus-visible,
+.saved-explore-row .star-on {
+  opacity: 1;
+}
+
+/* --- Profile menu: identity plus the context queries run as --------- */
+
+.profile {
+  position: relative;
+  display: inline-flex;
+}
+
+.profile-trigger {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font-weight: 400;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.profile-trigger:hover,
+.profile-trigger[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.profile-identity {
+  color: #d2d0ce;
+  font-size: 12px;
+}
+
+/* The role and warehouse sit on the trigger, not inside the menu: the
+   same report returns different rows under a different role, so this is
+   never something to click to find out. */
+.profile-context {
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.profile-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 260px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.profile-menu-hint {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.profile-field select {
+  width: 100%;
+  padding: 5px 6px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.profile-field select:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.profile-menu-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 12px;
+}
+
+/* --- Account choice on the login page ------------------------------- */
+
+.sso-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  text-align: left;
+}
+
+.login-field select {
+  padding: 6px 8px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* --- Sortable table headers ----------------------------------------- */
+
+/* The whole header is the target, so the click area matches what the eye
+   reads as the control. Inherits the header's own type rather than the
+   brand button styling, which would turn a table head into a row of
+   yellow buttons. */
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 2px;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--accent);
+}
+
+/* Reserved whether or not this column is the sorted one, so the headers
+   do not shift sideways as the arrow moves between them. */
+.th-sort-arrow {
+  display: inline-block;
+  min-width: 0.75em;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+/* A numeric header keeps its figures right-aligned; the arrow follows the
+   label rather than floating away from it. */
+.th-sort-numeric {
+  justify-content: flex-end;
+}
+
+
+/* --- Semantic model tab --------------------------------------------- */
+
+/* The diagram carries its own dark palette rather than the app's light
+   one. A model canvas is a workspace you stare at, not a document: dark
+   ground makes the cards and the join lines the only bright things on
+   it, which is what you are actually reading. Declared as local tokens
+   so every rule below states its intent rather than a hex code. */
+.model-tab {
+  --m-ground: #1c2027;
+  --m-grid: #333a45;
+  --m-card: #2b313b;
+  --m-card-head: #363e4a;
+  --m-ink: #ffffff;
+  --m-ink-dim: #c7cdd6;
+  --m-line: #8d98a6;
+  --m-fact: #6aa2e8;
+  --m-dim: #6fc39a;
+  --m-key: #e8c46a;
+  --m-metric: #e6a3c8;
+
+  display: flex;
+  align-items: stretch;
+  /* Both, because the parent is itself a flex item: `flex` is what makes
+     this fill the column, and `height` is what gives React Flow a box to
+     measure rather than one that sizes to its own content. */
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.model-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--m-ground);
+}
+
+/* React Flow measures this box to decide what "fit" means, so it has to
+   have a height of its own -- a flex child that only sizes to its
+   content measures as zero and the diagram never appears. */
+.model-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Marker definitions only. Zero-sized so it takes no layout, but not
+   `display: none` -- a hidden subtree's markers do not render. */
+.model-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* --- the canvas React Flow draws ------------------------------------ */
+
+.model-pane .react-flow__background {
+  background: var(--m-ground);
+}
+
+.model-pane .react-flow__background-pattern {
+  color: var(--m-grid);
+}
+
+/* Zoom and fit, ours rather than React Flow's <Controls>. Its buttons
+   take a near-white face, a near-white divider and a pale drop shadow
+   from three separate rules, and colour their icons from an inherited
+   `color` -- so on this canvas they came out as a white box with nothing
+   visible in it. Three buttons is less code than overriding all that. */
+.model-tools {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  border: 1px solid var(--m-grid);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.model-tools button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--m-card-head);
+  border: none;
+  border-right: 1px solid var(--m-grid);
+  border-radius: 0;
+  color: var(--m-ink);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.model-tools button:last-child { border-right: none; }
+
+.model-tools button:hover {
+  background: var(--m-fact);
+  color: #10151c;
+}
+
+/* 15px on every side of every overlay is a lot of canvas to give up. */
+.model-pane .react-flow__panel {
+  margin: 6px;
+}
+
+.model-pane .react-flow__attribution {
+  background: transparent;
+  color: var(--m-ink-dim);
+  font-size: 9px;
+}
+
+.model-pane .react-flow__attribution a {
+  color: var(--m-ink-dim);
+}
+
+/* --- table cards ----------------------------------------------------- */
+
+/* The row heights below are the ones graph.ts hands dagre. Change one
+   without the other and the cards no longer fill the space they were
+   laid out into. */
+.model-node {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--m-card);
+  border: 1px solid var(--m-grid);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+  overflow: hidden;
+  color: var(--m-ink);
+}
+
+.model-node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  background: var(--m-card-head);
+  border: none;
+  border-top: 3px solid var(--m-line);
+  border-radius: 0;
+  color: var(--m-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.model-node.kind-fact .model-node-head { border-top-color: var(--m-fact); }
+.model-node.kind-dimension .model-node-head { border-top-color: var(--m-dim); }
+
+.model-node-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-node-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--m-ink-dim);
+}
+
+.model-node-count {
+  padding: 1px 6px;
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.model-node-columns {
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+}
+
+/* Relative, so a join key's handles anchor to the row rather than to the
+   card -- which is what puts the crow's foot on the column the join is
+   actually declared on. */
+.model-column-row {
+  position: relative;
+  height: 26px;
+}
+
+.model-column {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--m-ink);
+  font-size: 13px;
+  text-align: left;
+}
+
+button.model-column { cursor: pointer; }
+
+button.model-column:hover {
+  background: rgb(255 255 255 / 0.08);
+}
+
+.model-column.selected {
+  background: var(--m-fact);
+  color: #10151c;
+  font-weight: 600;
+}
+
+.model-column-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-column.kind-key { color: var(--m-key); font-weight: 600; }
+.model-column.kind-metric .model-column-name { color: var(--m-metric); }
+.model-column.kind-fact .model-column-name { color: var(--m-metric); }
+
+.model-key { font-size: 11px; }
+
+.model-column-type {
+  flex: 0 0 auto;
+  color: var(--m-ink-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.model-column.selected .model-column-type { color: #10151c; }
+
+.model-node-more {
+  height: 22px;
+  padding: 0 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--m-grid);
+  border-radius: 0;
+  color: var(--m-ink-dim);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-node-more:hover { color: var(--m-ink); }
+
+.model-node.selected {
+  border-color: var(--m-fact);
+  box-shadow: 0 0 0 2px var(--m-fact);
+}
+
+/* Handles exist to anchor edges, not to be connected to. */
+.model-node .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* --- what a selection emphasises ------------------------------------- */
+
+/* Four states, not a highlighted/dimmed pair: in a star schema everything
+   connects to everything, so a binary would light the whole diagram up.
+   What varies is HOW -- on a join path, only through a bridge, or not at
+   all. */
+.model-node.state-self { border-color: var(--m-fact); }
+.model-node.state-bridged { opacity: 0.72; }
+.model-node.state-none { opacity: 0.34; }
+
+/* --- edges ----------------------------------------------------------- */
+
+.model-edge .react-flow__edge-path {
+  stroke: var(--m-line);
+  stroke-width: 1.6px;
+}
+
+.model-edge.on .react-flow__edge-path {
+  stroke: var(--m-fact);
+  stroke-width: 2.4px;
+}
+
+.model-edge.off .react-flow__edge-path {
+  stroke: var(--m-line);
+  opacity: 0.25;
+}
+
+.model-edge .react-flow__edge-text {
+  fill: var(--m-ink);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.model-edge .react-flow__edge-textbg {
+  fill: var(--m-ground);
+}
+
+.model-marker {
+  fill: none;
+  stroke: var(--m-line);
+  stroke-width: 1.6px;
+}
+
+/* A marker is a shared definition and cannot take its colour from the
+   edge referencing it, so the highlighted crow's foot is a second one. */
+.model-marker.on {
+  stroke: var(--m-fact);
+  stroke-width: 2.2px;
+}
+
+.model-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--m-card-head);
+  border-top: 1px solid var(--m-grid);
+  color: var(--m-ink-dim);
+  font-size: 11px;
+}
+
+.model-legend-note { color: var(--m-ink-dim); }
+
+.model-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 2px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.model-swatch.kind-fact { background: var(--m-fact); }
+.model-swatch.kind-dimension { background: var(--m-dim); }
+
+.tile .tile-hint { font-size: clamp(10px, 3.2cqi, 12px); }
+
+.model-canvas .tile-hint {
+  color: var(--m-ink-dim);
+  padding: 6px 10px;
+  margin: 0;
+}
+
+/* --- the detail panel ------------------------------------------------ */
+
+/* Stays in the app's light palette: it is a document about the selection,
+   and it sits outside the canvas. */
+.model-detail {
+  flex: 0 0 auto;
+  width: 300px;
+  padding: 12px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.model-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-detail-title {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 2px;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.model-detail-table {
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.model-detail-summary {
+  margin: 4px 0 10px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+
+.model-detail-group {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0 4px;
+  color: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.model-relation {
+  padding: 8px 0 8px 10px;
+  border-left: 3px solid var(--border);
+}
+
+/* A table nothing reaches is worth spotting at a glance; one that only a
+   bridge reaches is worth a second look. */
+.model-relation.link-none { border-left-color: var(--danger, #c0392b); }
+.model-relation.link-bridged { border-left-color: var(--warning, #d99b28); }
+.model-relation.link-same { border-left-color: var(--accent); }
+
+.model-relation-how {
+  margin-top: 2px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.model-path {
+  margin: 4px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.model-path li {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+.model-path-ends {
+  color: var(--ink-secondary);
+  font-size: 11px;
+}
+
+.model-path-on {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.model-path-on.muted { font-style: italic; font-family: inherit; }
+
+.model-detail-fields { margin: 0; padding: 0; list-style: none; }
+
+.model-detail-fields li {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.model-field-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  margin-left: -4px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-field-button:hover { background: var(--surface-hover, rgb(0 0 0 / 0.05)); }
+
+.model-field-name.kind-metric,
+.model-field-name.kind-fact { color: var(--accent); }
+
+.model-field-type {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* Not greyed out: the field is still there and still worth reading, it
+   just cannot go in the same query. The reason says which. */
+.model-detail-fields li.blocked .model-field-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-muted);
+}
+
+.model-field-blocked {
+  padding: 0 4px 2px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.model-join { padding: 4px 0; font-size: 12px; }
+
+.model-join-keys {
+  color: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* A segmented control: a recessed track with the chosen segment raised out
+   of it, so the choice reads as a position rather than as which of two
+   buttons happens to be coloured in. */
+.mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--chrome);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.mode-switch button {
+  height: 24px;
+  padding: 0 11px;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink-secondary);
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.mode-switch button .icon { opacity: 0.7; }
+
+.mode-switch button:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
+}
+
+.mode-switch button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.mode-switch button[aria-pressed="true"] .icon {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.mode-switch button:disabled { opacity: 0.45; }
+
+/* --- Composite models -------------------------------------------------
+   Authoring a model over several semantic views. Sections rather than a
+   canvas: what is being written is a mapping, and a mapping reads as a
+   list of statements. */
+.model-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.model-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.model-name {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  padding: 0.4rem 0.6rem;
+}
+
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.model-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.model-section > h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.model-section > table,
+.model-section > .table-scroll,
+.model-section > .model-shared {
+  width: 100%;
+}
+
+.model-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.model-members li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.model-alias {
+  width: 9rem;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.model-view-name {
+  color: var(--muted);
+  font-size: 0.85rem;
+  /* The long part of the row: it shrinks before the alias does, because
+     the alias is what everything else in the model refers to. */
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-shared {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.model-shared-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.model-shared-head input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.model-choices {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.model-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .model-page {
+    padding: 0.75rem;
+  }
+  .model-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+.model-derived-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.model-derived-form .field {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.model-expr {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.85rem;
+}
+
+/* Suggested conformed dimensions. Set apart from the confirmed ones
+   because they are a proposal: what the app noticed, not what the model
+   says. */
+.model-suggestions {
+  width: 100%;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.model-suggestions-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.model-suggestion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.model-suggestion-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.model-suggestion-name {
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.model-suggestion-why {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.model-suggestion-cols {
+  font-size: 0.78rem;
+  color: var(--muted);
+  /* The long part: it gives way first, and the actions stay reachable. */
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-suggestion-list .row-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ==========================================================================
+   Resizable panes
+   ========================================================================== */
+
+/* The grab edge. Sits ON the pane's border rather than beside it, so the
+   pane's own width is what the user is setting -- an adjacent element
+   would make the number they drag to differ from the number stored. */
+.pane-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  /* Above the pane's content so a field row never swallows the drag. */
+  z-index: 2;
+  background: transparent;
+  border: none;
+  padding: 0;
+  /* Touch devices scroll a pane by dragging it; claiming the gesture on
+     this sliver only is what keeps both possible. */
+  touch-action: none;
+}
+
+.pane-resizer:hover,
+.pane-resizer:focus-visible {
+  background: var(--accent, #4c6ef5);
+  opacity: 0.35;
+}
+
+.pane-resizer:focus-visible {
+  outline: 2px solid var(--accent, #4c6ef5);
+  outline-offset: -2px;
+  opacity: 0.6;
+}
+
+/* Stacked layout: the panes are rows, so a vertical drag edge would
+   resize nothing. */
+@media (max-width: 960px) {
+  .pane-resizer {
+    display: none;
+  }
+  .left {
+    width: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Model designer
+   ========================================================================== */
+
+.model-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  width: 100%;
+}
+
+.model-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.5rem 0.9rem;
+  color: var(--ink-secondary, var(--muted));
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.model-tabs button.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--accent, #4c6ef5);
+  font-weight: 600;
+}
+
+/* The canvas needs a height of its own: React Flow measures its parent,
+   and a parent sized by its content measures zero. */
+.designer-canvas {
+  position: relative;
+  width: 100%;
+  height: min(70vh, 640px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+/* --- a member view ---------------------------------------------------- */
+
+.designer-backdrop {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1.5px dashed;
+  border-radius: 10px;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.designer-backdrop.is-open {
+  /* Solid once it holds cards: dashed reads as "there is more inside". */
+  border-style: solid;
+}
+
+/* Scenery, and it has to behave like scenery: a backdrop must never take
+   a click meant for a card inside it, and must never paint over one. */
+.designer-canvas .react-flow__node-backdrop {
+  z-index: 0 !important;
+}
+
+.designer-canvas .react-flow__node-designerTable {
+  z-index: 1 !important;
+}
+
+.designer-backdrop-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.designer-toggle > span:first-child {
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.designer-backdrop-name {
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.designer-backdrop-count {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.designer-backdrop-view {
+  margin: 0;
+  padding: 0 0.5rem 0.25rem;
+  font-size: 0.68rem;
+  color: var(--ink-muted, var(--muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Collapsed: the conformed columns, so an edge has somewhere to land. */
+.designer-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0.3rem;
+}
+
+.designer-summary-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 22px;
+  padding: 0 0.5rem;
+  font-size: 0.7rem;
+}
+
+.designer-summary-dim {
+  font-weight: 600;
+}
+
+.designer-summary-col {
+  margin-left: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: var(--ink-muted, var(--muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.designer-summary-empty {
+  padding: 0 0.5rem;
+  height: 22px;
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--ink-muted, var(--muted));
+}
+
+/* --- a table inside one ----------------------------------------------- */
+
+/* Fills the box React Flow measured for it. Without this the card
+   shrank to its content inside a 280px wrapper, so the layout dagre
+   planned and the layout on screen were two different things. The
+   report diagram's .model-node carries the same pair for the same
+   reason. */
+.designer-table {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.75rem;
+  box-sizing: border-box;
+}
+
+.designer-table-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  /* The view's colour, as a stripe: which view a card belongs to has to
+     survive being dragged out from under its backdrop's label. */
+  border-top: 3px solid;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.designer-table-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.designer-table-count {
+  margin-left: auto;
+  font-weight: 400;
+  color: var(--ink-muted, var(--muted));
+}
+
+.designer-columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.designer-column {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 26px;
+  padding: 0 0.5rem;
+}
+
+.designer-column.is-conformed {
+  background: var(--ink-wash);
+}
+
+.designer-column.is-empty {
+  font-style: italic;
+  color: var(--ink-muted, var(--muted));
+}
+
+.designer-column-name {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.designer-column-tag {
+  margin-left: auto;
+  font-size: 0.65rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--accent, #4c6ef5);
+  color: #fff;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.designer-canvas .react-flow__edge-path {
+  stroke: var(--accent, #4c6ef5);
+  stroke-width: 1.5;
+}
+
+/* A view's own joins are Snowflake's: drawn quieter than the mappings
+   somebody made, because only one of the two is theirs to change. */
+.designer-canvas .react-flow__edge.designer-edge-internal .react-flow__edge-path {
+  stroke: var(--ink-muted, #8a94a6);
+  stroke-width: 1;
+}
+
+.designer-canvas .react-flow__edge.designer-edge-ghost .react-flow__edge-path {
+  stroke: var(--ink-muted, #8a94a6);
+  stroke-dasharray: 4 4;
+}
+
+/* A refusal, and the panel for a selected mapping. Both float over the
+   canvas rather than pushing it: a diagram that resized every time you
+   clicked an edge would move the thing you were aiming at. */
+.designer-refusal,
+.designer-edge-panel {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.82rem;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 12%);
+}
+
+.designer-refusal {
+  border-color: var(--danger, #c92a2a);
+}
+
+.designer-refusal .link,
+.designer-edge-panel .link {
+  margin-left: auto;
+}
+
+.designer-edge-panel input {
+  flex: 0 1 14rem;
+  min-width: 0;
+}
+
+/* A canvas needs room to be a canvas. Below this the Design tab offers a
+   diagram nobody can read OR drag on, so it says so and points at the
+   form, which works at any width. */
+@media (max-width: 860px) {
+  .designer-canvas {
+    display: none;
+  }
+  .designer-too-narrow {
+    display: block;
+  }
+}
+
+.designer-too-narrow {
+  display: none;
+  margin: 0;
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--ink-muted, var(--muted));
+  font-size: 0.85rem;
+}
+
+/* The designer's own chrome. It used to borrow .model-tools and
+   .model-marker from the report diagram, whose rules resolve against
+   --m-* tokens scoped to .model-tab -- which do not exist out here. The
+   toolbar became a row of blank 26px squares and the crow's feet lost
+   their stroke, so the canvas looked broken and its buttons did nothing.
+   Sharing a class means sharing everything it depends on. */
+.designer-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.designer-marker {
+  fill: none;
+  stroke: var(--ink-muted, #8a94a6);
+  stroke-width: 1.4px;
+}
+
+.designer-tools {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.designer-tools button {
+  /* Sized to its text: two of these say words, not symbols. */
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.designer-tools button:hover {
+  border-color: var(--accent, #4c6ef5);
+  color: var(--accent, #4c6ef5);
+}
+
+.designer-tools button.primary {
+  background: var(--accent, #4c6ef5);
+  border-color: var(--accent, #4c6ef5);
+  color: #fff;
+}
+
+/* Ports have to be findable before they can be dragged from. Faint at
+   rest so a card is not a pincushion, solid the moment the pointer is on
+   the row that owns them. */
+.designer-canvas .designer-port {
+  width: 9px;
+  height: 9px;
+  background: var(--surface);
+  border: 1.5px solid var(--ink-muted, #8a94a6);
+  opacity: 0.45;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.designer-column:hover .designer-port,
+.designer-summary-row:hover .designer-port {
+  opacity: 1;
+  border-color: var(--accent, #4c6ef5);
+}
+
+.designer-canvas .designer-port:hover {
+  background: var(--accent, #4c6ef5);
+  border-color: var(--accent, #4c6ef5);
+  /* A bigger target than it looks, because 9px is a hard thing to hit. */
+  box-shadow: 0 0 0 4px rgb(76 110 245 / 18%);
+}
+
+/* The line being dragged, so it is obvious a connection is in progress. */
+.designer-canvas .react-flow__connectionline .react-flow__connection-path {
+  stroke: var(--accent, #4c6ef5);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+/* A member the warehouse would not describe. Saying so beats an empty
+   container, which is indistinguishable from a broken one -- and that
+   ambiguity cost real time. */
+.designer-unreadable {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--danger, #c92a2a);
+}
+
+/* Removing a view: its own target, because removing one and expanding
+   one are different enough that sharing a hit area would be a trap. */
+.designer-remove {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--ink-muted, #8a94a6);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.designer-backdrop:hover .designer-remove {
+  opacity: 1;
+}
+
+.designer-remove:hover {
+  background: var(--danger, #c92a2a);
+  color: #fff;
+}
+
+/* The first move, offered on the canvas rather than sending somebody to
+   a form -- a designer that cannot start a model is a viewer. */
+.designer-empty {
+  position: absolute;
+  inset: auto 12px 56px 12px;
+  z-index: 4;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-muted, var(--muted));
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.designer-add {
+  height: 28px;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+/* Full screen: the canvas takes the window. A model over several views
+   is a lot of diagram, and 70vh inside a page that also carries a header
+   and tabs is not enough of it.
+
+   Fixed rather than the Fullscreen API: this keeps the app's own chrome
+   and its escape route, needs no permission, and cannot leave somebody
+   in a state the page does not know it is in. */
+.designer-canvas.is-maximised {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  height: 100vh;
+  width: 100vw;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+}
+
+/* The toolbar rides along, so the way out travels with it. */
+.designer-canvas.is-maximised .designer-tools {
+  bottom: 16px;
+  left: 16px;
+}
+
+/* The card's own anchor for its view's declared joins. Positioned at the
+   header so an edge meets the card where its name is, and unobtrusive
+   because it is not something to drag from -- those joins are
+   Snowflake's. */
+.designer-port-table {
+  top: 17px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* When the panel cannot apply its own rules, it says so. Not greying is
+   otherwise indistinguishable from a bug -- which is exactly what it was
+   taken for. */
+.field-note {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   Waiting, and the three ways this app fails
+   The loading state and the status pages (404, 500, 503) are one family on
+   purpose: whatever goes wrong, it should look like the same product it
+   went wrong in. Both keep the chrome's discipline -- brand yellow, one
+   accent, no illustration -- and say the useful thing plainly.
+   ========================================================================== */
+
+/* --- The branded wait ---------------------------------------------------- */
+
+/* Draws the same picture as the splash inlined in index.html, so React
+   taking over is a continuation and not a flash. When those change, change
+   both -- index.html cannot read this file in time to matter. */
+.loading-screen {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--ink);
+}
+
+/* When the wait IS the screen -- the session check, the login page -- rather
+   than the content area of an already-drawn shell. */
+.loading-screen--page {
+  min-height: 100vh;
+}
+
+.loading-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* The brand square, quartered: a cell grid, which is what this tool is for.
+   The fourth cell sits lighter, as though it were still filling. */
+.loading-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  background: linear-gradient(var(--brand) 0 0) 0 0 / 15px 15px no-repeat,
+    linear-gradient(var(--brand) 0 0) 19px 0 / 15px 15px no-repeat,
+    linear-gradient(var(--brand) 0 0) 0 19px / 15px 15px no-repeat,
+    linear-gradient(#f7e08a 0 0) 19px 19px / 15px 15px no-repeat;
+}
+
+.loading-wordmark {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Indeterminate, and honestly so: neither a bundle download nor a session
+   check can report progress, and a percentage that stalls at 90 reads worse
+   than motion that never claimed to know. */
+.loading-track {
+  width: 168px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--grid);
+  overflow: hidden;
+}
+
+.loading-fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--brand);
+  animation: loading-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes loading-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.loading-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+/* Held at zero opacity for ten seconds, then the animation's last frame
+   sticks. A CSS delay rather than a timer, so it needs no script -- and the
+   CSP this app serves forbids inline ones anyway. */
+.loading-slow {
+  font-size: 11px;
+  color: var(--ink-muted);
+  opacity: 0;
+  animation: loading-reveal 400ms ease-out 10s forwards;
+}
+
+@keyframes loading-reveal {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-fill {
+    width: 100%;
+    opacity: 0.55;
+    animation: none;
+  }
+  .loading-slow {
+    animation-duration: 1ms;
+  }
+}
+
+/* --- 404, 500, 503 -------------------------------------------------------- */
+
+.status-page {
+  flex: 1;
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 32px 24px 56px;
+  text-align: center;
+  color: var(--ink);
+}
+
+/* Large, but in --grid rather than --ink: the number is orientation, not the
+   message. It sits behind the sentence in the reading order your eye uses,
+   which is the opposite of the order the markup needs. */
+.status-code {
+  margin: 0;
+  font-size: 84px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--grid);
+  font-variant-numeric: tabular-nums;
+}
+
+.status-headline {
+  margin: 12px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.status-detail {
+  margin: 8px 0 0;
+  max-width: 42ch;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.status-actions {
+  margin: 24px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* The recovery path is one solid button and one quiet link, never two equal
+   buttons: there is always a better answer, and the page should point at it. */
+.status-details {
+  margin: 32px 0 0;
+  max-width: 60ch;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.status-details summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.status-details pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pane);
+  background: var(--chrome);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-secondary);
+}
+
+/* The login page draws its wait and its failure on the same dark backdrop as
+   the sign-in card, so both restate their colours the way .login-card does --
+   and both need position, or the scrim (absolute) would paint over them. */
+.login .status-page,
+.login .loading-screen {
+  position: relative;
+  color: #ffffff;
+}
+
+.login .status-code {
+  color: rgb(255 255 255 / 0.22);
+}
+
+.login .status-detail,
+.login .loading-label,
+.login .loading-slow {
+  color: rgb(255 255 255 / 0.72);
+}
+
+.login .loading-track {
+  background: rgb(255 255 255 / 0.18);
+}
+
+/* --- Dialogs, orientation, and what a report is built on ------------------
+   The first modal in the product. Everything before this was a panel docked
+   to an edge, which is why there was no primitive to reuse. */
+
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(37, 36, 35, 0.32);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+
+/* The panel takes focus on open, and a focus ring on a whole dialog reads as
+   an error rather than as position. The trap is what keeps it reachable. */
+.dialog:focus { outline: none; }
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.dialog-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.welcome-lead {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.welcome-arc {
+  margin: 0 0 14px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.welcome-arc li { margin-bottom: 6px; }
+
+.welcome-note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.55;
+}
+
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.profile-menu-link {
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--grid);
+  text-align: left;
+}
+
+/* --- The About page ------------------------------------------------------
+   One size and one family for the whole page. It carried six sizes and two
+   families before, which read as six levels of importance where there are
+   only two: the answer, and the evidence for it.
+
+   Hierarchy comes from weight, colour and space instead. Nothing here is
+   sized to be noticed; the page is scanned top to bottom, and a reader
+   should never have to work out why one line is a pixel larger than the
+   one above it. */
+
+.about-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px 40px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* Controls included: a button or input at its own size would reintroduce
+   exactly what this section exists to remove. */
+.about-page button,
+.about-page input,
+.about-page code,
+.about-page time {
+  font: inherit;
+}
+
+.about-block {
+  max-width: 720px;
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.about-block:last-child { border-bottom: none; }
+
+.about-block h3 {
+  margin: 0 0 10px;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Declared, not yet wired. Quieter than the two blocks carrying answers,
+   but present -- silence here would be indistinguishable from a model with
+   no lineage and no problems. */
+.about-block--pending {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.about-block--pending h3 { font-weight: 500; color: var(--ink-muted); }
+
+.about-model-name { margin: 0 0 12px; }
+.about-model-name strong { font-weight: 600; }
+
+/* The qualifying path is context; the view's own name is the subject. */
+.about-model-scope { color: var(--ink-muted); }
+
+.about-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+
+.about-badge {
+  display: inline-block;
+  padding: 1px 10px;
+  border-radius: 11px;
+  background: var(--brand);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Absence is stated, not coloured as an alarm: an uncertified model is the
+   ordinary case, not a fault. */
+.about-badge.is-none {
+  background: none;
+  border: 1px solid var(--grid);
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.about-meta,
+.about-note,
+.about-placeholder,
+.about-unavailable,
+.about-partial,
+.about-prefix,
+.about-contact,
+.about-source,
+.about-undated,
+.about-cert-denied {
+  color: var(--ink-muted);
+}
+
+.about-meta,
+.about-note,
+.about-placeholder,
+.about-unavailable,
+.about-partial,
+.about-prefix {
+  margin: 0 0 6px;
+  max-width: 62ch;
+}
+
+.about-note { color: var(--ink); }
+
+.about-headline { margin: 0 0 4px; }
+.about-headline strong { font-weight: 600; }
+
+.about-prefix { margin-bottom: 10px; }
+
+.about-table-wrap { overflow-x: auto; }
+
+.about-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.about-table th,
+.about-table td {
+  padding: 7px 16px 7px 0;
+  border-bottom: 1px solid var(--grid);
+  text-align: left;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.about-table thead th {
+  padding-bottom: 6px;
+  border-bottom-color: var(--ink-muted);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.about-table tbody tr:last-child th,
+.about-table tbody tr:last-child td { border-bottom: none; }
+
+.about-table tbody th { font-weight: 500; }
+
+/* Ages line up on the right, with figures of equal width, so the column
+   reads as one shape rather than seven strings -- which is the only reason
+   it is there. Tabular numerals give that without a second typeface. */
+.about-num {
+  text-align: right;
+  padding-right: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.about-tag {
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+/* --- Certifying a model, for whoever Snowflake says may ------------------ */
+
+.about-cert-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 0;
+}
+
+.about-cert-denied { margin: 12px 0 0; }
+
+.about-cert-form {
+  max-width: 440px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--grid);
+  border-radius: 4px;
+}
+
+.about-cert-form label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--ink-muted);
+}
+
+.about-cert-form input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  color: var(--ink);
+}
+
+.about-cert-error {
+  margin: 10px 0 0;
+  color: var(--danger, #a4262c);
+}
+
+/* Snowflake's own words, kept verbatim and set no differently: it is a
+   quotation, not a category of text. */
+.about-reason { color: var(--ink-muted); }

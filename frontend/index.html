@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#faf9f8" />
+    <title>SemanticUI</title>
+    <!--
+      The splash, inlined.
+
+      It has to paint from the first bytes of this document: the JS bundle is
+      the slow part, so anything that waits on a stylesheet request or on
+      React has already lost the moment it exists for. Hence styles here
+      rather than in index.css, and no scripting at all -- the CSP served by
+      app/main.py is `default-src 'self'` with no script-src, so an inline
+      script would simply be blocked. The ten-second message below is therefore a
+      CSS animation-delay, not a setTimeout.
+
+      Colours are duplicated from src/index.css on purpose (that file is a
+      separate, blocking request). Keep them in step:
+        #faf9f8 --page   #252423 --ink   #f2c811 --brand   #e1dfdd --grid
+        #8a8886 --ink-muted
+
+      React clears #root when it mounts, which removes all of this. There is
+      no fade because none is needed: src/ui/LoadingScreen.tsx draws the same
+      picture, so the handoff is a continuation rather than a cut.
+    -->
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: #faf9f8;
+        color: #252423;
+        font-family: "Segoe UI", "Segoe UI Web (West European)", -apple-system,
+          system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      /* Deliberately no #root rule: this <style> outlives the splash (React
+         only clears #root's children, not the head), so it must not leave
+         global layout behind that src/index.css does not own. */
+      .boot {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+      }
+      .boot-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      /* The brand square, quartered -- a cell grid, which is what this tool
+         is for. The fourth cell sits lighter, as though still filling. */
+      .boot-mark {
+        width: 34px;
+        height: 34px;
+        background: linear-gradient(#f2c811 0 0) 0 0 / 15px 15px no-repeat,
+          linear-gradient(#f2c811 0 0) 19px 0 / 15px 15px no-repeat,
+          linear-gradient(#f2c811 0 0) 0 19px / 15px 15px no-repeat,
+          linear-gradient(#f7e08a 0 0) 19px 19px / 15px 15px no-repeat;
+      }
+      .boot-wordmark {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .boot-track {
+        width: 168px;
+        height: 2px;
+        border-radius: 1px;
+        background: #e1dfdd;
+        overflow: hidden;
+      }
+      .boot-fill {
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: #f2c811;
+        animation: boot-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+      @keyframes boot-sweep {
+        0% {
+          transform: translateX(-120%);
+        }
+        100% {
+          transform: translateX(320%);
+        }
+      }
+      .boot-label {
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: #8a8886;
+      }
+      /* Not a setTimeout: opacity holds at 0 for ten seconds, then the
+         animation's final frame sticks. Costs nothing and needs no script. */
+      .boot-slow {
+        font-size: 11px;
+        color: #8a8886;
+        opacity: 0;
+        animation: boot-reveal 400ms ease-out 10s forwards;
+      }
+      @keyframes boot-reveal {
+        to {
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-fill {
+          width: 100%;
+          opacity: 0.55;
+          animation: none;
+        }
+        .boot-slow {
+          animation-duration: 1ms;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot">
+        <span class="boot-brand">
+          <span class="boot-mark"></span>
+          <span class="boot-wordmark">SemanticUI</span>
+        </span>
+        <span class="boot-track"><span class="boot-fill"></span></span>
+        <span class="boot-label">Loading…</span>
+        <span class="boot-slow">
+          Still working — this can take a moment on a slow connection.
+        </span>
+      </div>
+    </div>
+    <noscript>
+      <p style="text-align: center; font-family: sans-serif">
+        SemanticUI needs JavaScript enabled to run.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

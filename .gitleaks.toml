@@ -1,0 +1,14 @@
+# Extends the default ruleset with this product's own token shape, so a
+# pasted connect token is caught the same way a pasted AWS key would be.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "semanticui-connect-token"
+description = "SemanticUI Excel connect token"
+regex = '''xlt_[A-Za-z0-9_-]{20,}'''
+keywords = ["xlt_"]
+
+[allowlist]
+description = "Test fixtures use obviously-fake placeholder tokens"
+regexes = ['''xlt_wrong''', '''xlt_not-a-real-token''']

@@ -1,0 +1,33 @@
+# Evaluation/production-shaped stack: the app image plus Postgres.
+# Development keeps using dev.py (hot reload); this is the deploy shape.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: semanticui
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-semanticui}
+      POSTGRES_DB: semanticui
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U semanticui"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    ports:
+      - "8080:8000"
+    environment:
+      SEMANTICUI_DATABASE_URL: postgresql+psycopg://semanticui:${POSTGRES_PASSWORD:-semanticui}@db:5432/semanticui
+      SEMANTICUI_SECRET_KEY: ${SEMANTICUI_SECRET_KEY:-dev-secret-change-me}
+      SEMANTICUI_ENVIRONMENT: ${SEMANTICUI_ENVIRONMENT:-development}
+      SEMANTICUI_AUTH_MODE: ${SEMANTICUI_AUTH_MODE:-dev}
+      SEMANTICUI_APP_NAME: ${SEMANTICUI_APP_NAME:-SemanticUI}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  dbdata:

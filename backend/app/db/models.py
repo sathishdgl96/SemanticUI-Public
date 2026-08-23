@@ -1,0 +1,456 @@
+"""The whole relational schema, one class per table.
+
+Nothing security-relevant is stored in the clear: OAuth tokens are
+encrypted at rest, connect tokens exist only as sha256 digests, and
+audit events reference sessions by hash. Columns change only alongside
+a migration in backend/migrations.
+"""
+
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    Boolean,
+    Index,
+    ForeignKey,
+    Integer,
+    JSON,
+    LargeBinary,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base, UtcDateTime
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("snowflake_account", "snowflake_user", name="uq_users_identity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    snowflake_account: Mapped[str] = mapped_column(String(255))
+    snowflake_user: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    #: The execution context this user last chose, replayed at the next
+    #: login. NULL means they never chose: the token's role and the
+    #: account's default warehouse apply instead.
+    last_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Which dashboard this user opens on Home. Per-user because it is a
+    #: preference, not a property of the dashboard -- two people in the
+    #: same workspace reasonably start their day on different ones. No
+    #: foreign key: the dashboard may be deleted or become unreadable, and
+    #: both cases resolve to "no dashboard chosen" rather than to an error.
+    home_dashboard_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, nullable=True
+    )
+    #: When this person was oriented. NULL means never, which is the only
+    #: state that opens the welcome dialog unprompted. Per user rather than
+    #: per session or per browser: somebody who has been oriented has been
+    #: oriented, whichever machine they next sign in from.
+    welcomed_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+
+
+class DbSession(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    mode: Mapped[str] = mapped_column(String(8))
+    access_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    refresh_token_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    access_expires_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    last_seen_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    #: The Excel/Power Query bearer: sha256 hex of a token the UI showed
+    #: exactly once. Only the hash is stored; presenting the raw token is the
+    #: only way in, and it rides on THIS session -- its connection, its user,
+    #: its lifetime. NULL means no token has been minted (or it was revoked).
+    connect_token_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    connect_token_expires_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    #: The account chosen at login. Needed because rebuilding an
+    #: expired OAuth connection must reach the SAME account -- the
+    #: choice lived only in the short-lived OAuth state, so a rebuild
+    #: silently fell back to the configured default.
+    snowflake_account_choice: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+
+    user: Mapped[User] = relationship()
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200))
+    #: "personal" or "shared". A personal workspace refuses members, renames
+    #: and deletion -- that is what distinguishes "my private drafts" from a
+    #: shared workspace that happens to have one member today.
+    kind: Mapped[str] = mapped_column(String(16), default="shared")
+    #: Membership is confined to this Snowflake account: a user from another
+    #: account could never resolve the views these reports bind to, so the
+    #: grant would be an illusion of access.
+    snowflake_account: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_members"),
+        #: "Which workspaces am I in" runs on every listing and filters on
+        #: BOTH columns. The unique constraint above leads with the wrong
+        #: one for that direction.
+        Index("ix_workspace_members_user_workspace", "user_id", "workspace_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    #: Indexed because "which workspaces am I in" runs on every report list.
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    #: Every listing is scoped to a workspace and ordered by updated_at.
+    __table_args__ = (Index("ix_reports_workspace_updated", "workspace_id", "updated_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check; see
+    #: workspace_id below and app/workspaces/access.py.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary. Everything about who may read or edit this report
+    #: is decided by membership of this workspace.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    view_database: Mapped[str] = mapped_column(String(255))
+    view_schema: Mapped[str] = mapped_column(String(255))
+    view_name: Mapped[str] = mapped_column(String(255))
+    #: The portable definition document. JSONB on Postgres, JSON on SQLite.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Provenance: the role and warehouse this was last saved under. A
+    #: browsing facet, never a permission -- membership alone decides
+    #: who may read it (ADR 0009).
+    snowflake_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    snowflake_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, onupdate=now_utc
+    )
+
+
+class AuditEvent(Base):
+    """One security-relevant act. Value-free by contract: names of the
+    acting user and the touched resource are IDs, `detail` holds only
+    shapes (counts, flags), never data values or resource names."""
+
+    __tablename__ = "audit_events"
+    #: The activity log filters by action OR by user and always orders by
+    #: time; a single-column index serves the filter or the order, never
+    #: both.
+    __table_args__ = (
+        Index("ix_audit_action_ts", "action", "ts"),
+        Index("ix_audit_user_ts", "user_id", "ts"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    ts: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, index=True
+    )
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    #: sha256 prefix of the session id -- correlates events of one session
+    #: without the audit table becoming a cookie-theft target.
+    session_ref: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    resource_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), default="ok")
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+class SavedExplore(Base):
+    """A saved query, not a saved canvas.
+
+    Looker's Look, in this codebase's vocabulary: one semantic view, a set of
+    fields, its filters and its ordering. Deliberately its own table rather
+    than a Report with a single table visual -- an explore has no layout, no
+    pages and no visuals, and modelling it as a degenerate report would mean
+    every report code path had to keep asking whether it was really an
+    explore.
+    """
+
+    __tablename__ = "saved_explores"
+    __table_args__ = (
+        Index("ix_explores_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check; see
+    #: workspace_id below and app/workspaces/access.py.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary, exactly as for a report.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    view_database: Mapped[str] = mapped_column(String(255))
+    view_schema: Mapped[str] = mapped_column(String(255))
+    view_name: Mapped[str] = mapped_column(String(255))
+    #: The explore document: fields, filters, ordering, row cap.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Provenance: the role and warehouse this was last saved under. A
+    #: browsing facet, never a permission -- membership alone decides
+    #: who may read it (ADR 0009).
+    snowflake_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    snowflake_warehouse: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, onupdate=now_utc
+    )
+
+class UserItemState(Base):
+    """One user's relationship to one item: pinned, and last opened.
+
+    Recents and favourites are the same concern -- what this person
+    has done with this item -- so they share a row rather than two
+    tables that must be kept in step. `item_type` is a string because
+    reports and explores are separate tables; a column per kind would
+    grow with every kind added.
+    """
+
+    __tablename__ = "user_item_state"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "item_type", "item_id", name="uq_user_item_state"
+        ),
+        #: "What have I opened lately" reads this triple.
+        Index(
+            "ix_user_item_state_user_type_seen",
+            "user_id",
+            "item_type",
+            "last_viewed_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    item_type: Mapped[str] = mapped_column(String(16))
+    item_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_viewed_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+
+
+class Dashboard(Base):
+    """Visuals from several reports, gathered on one canvas.
+
+    A sibling of Report, not a special case of one. A report is bound to
+    exactly one semantic view and owns the visuals on it; a dashboard owns
+    no visuals at all -- every tile NAMES one that lives on a report, so a
+    single dashboard can draw from as many reports as the workspace holds.
+    Modelling it as a report with a null view would have meant every report
+    code path asking whether it was really a dashboard.
+
+    Workspace-owned, exactly like a report, and governed by the same
+    membership rule: what a dashboard shows is what its tiles' reports
+    show, so putting it anywhere else would have created a second way to
+    reach a report's data with a different answer about who may.
+    """
+
+    __tablename__ = "dashboards"
+    __table_args__ = (
+        Index("ix_dashboards_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary, and the boundary tiles may not cross: a tile
+    #: names a report in THIS workspace, so every member who can open the
+    #: dashboard can open what is on it.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    #: {"schemaVersion": 1, "tiles": [{id, reportId, pageId, visualId,
+    #: title, layout}]}. A document rather than a tiles table for the same
+    #: reason a report's visuals are a document: it is edited and saved as
+    #: one thing, and half a saved layout is not a state worth being able
+    #: to reach.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, onupdate=now_utc
+    )
+
+
+class Announcement(Base):
+    """A notice from whoever runs this deployment, shown to everyone.
+
+    Its own table and its own section rather than a field on a dashboard.
+    An announcement is not a caption about one set of numbers -- it is
+    "Snowflake is down for maintenance on Saturday", which everybody needs
+    whatever they happen to be looking at, and which nobody should have to
+    open a particular dashboard to find.
+
+    Who may write one comes from the environment, like the rest of the
+    admin area: a broadcast to every user is not a permission any row in
+    this database should be able to grant.
+    """
+
+    __tablename__ = "announcements"
+    __table_args__ = (
+        #: "What is showing right now" is the only read this table gets.
+        Index("ix_announcements_active_starts", "active", "starts_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    message: Mapped[str] = mapped_column(String(500))
+    #: How loudly to say it: "info", "warning" or "critical".
+    level: Mapped[str] = mapped_column(String(16), default="info")
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    #: When it starts mattering, and when it stops. Null end means "until
+    #: somebody turns it off" -- which is right for a standing notice and
+    #: wrong for a maintenance window, so both are offered.
+    starts_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc
+    )
+    ends_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, onupdate=now_utc
+    )
+
+
+class CompositeModel(Base):
+    """One model over several semantic views.
+
+    A fourth kind beside Report, Dashboard and Explore, and a sibling of
+    all three rather than a special case of any. A report reads exactly
+    one semantic view; a composite names several and declares the
+    conformed dimensions that make them answerable together, so a
+    question can span models two teams own separately.
+
+    Workspace-owned, governed by the same membership rule. It holds a
+    definition and never data: composing happens at query time on the
+    caller's own connection, so a composite cannot widen anybody's access
+    to what its members read (ADR 0001).
+    """
+
+    __tablename__ = "composite_models"
+    __table_args__ = (
+        Index(
+            "ix_composite_models_workspace_updated", "workspace_id", "updated_at"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: Provenance only -- who created this. It is NOT the access check.
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id"), index=True
+    )
+    #: The access boundary. Membership here decides who may read the
+    #: definition; Snowflake still decides who may read the data behind
+    #: every member view, on each caller's own connection.
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    #: {"schemaVersion": 1, "name", "members": [...], "sharedDimensions":
+    #: [...], "derivedMetrics": [...], "joinType", "crossFilter"}. A
+    #: document for the same reason a dashboard's tiles are one: it is
+    #: edited and saved as a single thing, and half a saved mapping is not
+    #: a state worth being able to reach.
+    definition: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, onupdate=now_utc
+    )
+
+
+class ModelCertification(Base):
+    """One organisation's statement about one semantic view.
+
+    The view itself lives in Snowflake and this table never pretends
+    otherwise: the row is keyed by the view's identity, carries no copy
+    of its shape, and means nothing if the view is dropped.
+
+    `certified_by_role` is the point of the record. Authority to certify
+    is Snowflake's answer, not the app's -- the caller's session has to
+    hold the owning role -- so the audit question later is not "who
+    clicked" but "under whose authority", and only one of those two is
+    worth keeping.
+
+    A Snowflake object tag would put this on the object where every tool
+    could read it. It would also mean this app writing DDL into somebody
+    else's account, so the columns here are deliberately the ones a tag
+    would carry: moving later is a data migration, not a redesign.
+    """
+
+    __tablename__ = "model_certifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "database", "schema", "name", name="uq_model_certifications_view"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    #: The view's identity, exactly as Snowflake spells it.
+    database: Mapped[str] = mapped_column(String(255))
+    schema: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(255))
+
+    certified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    certified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    #: The Snowflake role whose authority permitted this, not the app role.
+    certified_by_role: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    certified_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+
+    #: Who to ask when the numbers look wrong. Free text because the owner
+    #: of a data product is frequently a team, and sometimes a person who
+    #: has no account in this app at all.
+    owner_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_contact: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, default=now_utc, onupdate=now_utc
+    )

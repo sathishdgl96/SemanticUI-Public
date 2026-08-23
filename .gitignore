@@ -1,0 +1,18 @@
+.superpowers/
+.venv/
+__pycache__/
+*.pyc
+.env
+node_modules/
+frontend/dist/
+.pytest_cache/
+*.egg-info/
+
+# Local SQLite database used when running without Docker/Postgres
+# `*.db` alone did not catch `semanticui-dev.db.bak-1786870287`, which
+# reached a commit and had to be removed from history before this could
+# be published. The suffix form is what the app's own backup step emits.
+*.db
+*.db.bak-*
+*.sqlite
+*.sqlite3
