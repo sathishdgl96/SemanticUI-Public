@@ -16,13 +16,16 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.lock backend/pyproject.toml ./
+# --chmod everywhere: COPY preserves the build machine's file modes, and
+# a root-owned or 600 checkout otherwise yields files appuser cannot read
+# -- alembic reads pyproject.toml at startup and dies on exactly that.
+COPY --chmod=644 backend/requirements.lock backend/pyproject.toml ./
 RUN pip install --no-cache-dir -r requirements.lock
 
-COPY backend/app ./app
-COPY backend/migrations ./migrations
-COPY backend/alembic.ini ./alembic.ini
-COPY --from=spa /build/dist ./static
+COPY --chmod=755 backend/app ./app
+COPY --chmod=755 backend/migrations ./migrations
+COPY --chmod=644 backend/alembic.ini ./alembic.ini
+COPY --from=spa --chmod=755 /build/dist ./static
 
 ENV SEMANTICUI_STATIC_DIR=/app/static \
     PYTHONUNBUFFERED=1
