@@ -1,0 +1,54 @@
+# The app pod: uvicorn serving the API and the built SPA on 8000, from
+# the image the Dockerfile builds. Configuration arrives ONLY through the
+# semanticui-env Secret -- nothing here names a credential, so this file
+# is safe to keep in git (see secret.example.env for what goes in it).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semanticui
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: semanticui
+  template:
+    metadata:
+      labels:
+        app: semanticui
+    spec:
+      containers:
+        - name: semanticui
+          # Set your registry; roll out with `kubectl set image`.
+          image: registry.example.com/semanticui:v1
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: semanticui-env
+          # Kubernetes ignores the Dockerfile HEALTHCHECK entirely, so the
+          # probes live here. Each pod runs `alembic upgrade head` before
+          # uvicorn starts (replicas serialise on Postgres' own locks); the
+          # startup probe allows up to 2 minutes for that window so a slow
+          # migration reads as "still starting", not "crashlooping".
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi

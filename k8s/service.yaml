@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: semanticui
+spec:
+  selector:
+    app: semanticui
+  ports:
+    - port: 80
+      targetPort: 8000

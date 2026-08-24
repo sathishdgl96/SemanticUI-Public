@@ -1,0 +1,27 @@
+# TLS termination happens here; the pod itself speaks plain HTTP on 8000.
+# The host below must agree with SEMANTICUI_OAUTH_REDIRECT_URI in the
+# Secret (https://<host>/auth/callback), and with whatever redirect URI
+# the IdP's app registration allows -- three places, one hostname.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: semanticui
+  annotations:
+    # Assumes cert-manager; drop or replace if TLS comes from elsewhere.
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts:
+        - semanticui.example.com
+      secretName: semanticui-tls
+  rules:
+    - host: semanticui.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: semanticui
+                port:
+                  number: 80
