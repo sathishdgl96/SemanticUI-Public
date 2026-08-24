@@ -36,9 +36,12 @@ spec:
               port: 8000
             periodSeconds: 5
             failureThreshold: 24
+          # Readiness asks /readyz (the app database answers) while
+          # liveness asks /healthz (the process is up): a database blip
+          # should stop traffic, not restart pods that did nothing wrong.
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8000
             periodSeconds: 10
           livenessProbe:
