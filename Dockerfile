@@ -20,7 +20,10 @@ RUN apt-get update \
 # a root-owned or 600 checkout otherwise yields files appuser cannot read
 # -- alembic reads pyproject.toml at startup and dies on exactly that.
 COPY --chmod=644 backend/requirements.lock backend/pyproject.toml ./
-RUN pip install --no-cache-dir -r requirements.lock
+# Patient on purpose: pip's default 15s read timeout fails the whole
+# build on a slow path to PyPI's CDN, and this layer only re-runs when
+# the lockfile changes -- rarely, and then usually on someone's laptop.
+RUN pip install --no-cache-dir --timeout 120 --retries 10 -r requirements.lock
 
 COPY --chmod=755 backend/app ./app
 COPY --chmod=755 backend/migrations ./migrations
