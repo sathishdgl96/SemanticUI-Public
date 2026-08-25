@@ -137,6 +137,9 @@ export interface FormatOptions {
   xAxisTitle: string;
   yAxisTitle: string;
   axisFontSize: number;
+  /** "auto" lets the chart drop labels that would collide; "all" draws every
+   *  one, slanted 45 degrees; "vertical" draws every one, upright. */
+  categoryLabels: string;
   /** "compact" renders 1.2M; anything else renders 1,234,567. */
   numberFormat: string;
   /** Per-series hex overrides, applied by position. Short lists are fine:
@@ -165,6 +168,7 @@ export function formatOptionsOf(options: Record<string, unknown>): FormatOptions
     xAxisTitle: (options.xAxisTitle as string) ?? "",
     yAxisTitle: (options.yAxisTitle as string) ?? "",
     axisFontSize: size(options.axisFontSize, 11),
+    categoryLabels: (options.categoryLabels as string) ?? "auto",
     numberFormat: (options.format as string) ?? "full",
     colors: hexList(options.colors),
   };
@@ -193,6 +197,35 @@ export function formatNumber(value: number, numberFormat: string): string {
     : new Intl.NumberFormat("en-US").format(value);
 }
 
+/** How the category labels are laid out: the angle they are drawn at and
+ *  the height the plot has to give up for them.
+ *
+ *  A flat label needs one line, which `grid` already reserves. A slanted
+ *  one needs the projection of its length -- a 12-character name at 11px is
+ *  about 80px long, and at 45 degrees stands 56px tall. Capped, because a
+ *  40-character category name would otherwise take the whole tile; past
+ *  the cap the label is truncated with an ellipsis rather than drawn over
+ *  the legend. Down a y axis (a horizontal bar) the labels stack instead of
+ *  colliding, so they are all drawn but never slanted. */
+export function categoryLabelLayout(
+  categories: string[],
+  format: FormatOptions | undefined,
+  horizontal = false,
+): { showAll: boolean; rotate: number; reserve: number; width?: number } {
+  const mode = format?.categoryLabels ?? "auto";
+  if (mode !== "all" && mode !== "vertical") return { showAll: false, rotate: 0, reserve: 0 };
+  if (horizontal) return { showAll: true, rotate: 0, reserve: 0 };
+  const rotate = mode === "vertical" ? 90 : 45;
+  const fontSize = format?.axisFontSize ?? 11;
+  const longest = categories.reduce((max, c) => Math.max(max, c.length), 0);
+  // 0.6em per character is the usual width of a proportional face.
+  const length = longest * fontSize * 0.6;
+  const sin = Math.sin((rotate * Math.PI) / 180);
+  const CAP = 96;
+  const reserve = Math.min(CAP, Math.ceil(length * sin));
+  return { showAll: true, rotate, reserve, width: Math.ceil(CAP / sin) };
+}
+
 export const axisChrome = {
   /** Room for the chrome around the plot.
    *
@@ -201,7 +234,7 @@ export const axisChrome = {
    *  made a bottom legend paint over the bars. The legend is also `scroll`
    *  (below), so it stays one row however many series there are and this
    *  reservation stays true. */
-  grid: (hasLegend: boolean, format?: FormatOptions) => {
+  grid: (hasLegend: boolean, format?: FormatOptions, labelReserve = 0) => {
     const position = format?.legendPosition ?? "bottom";
     const side = hasLegend && (position === "left" || position === "right");
     const legendSize = format?.legendFontSize ?? 11;
@@ -212,18 +245,35 @@ export const axisChrome = {
       bottom:
         (hasLegend && position === "bottom" ? legendSize * 2.4 : 0) +
         (format?.xAxisTitle ? 22 : 0) +
+        // Slanted labels stand taller than the one line reserved here.
+        labelReserve +
         28,
     };
   },
-  categoryAxis: (categories: string[], format?: FormatOptions) => ({
+  categoryAxis: (
+    categories: string[],
+    format?: FormatOptions,
+    labels: ReturnType<typeof categoryLabelLayout> = { showAll: false, rotate: 0, reserve: 0 },
+  ) => ({
     type: "category" as const,
     data: categories,
     name: format?.xAxisTitle || undefined,
     nameLocation: "middle" as const,
-    nameGap: 28,
+    // The title sits below the labels, however tall they stand.
+    nameGap: 28 + labels.reserve,
     nameTextStyle: { color: CHART_INK.secondary, fontSize: format?.axisFontSize ?? 11 },
     axisLine: { lineStyle: { color: CHART_INK.axis } },
-    axisLabel: { color: CHART_INK.muted, fontSize: format?.axisFontSize ?? 11 },
+    axisLabel: {
+      color: CHART_INK.muted,
+      fontSize: format?.axisFontSize ?? 11,
+      // `interval: 0` is "every label"; absent, ECharts skips whichever
+      // would overlap. Only set when asked, so the default stays the
+      // library's own.
+      ...(labels.showAll ? { interval: 0 } : {}),
+      ...(labels.rotate
+        ? { rotate: labels.rotate, width: labels.width, overflow: "truncate" as const }
+        : {}),
+    },
     axisTick: { show: false },
   }),
   valueAxis: (showGridlines = true, format?: FormatOptions) => ({

@@ -163,3 +163,10 @@ def test_a_types_own_options_are_still_its_own():
     assert "stacked" not in CATALOG["pie"].options
     assert "donut" in CATALOG["pie"].options
     assert "donut" not in CATALOG["bar"].options
+
+
+def test_every_chart_accepts_a_category_label_option():
+    """The Format pane offers it on every cartesian type, and a key the
+    server does not know is a save that fails."""
+    for name in ("bar", "hbar", "line", "area", "combo"):
+        assert "categoryLabels" in CATALOG[name].options, name

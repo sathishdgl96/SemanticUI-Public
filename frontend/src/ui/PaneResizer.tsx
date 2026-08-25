@@ -1,4 +1,4 @@
-import { MAX_PANE, MIN_PANE } from "./useResizablePane";
+import { MAX_PANE, MIN_PANE, type PaneEdge } from "./useResizablePane";
 
 /** One arrow press. Small enough to place an edge precisely, large
  *  enough that crossing the pane does not take a hundred of them. */
@@ -16,12 +16,17 @@ const STEP = 16;
 export default function PaneResizer({
   label,
   width,
+  edge = "right",
   onBegin,
   onNudge,
   onReset,
 }: {
   label: string;
   width: number;
+  /** The pane edge the handle sits on. Arrow keys always move the handle
+   *  itself -- left is left -- and the hook works out what that does to
+   *  the width. */
+  edge?: PaneEdge;
   onBegin: (event: React.PointerEvent) => void;
   onNudge: (by: number) => void;
   onReset: () => void;
@@ -35,7 +40,7 @@ export default function PaneResizer({
       aria-valuemin={MIN_PANE}
       aria-valuemax={MAX_PANE}
       tabIndex={0}
-      className="pane-resizer"
+      className={edge === "left" ? "pane-resizer pane-resizer-left" : "pane-resizer"}
       title="Drag to resize · double-click to reset"
       onPointerDown={onBegin}
       onDoubleClick={onReset}

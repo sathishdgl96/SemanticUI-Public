@@ -64,13 +64,28 @@ const STACK_BELOW = 640;
  *  line of text and a chart keeps a drawable aspect ratio. */
 const MIN_STACKED_ROWS = 6;
 
+/** Visuals whose height is their own lines of text rather than a drawing:
+ *  a number, a card of numbers, a table with a header and a row, a list of
+ *  values to tick. These get the smallest floor a title and one line of
+ *  body fit in. */
+const TEXT_VISUALS = new Set(["kpi", "multiCard", "table", "matrix", "slicer"]);
+
+/** The fewest rows a visual may be dragged down to. Two rows is a title
+ *  bar and one line of body at the default 40px row; a chart gets three so
+ *  it keeps an aspect ratio it can draw an axis in. Any more than that and
+ *  a number card sits above a band of white nobody can remove. */
+function minRowsFor(type: string): number {
+  return TEXT_VISUALS.has(type) ? 2 : 3;
+}
+
 /** The grid layout to draw: the author's own arrangement, or -- on a narrow
  *  screen -- a single column in the reading order that arrangement implies
  *  (top to bottom, then left to right). */
 export function layoutFor(visuals: Visual[], stacked: boolean): Layout[] {
   if (!stacked) {
     return visuals.map((v) => ({
-      i: v.id, x: v.layout.x, y: v.layout.y, w: v.layout.w, h: v.layout.h, minW: 2, minH: 3,
+      i: v.id, x: v.layout.x, y: v.layout.y, w: v.layout.w, h: v.layout.h,
+      minW: 2, minH: minRowsFor(v.type),
     }));
   }
   return [...visuals]

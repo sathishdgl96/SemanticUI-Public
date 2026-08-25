@@ -67,6 +67,8 @@ export const COMMON_OPTIONS = [
   "xAxisTitle",
   "yAxisTitle",
   "axisFontSize",
+  // Whether every category label is drawn, and at what angle.
+  "categoryLabels",
   // Number formatting, on every type rather than only the cards: an axis and
   // a data label need it for the same reason a card does.
   "format",
@@ -79,6 +81,14 @@ export const COMMON_OPTIONS = [
  *  free number box: every value here is legible at tile size, which an
  *  unconstrained input cannot promise. */
 export const FONT_SIZES = [10, 11, 12, 14, 16, 18, 20, 24] as const;
+
+/** How the category axis labels are laid out. "auto" is the chart
+ *  library's own thinning; the other two draw every label. */
+export const CATEGORY_LABEL_MODES = [
+  { value: "auto", label: "Fit (some may be skipped)" },
+  { value: "all", label: "Show all, slanted" },
+  { value: "vertical", label: "Show all, vertical" },
+] as const;
 
 /** Where a legend may sit. */
 export const LEGEND_POSITIONS = ["bottom", "top", "left", "right"] as const;

@@ -3185,6 +3185,8 @@ button.secondary:hover,
   flex-direction: column;
   min-height: 0;
   background: var(--surface);
+  /* A resizable pane hangs its handle off its own edge. */
+  position: relative;
 }
 .pane-head {
   flex: 0 0 auto;
@@ -3268,6 +3270,15 @@ button.secondary:hover,
   .pane-strip {
     flex: 0 0 auto;
     width: 100%;
+  }
+  /* !important, because a resizable pane carries its width inline. Rows
+     take the whole width whatever the reader dragged to as a column. */
+  .pane {
+    width: 100% !important;
+    flex-basis: auto !important;
+  }
+  .pane .pane-resizer {
+    display: none;
   }
   .pane-strip {
     flex-direction: row;
@@ -6308,6 +6319,12 @@ button.model-column:hover {
   /* Touch devices scroll a pane by dragging it; claiming the gesture on
      this sliver only is what keeps both possible. */
   touch-action: none;
+}
+
+/* The same handle on a pane that grows the other way. */
+.pane-resizer-left {
+  right: auto;
+  left: -3px;
 }
 
 .pane-resizer:hover,

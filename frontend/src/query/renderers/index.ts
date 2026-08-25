@@ -3,6 +3,7 @@ import type { VisualType } from "../../reports/catalog";
 import {
   axisChrome,
   categoricalSeries,
+  categoryLabelLayout,
   formatNumber,
   formatOptionsOf,
   type CategoricalOptionLike,
@@ -104,7 +105,8 @@ export function buildVisualOption(
 
   const format = formatOptionsOf(visual.options);
   const legend = axisChrome.legend(drawn.length, format);
-  const categoryAxis = axisChrome.categoryAxis(categories, format);
+  const labels = categoryLabelLayout(categories, format, horizontal);
+  const categoryAxis = axisChrome.categoryAxis(categories, format, labels);
   const baseValueAxis = axisChrome.valueAxis(format.showGridlines, format);
   const valueAxis = stacked100
     ? { ...baseValueAxis, max: 100, axisLabel: { ...baseValueAxis.axisLabel, formatter: "{value}%" } }
@@ -113,7 +115,7 @@ export function buildVisualOption(
   return {
     backgroundColor: "transparent",
     title: axisChrome.legendTitle(format, legend.show),
-    grid: axisChrome.grid(legend.show, format),
+    grid: axisChrome.grid(legend.show, format, labels.reserve),
     tooltip: {
       trigger: "axis",
       axisPointer: { type: type === "line" ? "line" : "shadow" },

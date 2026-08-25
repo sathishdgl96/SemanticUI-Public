@@ -72,6 +72,12 @@ describe("text and axis formatting", () => {
     expect(lastVisual(onChange).options.xAxisTitle).toBeUndefined();
   });
 
+  it("offers to show every category label, slanted", async () => {
+    const onChange = renderPane();
+    await userEvent.selectOptions(screen.getByLabelText(/category labels/i), "all");
+    expect(lastVisual(onChange).options.categoryLabels).toBe("all");
+  });
+
   it("says why a single-series chart draws no legend", () => {
     // The box is ticked and nothing appears, because a legend of one entry
     // only repeats the title. Explaining beats letting it be discovered.

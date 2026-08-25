@@ -50,8 +50,22 @@ describe("layoutFor", () => {
   it("keeps the author's arrangement on a wide canvas", () => {
     expect(layoutFor(visuals, false)).toEqual([
       { i: "a", x: 0, y: 0, w: 6, h: 6, minW: 2, minH: 3 },
-      { i: "b", x: 6, y: 0, w: 3, h: 3, minW: 2, minH: 3 },
+      { i: "b", x: 6, y: 0, w: 3, h: 3, minW: 2, minH: 2 },
     ]);
+  });
+
+  it("lets a card or a table shrink to what it shows, and keeps a chart drawable", () => {
+    // A chart needs an aspect ratio; a number, a card of numbers or a
+    // header-and-a-row table needs only the height of its own lines. A
+    // three-row floor left a number card with a white band under it that
+    // no drag could remove.
+    const kinds = ["kpi", "multiCard", "table", "matrix", "slicer"] as const;
+    const short = kinds.map((type, i) => ({ ...visuals[1], id: type, type, layout: { x: 0, y: i, w: 3, h: 2 } }));
+    expect(layoutFor(short, false).map((item) => [item.i, item.minH])).toEqual(
+      kinds.map((type) => [type, 2]),
+    );
+    const chart = layoutFor([{ ...visuals[0], type: "line" }], false);
+    expect(chart[0].minH).toBe(3);
   });
 
   it("stacks into one full-width column on a narrow one", () => {

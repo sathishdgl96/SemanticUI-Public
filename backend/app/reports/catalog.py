@@ -61,6 +61,8 @@ COMMON_OPTIONS = frozenset(
         "xAxisTitle",
         "yAxisTitle",
         "axisFontSize",
+        #: Whether every category label is drawn, and at what angle.
+        "categoryLabels",
         #: Number formatting, on every type rather than only the cards: an
         #: axis and a data label need it for the same reason a card does.
         "format",

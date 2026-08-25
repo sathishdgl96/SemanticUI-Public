@@ -102,6 +102,48 @@ describe("buildVisualOption", () => {
     expect(option.series[0].symbolSize).toBeGreaterThanOrEqual(8);
   });
 
+  it("thins category labels by default, as the chart library does", () => {
+    const option = buildVisualOption(visual({}), categorical)! as CategoricalOptionLike;
+    expect(option.xAxis.axisLabel).not.toHaveProperty("interval");
+    expect(option.xAxis.axisLabel).not.toHaveProperty("rotate");
+  });
+
+  it("shows every category label, slanted, when asked to", () => {
+    // ECharts drops any label that would touch its neighbour, so a bar
+    // chart with twenty categories named six of them. Slanting the text is
+    // what makes room for all of it.
+    const plain = buildVisualOption(visual({}), categorical)! as CategoricalOptionLike;
+    const all = buildVisualOption(
+      visual({ options: { categoryLabels: "all" } }),
+      categorical,
+    )! as CategoricalOptionLike;
+    const label = all.xAxis.axisLabel as Record<string, unknown>;
+    expect(label.interval).toBe(0);
+    expect(label.rotate).toBe(45);
+    // A slanted label is taller than a flat one; the plot moves up for it.
+    const bottom = (o: CategoricalOptionLike) => (o.grid as { bottom: number }).bottom;
+    expect(bottom(all)).toBeGreaterThan(bottom(plain));
+    expect(all.xAxis.nameGap as number).toBeGreaterThan(plain.xAxis.nameGap as number);
+
+    const vertical = buildVisualOption(
+      visual({ options: { categoryLabels: "vertical" } }),
+      categorical,
+    )! as CategoricalOptionLike;
+    expect((vertical.xAxis.axisLabel as Record<string, unknown>).rotate).toBe(90);
+  });
+
+  it("shows every label on a horizontal bar without slanting it", () => {
+    // Down the y axis the labels stack rather than collide, so they are
+    // simply all drawn; a slant there would make them harder to read.
+    const option = buildVisualOption(
+      visual({ type: "hbar", options: { categoryLabels: "all" } }),
+      categorical,
+    )! as CategoricalOptionLike;
+    const label = option.yAxis.axisLabel as Record<string, unknown>;
+    expect(label.interval).toBe(0);
+    expect(label).not.toHaveProperty("rotate");
+  });
+
   it("returns null for the DOM-rendered types", () => {
     expect(buildVisualOption(visual({ type: "table" }), categorical)).toBeNull();
     expect(buildVisualOption(visual({ type: "kpi" }), categorical)).toBeNull();

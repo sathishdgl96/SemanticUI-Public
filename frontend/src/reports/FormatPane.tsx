@@ -3,6 +3,7 @@ import ColorField from "./ColorField";
 import { SERIES_COLORS } from "../query/palette";
 import {
   CATALOG,
+  CATEGORY_LABEL_MODES,
   FONT_SIZES,
   LEGEND_POSITIONS,
   wellsToQuery,
@@ -299,6 +300,25 @@ export default function FormatPane({ visual, onChange, fields }: Props) {
             fallback={11}
             onChange={(size) => set("axisFontSize", size)}
           />
+          {/* The chart drops any label that would touch its neighbour, so a
+              bar per day names one day in five. Slanting the labels is how
+              every one gets drawn. */}
+          <label className="format-field" htmlFor={`category-labels-${visual.id}`}>
+            Category labels
+          </label>
+          <select
+            id={`category-labels-${visual.id}`}
+            value={(visual.options.categoryLabels as string) ?? "auto"}
+            onChange={(e) =>
+              set("categoryLabels", e.target.value === "auto" ? undefined : e.target.value)
+            }
+          >
+            {CATEGORY_LABEL_MODES.map((mode) => (
+              <option key={mode.value} value={mode.value}>
+                {mode.label}
+              </option>
+            ))}
+          </select>
         </Section>
       )}
 

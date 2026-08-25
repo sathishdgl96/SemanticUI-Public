@@ -1,17 +1,18 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import PaneResizer from "./PaneResizer";
 import { MAX_PANE, MIN_PANE, useResizablePane } from "./useResizablePane";
 
-function Harness({ initial = 260 }: { initial?: number }) {
-  const pane = useResizablePane("test.pane.width", initial);
+function Harness({ initial = 260, edge }: { initial?: number; edge?: "left" | "right" }) {
+  const pane = useResizablePane("test.pane.width", initial, edge);
   return (
     <div style={{ width: pane.width }} data-testid="pane">
       <span>width: {pane.width}</span>
       <PaneResizer
         label="Resize the field list"
         width={pane.width}
+        edge={edge}
         onBegin={pane.beginResize}
         onNudge={pane.nudge}
         onReset={pane.reset}
@@ -41,6 +42,32 @@ describe("PaneResizer", () => {
     expect(screen.getByText("width: 276")).toBeInTheDocument();
     await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
     expect(screen.getByText("width: 244")).toBeInTheDocument();
+  });
+
+  it("on a pane's LEFT edge, moving the handle left is what widens it", async () => {
+    // The builder's rail hangs off the right side of the window, so its
+    // panes grow leftwards. The arrow keys still move the SEPARATOR --
+    // left is left -- and the pane's width follows from which side of
+    // the handle it is on.
+    render(<Harness edge="left" />);
+    const handle = screen.getByRole("separator");
+    expect(handle).toHaveClass("pane-resizer-left");
+    handle.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(screen.getByText("width: 276")).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    expect(screen.getByText("width: 244")).toBeInTheDocument();
+  });
+
+  it("follows the pointer the same way: a left-edge pane widens as the pointer goes left", () => {
+    render(<Harness edge="left" />);
+    const handle = screen.getByRole("separator");
+    fireEvent.pointerDown(handle, { clientX: 500 });
+    fireEvent.pointerMove(window, { clientX: 440 });
+    expect(screen.getByText("width: 320")).toBeInTheDocument();
+    fireEvent.pointerUp(window);
+    fireEvent.pointerMove(window, { clientX: 100 });
+    expect(screen.getByText("width: 320")).toBeInTheDocument();
   });
 
   it("will not be nudged narrower than a field name can live in", async () => {

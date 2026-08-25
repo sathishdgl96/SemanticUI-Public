@@ -4,6 +4,7 @@ import type { FieldKind } from "../catalog";
 import DataPane from "../DataPane";
 import HierarchyPane from "../HierarchyPane";
 import Pane from "../../shell/Pane";
+import { useResizablePane } from "../../ui/useResizablePane";
 import { BuilderFieldRow, BuilderHierarchyRow } from "./FieldRows";
 import type { useViewFields } from "./useViewFields";
 import { isMissingView } from "./viewBinding";
@@ -29,8 +30,12 @@ export default function BuilderDataPane({
   onHierarchiesChange: (next: Hierarchy[]) => void;
 }) {
   const { dimensions, metrics, hierarchies, refreshFields, viewDetail } = fields;
+  // A field list is where a long `SCHEMA.COLUMN_NAME` gets cut off, and
+  // 232px is a guess about the reader's names. Their own width, on their
+  // own machine (see useResizablePane on where it lives).
+  const size = useResizablePane("builder.data.width", 232, "left");
   return (
-    <Pane title="Data">
+    <Pane title="Data" resize={size}>
       <DataPane
         dimensions={dimensions}
         metrics={metrics}
