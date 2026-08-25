@@ -131,6 +131,55 @@ def login(client, db):
     return conn
 
 
+class ExpiredTokenCursor(ScriptedCursor):
+    """What a connection does once Snowflake's side of it has expired:
+    still reports open, fails every statement with the OAuth token error."""
+
+    def execute(self, sql, params=None):
+        from snowflake.connector.errors import ProgrammingError
+
+        self.executed.append(sql)
+        raise ProgrammingError(msg="OAuth access token expired. [1234]", errno=390318)
+
+
+def test_an_expired_snowflake_token_is_refreshed_silently(client, db, monkeypatch):
+    # The app session is fine; only the Snowflake token behind it has run
+    # out. The list still loads: the dead connection is replaced by one on
+    # a refreshed token, and the caller never sees a 401, let alone the
+    # "Failed to load semantic views" this used to be.
+    from app.auth import oauth as oauth_mod
+    from app.auth.oauth import TokenResponse
+    from app.snowflake import connect as sf_connect
+
+    sess = create_session(
+        db, account="ACME", user="ALICE", mode="oauth",
+        access_token="at-1", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    dead = ScriptedConnection()
+    dead.cursor_obj = ExpiredTokenCursor()
+    get_cache().put(sess.id, dead)
+    client.cookies.set(SESSION_COOKIE, sess.id)
+
+    class StubOAuth:
+        def refresh(self, refresh_token):
+            assert refresh_token == "rt-1"
+            return TokenResponse("at-2", "rt-2", 600)
+
+    monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
+    fresh = ScriptedConnection()
+    monkeypatch.setattr(
+        sf_connect, "connect_oauth",
+        lambda token, user=None, role=None, account=None: fresh,
+    )
+
+    r = client.get("/api/semantic-views")
+    assert r.status_code == 200
+    assert r.json()["views"][0]["name"] == "SALES"
+    assert dead.closed is True
+    assert any(sql.startswith("SHOW SEMANTIC VIEWS") for sql in fresh.cursor_obj.executed)
+
+
 def test_endpoints_require_auth(client):
     assert client.get("/api/semantic-views").status_code == 401
     assert client.post("/api/query/semantic", json={}).status_code == 401

@@ -17,12 +17,29 @@ export interface TabularResult {
   truncated: boolean;
 }
 
-export default function ResultsTable({ result }: { result: TabularResult }) {
-  const [sort, setSort] = useState<SortState | null>(null);
+interface Props {
+  result: TabularResult;
+  /** Supplied by a parent that owns the sort -- the explorer, whose chart
+   *  and saved document have to agree with the table. The rows are then
+   *  expected to arrive already in that order; the table only shows which
+   *  column it is. Left undefined, the table sorts for itself. */
+  sort?: SortState | null;
+  onSortChange?: (next: SortState | null) => void;
+}
+
+export default function ResultsTable({ result, sort: controlled, onSortChange }: Props) {
+  const [own, setOwn] = useState<SortState | null>(null);
+  const isControlled = controlled !== undefined;
+  const sort = isControlled ? controlled : own;
   const rows = useMemo(
-    () => sortRows(result.rows, sort, result.columns),
-    [result.rows, result.columns, sort],
+    () => (isControlled ? result.rows : sortRows(result.rows, own, result.columns)),
+    [isControlled, result.rows, result.columns, own],
   );
+  const click = (index: number) => {
+    const next = nextSort(sort, index);
+    if (isControlled) onSortChange?.(next);
+    else setOwn(next);
+  };
 
   return (
     <div className="results">
@@ -49,7 +66,7 @@ export default function ResultsTable({ result }: { result: TabularResult }) {
                     <button
                       type="button"
                       className="th-sort"
-                      onClick={() => setSort((current) => nextSort(current, index))}
+                      onClick={() => click(index)}
                     >
                       {col.name}
                       <span className="th-sort-arrow" aria-hidden="true">

@@ -67,8 +67,8 @@ def ask(
         )
 
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    with entry.lock:
+
+    def ask(entry):
         detail = cache.describe(
             entry, report.view_database, report.view_schema, report.view_name
         )
@@ -91,6 +91,9 @@ def ask(
             detail, request, max_rows=settings.row_cap
         )
         result = gateway.run_query(entry.conn, sql, max_rows=limit, params=params)
+        return spec, sql, result
+
+    spec, sql, result = cache.run(db, sess, ask)
 
     return {
         "explanation": spec.explanation,

@@ -498,6 +498,13 @@ def _stub_snowflake(monkeypatch, rows, seen):
         def acquire(self, db, sess):
             return _Entry()
 
+        def run(self, db, sess, fn, *, locked=True):
+            # What the real cache does, minus the healing: the routes under
+            # test reach their connection through this now.
+            entry = self.acquire(db, sess)
+            with entry.lock:
+                return fn(entry)
+
         def describe(self, entry, database, schema, view):
             seen.append(("describe", database, schema, view))
             return detail
@@ -659,6 +666,13 @@ def test_describe_still_answers_when_one_member_cannot_be_read(client, db, monke
         def acquire(self, db_, sess_):
             return _Entry()
 
+        def run(self, db, sess, fn, *, locked=True):
+            # What the real cache does, minus the healing: the routes under
+            # test reach their connection through this now.
+            entry = self.acquire(db, sess)
+            with entry.lock:
+                return fn(entry)
+
         def describe(self, entry, database, schema, view):
             if view == "SUPPORT_SV":
                 raise RuntimeError("not authorised")
@@ -705,6 +719,13 @@ def test_describe_says_why_a_member_could_not_be_read(client, db, monkeypatch):
     class _Cache:
         def acquire(self, db_, sess_):
             return _Entry()
+
+        def run(self, db, sess, fn, *, locked=True):
+            # What the real cache does, minus the healing: the routes under
+            # test reach their connection through this now.
+            entry = self.acquire(db, sess)
+            with entry.lock:
+                return fn(entry)
 
         def describe(self, entry, database, schema, view):
             if view == "SUPPORT_SV":

@@ -4370,6 +4370,31 @@ button.secondary:hover,
   font-size: 12px;
 }
 
+/* The title while it is being renamed: the same size and weight as the
+   heading it replaces, so the page does not jump, with Save and Cancel
+   on the same line. */
+.ws-rename {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ws-rename-input {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  min-width: 16ch;
+  max-width: 100%;
+}
+
+.ws-rename-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger, #a4262c);
+}
+
 .content-table {
   width: 100%;
   /* Fixed, so the columns keep their widths when the filter changes what
@@ -4513,6 +4538,11 @@ button.secondary:hover,
 
 .data-search {
   width: 100%;
+}
+
+/* The explorer's field list has the same box, above the keyboard hint. */
+.field-panel .field-search {
+  margin-bottom: 8px;
 }
 
 .data-table-head {

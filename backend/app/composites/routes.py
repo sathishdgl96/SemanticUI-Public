@@ -176,8 +176,8 @@ def query_composite(
     )
 
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    with entry.lock:
+
+    def fetch(entry):
         # Described on this user's connection, so a view they cannot see
         # fails here rather than being planned around.
         describes = {
@@ -189,9 +189,10 @@ def query_composite(
         sql, params, effective_limit = compile_composite(
             stitch, describes, max_rows=get_settings().row_cap
         )
-        result = gateway.run_query(
-            entry.conn, sql, max_rows=effective_limit, params=params
-        )
+        result = gateway.run_query(entry.conn, sql, max_rows=effective_limit, params=params)
+        return sql, result
+
+    sql, result = cache.run(db, sess, fetch)
 
     # Shapes only: how many branches ran, how many rows came back. Never
     # the SQL, the member views, the filters or a value.
@@ -292,16 +293,17 @@ def describe_composite(
     definition = parse_definition(composite.definition or {})
 
     cache = get_cache()
-    entry = cache.acquire(db, sess)
 
-    with entry.lock:
+    def read(entry):
         described, failures = member_describes(
             lambda database, schema, view: cache.describe(
                 entry, database, schema, view
             ),
             definition,
         )
-        detail = synthetic_detail(definition, described, failures)
+        return synthetic_detail(definition, described, failures)
+
+    detail = cache.run(db, sess, read)
 
     record(db, "composite.read", user_id=sess.user_id, session_id=sess.id,
            resource_type="composite", resource_id=composite.id,
@@ -394,15 +396,15 @@ def composite_field_values(
     )
 
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    with entry.lock:
+
+    def fetch(entry):
         detail = cache.describe(entry, target.database, target.schema_, target.view)
         sql, params, effective_limit = build_semantic_sql(
             detail, req, max_rows=get_settings().row_cap
         )
-        result = gateway.run_query(
-            entry.conn, sql, max_rows=effective_limit, params=params
-        )
+        return gateway.run_query(entry.conn, sql, max_rows=effective_limit, params=params)
+
+    result = cache.run(db, sess, fetch)
 
     seen: set[str] = set()
     for row in result.rows:

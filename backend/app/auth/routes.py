@@ -19,7 +19,7 @@ from app.auth.sessions import (
 )
 from app.config import get_settings
 from app.db.base import get_db
-from app.db.models import DbSession, User
+from app.db.models import DbSession
 from app.errors import ApiError, AuthExpiredError
 from app.snowflake import connect as sf_connect
 from app.snowflake.provider import get_cache
@@ -56,35 +56,6 @@ def oauth_login(account: str | None = None) -> RedirectResponse:
     )
     oauth_mod.set_state_cookie(response, state)
     return response
-
-
-def _replay_remembered_context(db: Session, sess: DbSession, conn) -> None:
-    """Put the user back in the role and warehouse they last chose, then
-    record what actually took effect.
-
-    Best effort by design: a remembered role that has since been revoked
-    costs the user a preference, never their login. Reading the context
-    back afterwards keeps the stored value honest -- it is what the
-    profile menu and the provenance stamp both rely on, so a preference
-    that silently failed to apply must not survive as if it had.
-    """
-    user = db.get(User, sess.user_id)
-    if user is None:
-        return
-    from app.session import context
-
-    if user.last_role or user.last_warehouse:
-        try:
-            context.apply_context(conn, user.last_role, user.last_warehouse)
-        except Exception as exc:
-            logger.info("remembered context no longer usable, using defaults: %s", exc)
-    try:
-        live = context.current_context(conn)
-    except Exception:
-        return
-    user.last_role = live["role"]
-    user.last_warehouse = live["warehouse"]
-    db.commit()
 
 
 def _reject_oauth_callback(message: str, detail: str | None = None) -> JSONResponse:
@@ -186,7 +157,9 @@ def oauth_callback(
     except Exception:
         sf_connect.close_quietly(conn)
         raise
-    _replay_remembered_context(db, sess, conn)
+    from app.session import context
+
+    context.replay_remembered(db, sess, conn)
     get_cache().put(sess.id, conn)
     response = RedirectResponse(
         get_settings().post_login_redirect_url, status_code=303

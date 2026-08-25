@@ -294,3 +294,131 @@ def test_oauth_acquire_marks_its_entry_rebuildable(db, monkeypatch):
     cache = ConnectionCache(idle_ttl=900, max_size=10, retain_ttl=28800)
     entry = cache.acquire(db, sess)
     assert entry.rebuildable is True
+
+
+def _oauth_session(db, minutes_left=10):
+    return create_session(
+        db, account="ACME", user="ALICE", mode="oauth",
+        access_token="at-1", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=minutes_left),
+    )
+
+
+class FlakyThenFine:
+    """A body that fails like a query on a dead session, once."""
+
+    def __init__(self, failures=1):
+        self.failures = failures
+        self.seen: list[object] = []
+
+    def __call__(self, entry):
+        self.seen.append(entry.conn)
+        if self.failures:
+            self.failures -= 1
+            raise AuthExpiredError("OAuth access token expired")
+        return "rows"
+
+
+def test_run_heals_an_oauth_session_snowflake_says_has_expired(db, monkeypatch):
+    # The token is nominally good for ten more minutes -- Snowflake has just
+    # said otherwise. The dead connection is dropped, a NEW token is fetched
+    # anyway, and the body runs again on the new connection. The caller
+    # sees only the answer.
+    sess = _oauth_session(db)
+    refreshed = []
+
+    class StubOAuth:
+        def refresh(self, refresh_token):
+            refreshed.append(refresh_token)
+            return TokenResponse("at-2", "rt-2", 600)
+
+    monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
+    built = []
+    monkeypatch.setattr(
+        sf_connect, "connect_oauth",
+        lambda token, user=None, role=None, account=None: built.append(token) or FakeConnection(),
+    )
+    cache = make_cache()
+    dead = FakeConnection()
+    cache.put(sess.id, dead)
+
+    body = FlakyThenFine()
+    assert cache.run(db, sess, body) == "rows"
+
+    assert body.seen[0] is dead and body.seen[1] is not dead
+    assert dead.closed is True
+    assert refreshed == ["rt-1"]
+    assert built == ["at-2"]
+    assert cache.acquire(db, sess).conn is body.seen[1]
+
+
+def test_run_gives_up_after_one_rebuild(db, monkeypatch):
+    sess = _oauth_session(db)
+
+    class StubOAuth:
+        def refresh(self, refresh_token):
+            return TokenResponse("at-2", "rt-2", 600)
+
+    monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
+    monkeypatch.setattr(
+        sf_connect, "connect_oauth",
+        lambda token, user=None, role=None, account=None: FakeConnection(),
+    )
+    cache = make_cache()
+    cache.put(sess.id, FakeConnection())
+    body = FlakyThenFine(failures=2)
+    with pytest.raises(AuthExpiredError):
+        cache.run(db, sess, body)
+    assert len(body.seen) == 2
+
+
+def test_run_on_a_dev_session_discards_and_asks_for_sign_in(db):
+    # Nothing to rebuild from, so the answer is a sign-in -- but the dead
+    # connection is dropped, not handed out again on the next request.
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    cache = make_cache()
+    dead = FakeConnection()
+    cache.put(sess.id, dead)
+    body = FlakyThenFine()
+    with pytest.raises(AuthExpiredError):
+        cache.run(db, sess, body)
+    assert len(body.seen) == 1
+    assert dead.closed is True
+    with pytest.raises(AuthExpiredError):
+        cache.acquire(db, sess)
+
+
+def test_run_holds_the_entry_lock_around_the_body_unless_told_not_to(db):
+    sess = create_session(db, account="ACME", user="ALICE", mode="dev")
+    cache = make_cache()
+    cache.put(sess.id, FakeConnection())
+    held = []
+    cache.run(db, sess, lambda entry: held.append(entry.lock.locked()))
+    cache.run(db, sess, lambda entry: held.append(entry.lock.locked()), locked=False)
+    assert held == [True, False]
+
+
+def test_rebuilt_connection_runs_as_the_remembered_role(db, monkeypatch):
+    # A connection rebuilt after the token expired must pick up where the
+    # old one was, or the next query runs in the token's default role.
+    from app.db.models import User
+
+    sess = _oauth_session(db, minutes_left=-1)
+    user = db.get(User, sess.user_id)
+    user.last_role = "ANALYST"
+    user.last_warehouse = "WH_SMALL"
+    db.commit()
+
+    class StubOAuth:
+        def refresh(self, refresh_token):
+            return TokenResponse("at-2", "rt-2", 600)
+
+    monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
+    conn = FakeConnection()
+    monkeypatch.setattr(
+        sf_connect, "connect_oauth",
+        lambda token, user=None, role=None, account=None: conn,
+    )
+    make_cache().acquire(db, sess)
+    assert 'USE ROLE "ANALYST"' in conn.cursor().executed
+    assert 'USE WAREHOUSE "WH_SMALL"' in conn.cursor().executed

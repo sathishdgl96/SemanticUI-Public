@@ -34,7 +34,7 @@ import { useWorkspaces } from "./useWorkspaces";
 import ContextMenu, { useContextMenu, type MenuItem } from "../ui/ContextMenu";
 import Icon from "../ui/Icon";
 import { exactTime, relativeTime } from "../ui/relativeTime";
-import { atLeast } from "../api/workspaces";
+import { atLeast, renameWorkspace } from "../api/workspaces";
 
 function blankDefinition(name: string): ReportDefinition {
   return {
@@ -130,6 +130,11 @@ export default function WorkspacePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const workspaceId = searchParams.get("workspace");
   const [showMembers, setShowMembers] = useState(false);
+  // The title becomes a field while renaming. Kept as a draft until it is
+  // saved, so Escape can put the old name back untouched.
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const workspaces = useWorkspaces();
   const rows = workspaces.data?.workspaces ?? [];
@@ -138,6 +143,45 @@ export default function WorkspacePage() {
   //: Across all workspaces there is no single one to create in, so the
   //: Create menu asks you to pick one first rather than guessing.
   const canCreateHere = selected ? atLeast(selected.myRole, "editor") : false;
+  // Renaming is an admin's act, and only a shared workspace has a name to
+  // change: the personal one is named by the product, and the server
+  // refuses to rename it.
+  const canRename = selected?.kind === "shared" && atLeast(selected.myRole, "admin");
+
+  const rename = useMutation({
+    mutationFn: (name: string) => renameWorkspace(selected!.id, name),
+    onSuccess: () => {
+      setRenaming(false);
+      setRenameError(null);
+      // The name shows in the rail, the switcher and every item's row too.
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["library"] });
+    },
+    onError: (error) => {
+      setRenameError(
+        error instanceof ApiError ? error.message : "Could not rename this workspace.",
+      );
+    },
+  });
+
+  function beginRename() {
+    if (!selected) return;
+    setDraftName(selected.name);
+    setRenameError(null);
+    setRenaming(true);
+  }
+
+  function submitRename() {
+    const name = draftName.trim();
+    if (!selected || !name || rename.isPending) return;
+    // Nothing changed: close quietly rather than sending a no-op the audit
+    // trail would record as a rename.
+    if (name === selected.name) {
+      setRenaming(false);
+      return;
+    }
+    rename.mutate(name);
+  }
   const scope = selectedId || undefined;
 
   const browse = useLibraryQuery();
@@ -471,7 +515,44 @@ export default function WorkspacePage() {
     <main className="reports">
       <header className="reports-head">
         <div className="ws-title">
-          <h1 className="page-title">{selected?.name ?? "Browse"}</h1>
+          {renaming && selected ? (
+            <form
+              className="ws-rename"
+              onSubmit={(e) => {
+                e.preventDefault();
+                submitRename();
+              }}
+            >
+              <input
+                className="ws-rename-input"
+                aria-label="Workspace name"
+                value={draftName}
+                autoFocus
+                maxLength={200}
+                onChange={(e) => setDraftName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setRenaming(false);
+                }}
+              />
+              <button
+                type="submit"
+                className="cmd-primary"
+                disabled={!draftName.trim() || rename.isPending}
+              >
+                {rename.isPending ? "Saving…" : "Save"}
+              </button>
+              <button type="button" className="cmd" onClick={() => setRenaming(false)}>
+                Cancel
+              </button>
+              {renameError && (
+                <p role="alert" className="ws-rename-error">
+                  {renameError}
+                </p>
+              )}
+            </form>
+          ) : (
+            <h1 className="page-title">{selected?.name ?? "Browse"}</h1>
+          )}
           <p className="ws-subtitle">
             {selected
               ? selected.kind === "personal"
@@ -487,14 +568,30 @@ export default function WorkspacePage() {
               what makes it personal -- so the control is absent rather
               than disabled. */}
           {selected?.kind === "shared" && (
-            <button
-              type="button"
-              className="cmd"
-              onClick={() => setShowMembers(true)}
-            >
-              <Icon name="grid" />
-              Members ({selected.memberCount})
-            </button>
+            <>
+              {/* Disabled with the reason rather than absent for a viewer:
+                  an action that vanishes reads as a bug, one that says why
+                  does not. The personal workspace has no such control at
+                  all -- it has no name of its own to change. */}
+              <button
+                type="button"
+                className="cmd"
+                onClick={beginRename}
+                disabled={!canRename || renaming}
+                title={canRename ? undefined : "Only a workspace admin can rename it."}
+              >
+                <Icon name="edit" />
+                Rename
+              </button>
+              <button
+                type="button"
+                className="cmd"
+                onClick={() => setShowMembers(true)}
+              >
+                <Icon name="grid" />
+                Members ({selected.memberCount})
+              </button>
+            </>
           )}
           {/* One button, four things to make. Four buttons in a row makes
               the reader choose before they have been told what the choices

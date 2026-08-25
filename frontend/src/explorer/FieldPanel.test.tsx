@@ -118,6 +118,51 @@ describe("FieldPanel", () => {
   });
 });
 
+describe("searching the fields", () => {
+  const WIDE = {
+    ...DETAIL,
+    dimensions: [
+      { table: "ORDERS", name: "ORDER_DATE", dataType: "DATE" },
+      { table: "CUSTOMERS", name: "REGION", dataType: "TEXT" },
+    ],
+    metrics: [
+      { table: "ORDERS", name: "TOTAL_REVENUE", dataType: "NUMBER(38,2)" },
+      { table: "ORDERS", name: "ORDER_COUNT", dataType: "NUMBER" },
+    ],
+  };
+
+  it("narrows both groups to the fields whose reference contains the text", async () => {
+    render(<FieldPanel detail={WIDE} wells={emptyWells()} onAdd={vi.fn()} />);
+    await userEvent.type(screen.getByRole("searchbox", { name: /search fields/i }), "rev");
+
+    expect(screen.getByRole("button", { name: /ORDERS\.TOTAL_REVENUE/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ORDER_DATE/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ORDER_COUNT/ })).not.toBeInTheDocument();
+    // The group nothing survived in is gone with its rows, not left as a
+    // heading over nothing.
+    expect(screen.queryByText("Dimensions")).not.toBeInTheDocument();
+  });
+
+  it("matches on the table too, so a table's own columns can be found together", async () => {
+    render(<FieldPanel detail={WIDE} wells={emptyWells()} onAdd={vi.fn()} />);
+    await userEvent.type(screen.getByRole("searchbox"), "customers.");
+    expect(screen.getAllByRole("button", { name: /CUSTOMERS\./ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /ORDERS\./ })).not.toBeInTheDocument();
+  });
+
+  it("says when nothing matches, and brings everything back when cleared", async () => {
+    render(<FieldPanel detail={WIDE} wells={emptyWells()} onAdd={vi.fn()} />);
+    const box = screen.getByRole("searchbox");
+    await userEvent.type(box, "zzz");
+    expect(screen.getByRole("status")).toHaveTextContent(/no fields match/i);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+
+    await userEvent.clear(box);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(4);
+  });
+});
+
 describe("a model's fields", () => {
   const MODEL = {
     tables: [{ name: "Sales 360" }, { name: "sales" }],

@@ -92,15 +92,20 @@ def _feed(
     from app.logging import set_user
 
     set_user(dbsess.user_id)
-    entry = get_cache().acquire(db, dbsess)
     extra = {
         key[2:]: value
         for key, value in request.query_params.items()
         if key.startswith("f.") and len(key) > 2
     }
-    columns, rows, truncated = service.run_feed(
-        db, dbsess.user_id, entry, report_id, visual_id,
-        extra_filters=extra, limit=limit,
+    # The service takes the entry's lock itself.
+    columns, rows, truncated = get_cache().run(
+        db,
+        dbsess,
+        lambda entry: service.run_feed(
+            db, dbsess.user_id, entry, report_id, visual_id,
+            extra_filters=extra, limit=limit,
+        ),
+        locked=False,
     )
 
     record(db, "feed.read", user_id=dbsess.user_id, session_id=dbsess.id,

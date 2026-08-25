@@ -36,6 +36,7 @@ vi.mock("../api/library", async (importOriginal) => ({
 // has to resolve for anything else to render.
 vi.mock("../api/workspaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/workspaces")>()),
+  renameWorkspace: vi.fn(),
   listWorkspaces: vi.fn().mockResolvedValue({
     workspaces: [
       {
@@ -57,6 +58,7 @@ import type { ReportSummary } from "../api/types";
 import { createDashboard, listDashboards } from "../api/dashboards";
 import { deleteExplore, listExplores } from "../api/explores";
 import { listComposites } from "../api/composites";
+import { listWorkspaces, renameWorkspace } from "../api/workspaces";
 import WorkspacePage from "./WorkspacePage";
 
 const listMock = vi.mocked(listReports);
@@ -704,5 +706,79 @@ describe("importing a model", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /not a model document/i,
     );
+  });
+});
+
+describe("renaming a workspace", () => {
+  const PERSONAL = {
+    id: "w0", name: "My reports", kind: "personal" as const, myRole: "admin" as const,
+    memberCount: 1, reportCount: 1,
+  };
+  const TEAM = {
+    id: "w1", name: "Finance", kind: "shared" as const, myRole: "admin" as const,
+    memberCount: 3, reportCount: 2,
+  };
+
+  beforeEach(() => {
+    vi.mocked(renameWorkspace).mockReset();
+    vi.mocked(listWorkspaces).mockResolvedValue({ workspaces: [PERSONAL, TEAM] });
+    listMock.mockResolvedValue({ reports: [] });
+  });
+
+  it("renames from the title, the way a report is renamed from its header", async () => {
+    vi.mocked(renameWorkspace).mockResolvedValue({ ...TEAM, name: "Finance & Ops" });
+    renderPageAt("/reports?workspace=w1");
+    expect(await screen.findByRole("heading", { name: "Finance" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^rename$/i }));
+    const field = screen.getByRole("textbox", { name: /workspace name/i });
+    expect(field).toHaveValue("Finance");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Finance & Ops{Enter}");
+
+    await waitFor(() =>
+      expect(vi.mocked(renameWorkspace)).toHaveBeenCalledWith("w1", "Finance & Ops"),
+    );
+    // The field gives way to the heading again once it is saved.
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: /workspace name/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  it("puts the old name back on Escape, and sends nothing", async () => {
+    renderPageAt("/reports?workspace=w1");
+    await screen.findByRole("heading", { name: "Finance" });
+    await userEvent.click(screen.getByRole("button", { name: /^rename$/i }));
+    await userEvent.type(screen.getByRole("textbox", { name: /workspace name/i }), " typo{Escape}");
+    expect(screen.getByRole("heading", { name: "Finance" })).toBeInTheDocument();
+    expect(vi.mocked(renameWorkspace)).not.toHaveBeenCalled();
+  });
+
+  it("says why when the server refuses", async () => {
+    vi.mocked(renameWorkspace).mockRejectedValue(
+      new ApiError("FORBIDDEN", 403, "Only a workspace admin can rename it."),
+    );
+    renderPageAt("/reports?workspace=w1");
+    await screen.findByRole("heading", { name: "Finance" });
+    await userEvent.click(screen.getByRole("button", { name: /^rename$/i }));
+    await userEvent.type(screen.getByRole("textbox", { name: /workspace name/i }), "!{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/only a workspace admin/i);
+    // Still editing: the draft is not thrown away with the error.
+    expect(screen.getByRole("textbox", { name: /workspace name/i })).toHaveValue("Finance!");
+  });
+
+  it("offers no rename on the personal workspace, and a disabled one to a viewer", async () => {
+    vi.mocked(listWorkspaces).mockResolvedValue({
+      workspaces: [PERSONAL, { ...TEAM, myRole: "viewer" as const }],
+    });
+    renderPageAt("/reports?workspace=w0");
+    await screen.findByRole("heading", { name: "My reports" });
+    expect(screen.queryByRole("button", { name: /^rename$/i })).not.toBeInTheDocument();
+
+    renderPageAt("/reports?workspace=w1");
+    await screen.findByRole("heading", { name: "Finance" });
+    const button = screen.getByRole("button", { name: /^rename$/i });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringMatching(/admin/i));
   });
 });

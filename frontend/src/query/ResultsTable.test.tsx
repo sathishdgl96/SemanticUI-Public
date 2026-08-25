@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import ResultsTable from "./ResultsTable";
 
 const RESULT = {
@@ -65,5 +65,31 @@ describe("ResultsTable sorting", () => {
   it("still shows the truncation banner", () => {
     render(<ResultsTable result={{ ...RESULT, truncated: true }} />);
     expect(screen.getByText(/truncated/i)).toBeInTheDocument();
+  });
+});
+
+describe("ResultsTable when a parent owns the sort", () => {
+  it("shows the parent's sort and reports a click instead of sorting itself", async () => {
+    const onSortChange = vi.fn();
+    render(
+      <ResultsTable
+        result={RESULT}
+        sort={{ index: 1, direction: "asc" }}
+        onSortChange={onSortChange}
+      />,
+    );
+    // The header says what the parent said; the rows are the parent's to
+    // order, so they are shown exactly as given.
+    expect(screen.getByRole("columnheader", { name: /revenue/i })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(bodyColumn(1)).toEqual(["30", "13", "200"]);
+
+    await userEvent.click(screen.getByRole("button", { name: /revenue/i }));
+    expect(onSortChange).toHaveBeenCalledWith({ index: 1, direction: "desc" });
+    // ...and a third state exists on the way round: back to the query's order.
+    await userEvent.click(screen.getByRole("button", { name: /region/i }));
+    expect(onSortChange).toHaveBeenCalledWith({ index: 0, direction: "asc" });
   });
 });

@@ -216,10 +216,15 @@ def import_report(
     db: Session = Depends(get_db),
 ) -> dict:
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    report = service.import_report(
-        db, sess.user_id, entry, cache, body.definition, body.viewOverride,
-        body.workspaceId,
+    # The service takes the entry's lock itself, around its DESCRIBE.
+    report = cache.run(
+        db,
+        sess,
+        lambda entry: service.import_report(
+            db, sess.user_id, entry, cache, body.definition, body.viewOverride,
+            body.workspaceId,
+        ),
+        locked=False,
     )
     workspace, role = _context(db, sess.user_id, report)
     return _detail(report, workspace=workspace, role=role)
@@ -262,10 +267,12 @@ def report_provenance(
     }
 
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    with entry.lock:
+
+    def read(entry):
         detail = cache.describe(entry, *view.values())
-        freshness = source_freshness(entry.conn, detail.get("tables", []))
+        return source_freshness(entry.conn, detail.get("tables", []))
+
+    freshness = cache.run(db, sess, read)
 
     return provenance.build(
         view=view,

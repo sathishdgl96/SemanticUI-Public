@@ -17,11 +17,17 @@ user may use, and only that matched spelling -- never the caller's
 string -- is interpolated, through quote_ident.
 """
 
+import logging
 from typing import Any
 
+from sqlalchemy.orm import Session
+
+from app.db.models import DbSession, User
 from app.errors import ApiError
 from app.semantic.discovery import quote_ident
 from app.snowflake import gateway
+
+logger = logging.getLogger(__name__)
 
 
 def _rows(conn: Any, sql: str) -> tuple[list[dict], dict[str, int]]:
@@ -124,3 +130,36 @@ def apply_context(conn: Any, role: str | None, warehouse: str | None) -> None:
             cur.execute(f"USE WAREHOUSE {quote_ident(warehouse)}")
     finally:
         cur.close()
+
+
+def replay_remembered(db: Session, sess: DbSession, conn: Any) -> None:
+    """Put the user back in the role and warehouse they last chose, then
+    record what actually took effect.
+
+    Called on every connection this session gets -- at sign-in, and again
+    whenever the cache rebuilds one after Snowflake's side of it expired.
+    A rebuilt connection that came back in the default role would run the
+    next query somewhere the user did not choose, and a report that works
+    only until the token expires is a report that works by accident.
+
+    Best effort by design: a remembered role that has since been revoked
+    costs the user a preference, never their login. Reading the context
+    back afterwards keeps the stored value honest -- it is what the
+    profile menu and the provenance stamp both rely on, so a preference
+    that silently failed to apply must not survive as if it had.
+    """
+    user = db.get(User, sess.user_id)
+    if user is None:
+        return
+    if user.last_role or user.last_warehouse:
+        try:
+            apply_context(conn, user.last_role, user.last_warehouse)
+        except Exception as exc:
+            logger.info("remembered context no longer usable, using defaults: %s", exc)
+    try:
+        live = current_context(conn)
+    except Exception:
+        return
+    user.last_role = live["role"]
+    user.last_warehouse = live["warehouse"]
+    db.commit()

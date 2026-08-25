@@ -1,5 +1,5 @@
 import { useDraggable } from "@dnd-kit/core";
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import type { FieldInfo, SemanticViewDetail } from "../api/types";
 import { availability } from "./joins";
 import {
@@ -133,8 +133,29 @@ export default function FieldPanel({ detail, wells, onAdd }: Props) {
   const joinsKnown =
     !isModel ||
     (model.memberGraphs ?? []).some((graph) => (graph.relationships ?? []).length > 0);
+
+  // A view of a few hundred columns is scrolled, not read. The match is on
+  // the full `TABLE.NAME` reference, case-blind, so "rev" finds
+  // ORDERS.TOTAL_REVENUE and "orders." finds every column of that table.
+  const searchId = useId();
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toUpperCase();
+  const matches = (field: FieldInfo) => !needle || refOf(field).toUpperCase().includes(needle);
+  const dimensions = detail.dimensions.filter(matches);
+  const metrics = detail.metrics.filter(matches);
+  const nothingMatches = needle !== "" && dimensions.length === 0 && metrics.length === 0;
+
   return (
     <aside className="field-panel">
+      <input
+        id={searchId}
+        type="search"
+        className="data-search field-search"
+        aria-label="Search fields"
+        placeholder="Search fields"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
       {/* Keyboard instructions, which only a keyboard user needs. Always in
           the accessibility tree; shown on screen only once a field row has
           focus, which is exactly when the two keys mean anything. It used to
@@ -143,14 +164,25 @@ export default function FieldPanel({ detail, wells, onAdd }: Props) {
       <p className="field-hint">
         Enter adds to the default well · Space picks up to drag
       </p>
-      <FieldGroup
-        title="Dimensions" kind="dimension" fields={detail.dimensions}
-        wells={wells} onAdd={onAdd} blocked={blocked}
-      />
-      <FieldGroup
-        title="Metrics" kind="metric" fields={detail.metrics}
-        wells={wells} onAdd={onAdd} blocked={blocked}
-      />
+      {nothingMatches && (
+        <p className="tile-hint" role="status">
+          No fields match &ldquo;{search.trim()}&rdquo;.
+        </p>
+      )}
+      {/* A heading over nothing is noise while searching; without a search
+          both groups stay, empty or not, so the pane keeps its shape. */}
+      {(dimensions.length > 0 || !needle) && (
+        <FieldGroup
+          title="Dimensions" kind="dimension" fields={dimensions}
+          wells={wells} onAdd={onAdd} blocked={blocked}
+        />
+      )}
+      {(metrics.length > 0 || !needle) && (
+        <FieldGroup
+          title="Metrics" kind="metric" fields={metrics}
+          wells={wells} onAdd={onAdd} blocked={blocked}
+        />
+      )}
       {!joinsKnown && (
         <p className="field-note" role="note">
           These views did not report how their tables join, so combinations

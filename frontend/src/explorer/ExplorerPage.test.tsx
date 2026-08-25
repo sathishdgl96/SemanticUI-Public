@@ -303,7 +303,11 @@ describe("ExplorerPage saved explores", () => {
     },
   };
 
-  function mockWithExplores(explores: unknown[], detailResult = () => Promise.resolve(DETAIL)) {
+  function mockWithExplores(
+    explores: unknown[],
+    detailResult = () => Promise.resolve(DETAIL),
+    opened: unknown = SAVED,
+  ) {
     apiFetchMock.mockImplementation((...args: unknown[]) => {
       const path = String(args[0]);
       const init = args[1] as { method?: string } | undefined;
@@ -322,7 +326,7 @@ describe("ExplorerPage saved explores", () => {
         return Promise.resolve(SAVED);
       }
       if (path === "/api/explores") return Promise.resolve({ explores });
-      if (path === "/api/explores/e1") return Promise.resolve(SAVED);
+      if (path === "/api/explores/e1") return Promise.resolve(opened);
       if (path === "/api/query/semantic") {
         return Promise.resolve({
           columns: [{ name: "REGION", type: "TEXT" }],
@@ -423,6 +427,78 @@ describe("ExplorerPage saved explores", () => {
     const body = JSON.parse((init as { body: string }).body);
     expect(body.filters).toEqual([
       { id: "f1", field: "T.REGION", op: "is", values: ["EAST"] },
+    ]);
+  });
+
+  it("sorts the chart with the table, sends the order to Snowflake, and saves it", async () => {
+    // A click on the Data tab's column header used to reorder the table
+    // alone: the chart kept the query's order, a rerun lost the sort, and
+    // the saved explore never had it.
+    mockWithExplores([]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "My View" }));
+    await userEvent.click(await screen.findByRole("button", { name: /REGION/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /REVENUE/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^run$/i }));
+    await screen.findByRole("table");
+
+    // The header in the Data tab.
+    await userEvent.click(screen.getByRole("button", { name: /^REGION$/ }));
+    expect(screen.getByRole("columnheader", { name: /REGION/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+
+    // The next run asks Snowflake for that order.
+    await userEvent.click(screen.getByRole("button", { name: /^run$/i }));
+    await waitFor(() => {
+      const runs = apiFetchMock.mock.calls.filter(([p]) => p === "/api/query/semantic");
+      expect(runs).toHaveLength(2);
+    });
+    const [, lastRun] = apiFetchMock.mock.calls.filter(([p]) => p === "/api/query/semantic").at(-1)!;
+    expect(JSON.parse((lastRun as { body: string }).body).orderBy).toEqual([
+      { field: "T.REGION", direction: "asc" },
+    ]);
+
+    // And the saved explore remembers it.
+    await userEvent.type(screen.getByLabelText(/explore name/i), "By region");
+    await userEvent.click(screen.getByRole("button", { name: /save as explore/i }));
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith(
+        "/api/explores",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const [, init] = apiFetchMock.mock.calls.find(
+      ([p, i]) => p === "/api/explores" && (i as { method?: string })?.method === "POST",
+    )!;
+    expect(JSON.parse((init as { body: string }).body).definition.orderBy).toEqual([
+      { field: "T.REGION", direction: "asc" },
+    ]);
+  });
+
+  it("restores a saved explore's order and shows it on the table", async () => {
+    const sorted = {
+      ...SAVED,
+      definition: {
+        ...SAVED.definition,
+        orderBy: [{ field: "T.REGION", direction: "desc" as const }],
+      },
+    };
+    mockWithExplores([sorted], undefined, sorted);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Revenue by region/ }));
+    await screen.findByDisplayValue("Revenue by region");
+
+    await userEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+    await screen.findByRole("table");
+    expect(screen.getByRole("columnheader", { name: /REGION/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    const [, init] = apiFetchMock.mock.calls.find(([p]) => p === "/api/query/semantic")!;
+    expect(JSON.parse((init as { body: string }).body).orderBy).toEqual([
+      { field: "T.REGION", direction: "desc" },
     ]);
   });
 

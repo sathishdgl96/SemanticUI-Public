@@ -48,23 +48,22 @@ def _prepare(db: Session, sess: DbSession, report_id: str):
             "This report is not bound to a semantic view, so there is nothing "
             "to export.",
         )
-    cache = get_cache()
-    return report, cache, cache.acquire(db, sess)
+    return report, get_cache()
 
 
 def export_workbook(
     db: Session, sess: DbSession, report_id: str, sheets: list[dict]
 ) -> tuple[str, bytes]:
-    report, cache, entry = _prepare(db, sess, report_id)
+    report, cache = _prepare(db, sess, report_id)
     settings = get_settings()
 
-    built: list[SheetData] = []
-    #: Positionally aligned with `built`, None where a sheet carries an error
-    #: instead of data. Aligned rather than filtered because the sheet NAMES
-    #: are assigned over every sheet, failures included -- dropping entries
-    #: here would shift every later name by one.
-    refreshable: list[LiveSheet | None] = []
-    with entry.lock:
+    def build(entry):
+        built: list[SheetData] = []
+        #: Positionally aligned with `built`, None where a sheet carries an
+        #: error instead of data. Aligned rather than filtered because the
+        #: sheet NAMES are assigned over every sheet, failures included --
+        #: dropping entries here would shift every later name by one.
+        refreshable: list[LiveSheet | None] = []
         detail = cache.describe(
             entry, report.view_database, report.view_schema, report.view_name
         )
@@ -105,7 +104,9 @@ def export_workbook(
                     rows=len(result.rows),
                 )
             )
-        identifier = account_identifier(entry.conn)
+        return built, refreshable, account_identifier(entry.conn)
+
+    built, refreshable, identifier = cache.run(db, sess, build)
 
     # The names the workbook actually used -- a 32-character title becomes a
     # 31-character sheet, and looking one up by its original title finds
@@ -144,8 +145,9 @@ def export_workbook(
 def connection_details(
     db: Session, sess: DbSession, report_id: str, sheets: list[dict]
 ) -> dict:
-    report, cache, entry = _prepare(db, sess, report_id)
-    with entry.lock:
+    report, cache = _prepare(db, sess, report_id)
+
+    def read(entry):
         detail = cache.describe(
             entry, report.view_database, report.view_schema, report.view_name
         )
@@ -159,7 +161,9 @@ def connection_details(
         # Asked of the connection rather than read from the stored locator:
         # the locator does not resolve as a hostname outside the default
         # region, so it would give the user a server string that fails.
-        identifier = account_identifier(entry.conn)
+        return out, account_identifier(entry.conn)
+
+    out, identifier = cache.run(db, sess, read)
     return {
         "account": identifier or sess.user.snowflake_account,
         "database": report.view_database,
@@ -178,13 +182,15 @@ def connection_file(
     Excel opens directly. Nothing is executed here -- this builds a statement
     for Excel to run on the user's own connection.
     """
-    report, cache, entry = _prepare(db, sess, report_id)
-    with entry.lock:
+    report, cache = _prepare(db, sess, report_id)
+
+    def read(entry):
         detail = cache.describe(
             entry, report.view_database, report.view_schema, report.view_name
         )
-        sql = build_literal_sql(detail, _request(report, sheet))
-        identifier = account_identifier(entry.conn)
+        return build_literal_sql(detail, _request(report, sheet)), account_identifier(entry.conn)
+
+    sql, identifier = cache.run(db, sess, read)
 
     title = sheet.get("title") or report.name or "Query"
     document = build_odc(

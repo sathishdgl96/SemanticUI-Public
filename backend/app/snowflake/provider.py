@@ -12,7 +12,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,8 @@ from app.semantic.discovery import describe_semantic_view
 from app.snowflake import connect as sf_connect
 
 _REFRESH_SKEW = timedelta(seconds=30)
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -126,7 +128,14 @@ class ConnectionCache:
                 break
         return to_close
 
-    def acquire(self, db: Session, sess: DbSession) -> CacheEntry:
+    def acquire(self, db: Session, sess: DbSession, *, refresh: bool = False) -> CacheEntry:
+        """This session's connection, built if there is none alive.
+
+        `refresh` forces a new OAuth access token on a rebuild even when the
+        stored expiry says the current one is fine -- for when Snowflake has
+        just said otherwise (see `run`). It is ignored when an alive entry
+        exists: a concurrent request already rebuilt it.
+        """
         to_close: list[Any] = []
         with self._lock:
             entry = self._entries.get(sess.id)
@@ -139,7 +148,7 @@ class ConnectionCache:
             _close_quietly(c)
         if sess.mode != "oauth":
             raise AuthExpiredError("Dev session connection lost; sign in again")
-        conn = self._build_oauth(db, sess)
+        conn = self._build_oauth(db, sess, force_refresh=refresh)
         to_close = []
         with self._lock:
             existing = self._entries.get(sess.id)
@@ -169,15 +178,22 @@ class ConnectionCache:
         user = db.get(User, sess.user_id)
         return user.snowflake_user if user else None
 
-    def _build_oauth(self, db: Session, sess: DbSession) -> Any:
+    def _build_oauth(
+        self, db: Session, sess: DbSession, *, force_refresh: bool = False
+    ) -> Any:
         token = decrypt_token(sess.access_token_enc)
         expires_at = sess.access_expires_at
         if expires_at is not None and expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
-        if expires_at is None or expires_at <= now + _REFRESH_SKEW:
-            if sess.refresh_token_enc is None:
+        expired = expires_at is None or expires_at <= now + _REFRESH_SKEW
+        if sess.refresh_token_enc is None:
+            # No way to get a new token: an expired one is a sign-in; a
+            # nominally valid one is tried as it is, even when asked to
+            # refresh, because that is the only card left to play.
+            if expired:
                 raise AuthExpiredError()
+        elif expired or force_refresh:
             try:
                 tok = oauth_mod.get_oauth_client().refresh(
                     decrypt_token(sess.refresh_token_enc)
@@ -192,7 +208,7 @@ class ConnectionCache:
             db.commit()
         # A rebuild must present the same identity and ask for the same
         # role the original did, or it fails where the original passed.
-        return sf_connect.connect_oauth(
+        conn = sf_connect.connect_oauth(
             token,
             user=self._login_name(db, sess),
             role=oauth_mod.role_from_token(token),
@@ -200,6 +216,58 @@ class ConnectionCache:
             # the configured default -- a different account entirely.
             account=sess.snowflake_account_choice,
         )
+        # ...and run as the role and warehouse the user chose, not the
+        # token's defaults. Imported here: session.context imports the
+        # gateway, and this module is imported by nearly everything.
+        from app.session import context
+
+        context.replay_remembered(db, sess, conn)
+        return conn
+
+    def run(
+        self,
+        db: Session,
+        sess: DbSession,
+        fn: Callable[[CacheEntry], T],
+        *,
+        locked: bool = True,
+    ) -> T:
+        """Run `fn` on this session's connection, healing an expired one.
+
+        The one place a request meets Snowflake's side of the session
+        expiring. `is_closed()` is a client-side flag, so a connection whose
+        OAuth token expired -- or whose session timed out -- still comes
+        back from `acquire` looking fine, and the first query on it fails
+        with a token error. Handling that here, for every route, is what
+        makes an expired Snowflake token invisible to somebody whose app
+        session is still good: the dead entry is discarded, a new
+        connection is built on a freshly refreshed token, and `fn` runs
+        again. Anything else -- a dev session, which has no refresh token,
+        or a second failure -- surfaces as the 401 it always was.
+
+        `locked` is whether to hold the entry's lock around `fn`. Callers
+        that hand the entry to a service which takes the lock itself pass
+        False; `fn` is otherwise never called without it.
+        """
+        entry = self.acquire(db, sess)
+        try:
+            return self._call(entry, fn, locked)
+        except AuthExpiredError:
+            # Discarded whether or not a retry follows, so a dev session
+            # is told to sign in rather than failing on the same dead
+            # connection every request until the sweep gets to it.
+            self.discard(sess.id, entry)
+            if sess.mode != "oauth":
+                raise
+        entry = self.acquire(db, sess, refresh=True)
+        return self._call(entry, fn, locked)
+
+    @staticmethod
+    def _call(entry: CacheEntry, fn: Callable[[CacheEntry], T], locked: bool) -> T:
+        if not locked:
+            return fn(entry)
+        with entry.lock:
+            return fn(entry)
 
     def evict(self, session_id: str) -> None:
         with self._lock:

@@ -29,9 +29,9 @@ def list_views(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
-    with entry.lock:
-        views = discovery.list_semantic_views(entry.conn, database, schema)
+    views = get_cache().run(
+        db, sess, lambda entry: discovery.list_semantic_views(entry.conn, database, schema)
+    )
     # One query for the whole page, not one per row: the badge must not cost
     # a round trip per view.
     certified = certification.certified_keys(db)
@@ -52,9 +52,9 @@ def describe_view(
     db: Session = Depends(get_db),
 ) -> dict:
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    with entry.lock:
-        detail = cache.describe(entry, database, schema, name, force=refresh)
+    detail = cache.run(
+        db, sess, lambda entry: cache.describe(entry, database, schema, name, force=refresh)
+    )
     # Model-declared hierarchies, normalised into the same shape a
     # report-defined one has. Empty on every account seen so far, which is why
     # reports can also define their own -- see detect_hierarchies. Built here
@@ -95,7 +95,6 @@ def field_values(
     first page.
     """
     cache = get_cache()
-    entry = cache.acquire(db, sess)
     page = max(1, min(limit, VALUES_CAP))
     needle = (search or "").strip()
     req = SemanticQueryRequest.model_validate(
@@ -117,14 +116,14 @@ def field_values(
             "limit": page + 1,
         }
     )
-    with entry.lock:
+    def fetch(entry):
         detail = cache.describe(entry, database, schema, name)
         sql, params, effective_limit = build_semantic_sql(
             detail, req, max_rows=get_settings().row_cap
         )
-        result = gateway.run_query(
-            entry.conn, sql, max_rows=effective_limit, params=params
-        )
+        return gateway.run_query(entry.conn, sql, max_rows=effective_limit, params=params)
+
+    result = cache.run(db, sess, fetch)
 
     # A semantic view already groups by its selected dimensions, so the rows
     # come back distinct -- dedupe anyway, since that is a property of the
@@ -152,15 +151,18 @@ def query_semantic(
     db: Session = Depends(get_db),
 ) -> dict:
     cache = get_cache()
-    entry = cache.acquire(db, sess)
-    with entry.lock:
+
+    def fetch(entry):
         detail = cache.describe(entry, req.database, req.schema_, req.view)
         sql, params, effective_limit = build_semantic_sql(
             detail, req, max_rows=get_settings().row_cap
         )
-        result = gateway.run_query(
-            entry.conn, sql, max_rows=effective_limit, params=params
-        )
+        result = gateway.run_query(entry.conn, sql, max_rows=effective_limit, params=params)
+        # The describe and the SQL come out too: the response echoes the
+        # statement, and says whether the query was bridged.
+        return detail, sql, result
+
+    detail, sql, result = cache.run(db, sess, fetch)
     # The single most valuable line in a data tool's trail: somebody asked
     # this view a question. Shapes only -- how many rows came back and
     # whether it was capped, never the SQL, the filters or a value. The
@@ -241,11 +243,12 @@ def read_certification(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
-    with entry.lock:
+    def probe(entry):
         owner, kind = _owner_of(entry.conn, database, schema, name)
         # One round trip, and only here -- never per row of a listing.
-        can = certification.may_certify(entry.conn, owner, kind)
+        return certification.may_certify(entry.conn, owner, kind)
+
+    can = get_cache().run(db, sess, probe)
     row = certification.get(db, database, schema, name)
     return _certification_body(row, can_certify=can)
 
@@ -259,17 +262,19 @@ def write_certification(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
-    with entry.lock:
+    def probe(entry):
         owner, kind = _owner_of(entry.conn, database, schema, name)
-        if not certification.may_certify(entry.conn, owner, kind):
-            record(db, "model.certify", user_id=sess.user_id, session_id=sess.id,
-                   resource_type="semantic_view", outcome="denied",
-                   detail={"reason": "not the owning role"})
-            raise ApiError(
-                "FORBIDDEN", 403,
-                "Certifying this model needs the Snowflake role that owns it.",
-            )
+        return owner, certification.may_certify(entry.conn, owner, kind)
+
+    owner, may = get_cache().run(db, sess, probe)
+    if not may:
+        record(db, "model.certify", user_id=sess.user_id, session_id=sess.id,
+               resource_type="semantic_view", outcome="denied",
+               detail={"reason": "not the owning role"})
+        raise ApiError(
+            "FORBIDDEN", 403,
+            "Certifying this model needs the Snowflake role that owns it.",
+        )
 
     user = db.get(User, sess.user_id)
     row = certification.put(

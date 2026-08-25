@@ -24,8 +24,7 @@ class ContextBody(BaseModel):
 def read_context(
     sess: DbSession = Depends(current_session), db: Session = Depends(get_db)
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
-    with entry.lock:
+    def read(entry):
         # What the connection IS running as, not what was last stored:
         # a remembered role can be revoked, and an apply can fail
         # halfway. A menu naming a role the session is not in is worse
@@ -33,6 +32,9 @@ def read_context(
         live = context.current_context(entry.conn)
         roles = context.available_roles(entry.conn)
         warehouses = context.available_warehouses(entry.conn)
+        return live, roles, warehouses
+
+    live, roles, warehouses = get_cache().run(db, sess, read)
     return {
         "role": live["role"],
         "warehouse": live["warehouse"],
@@ -47,8 +49,7 @@ def set_context(
     sess: DbSession = Depends(current_session),
     db: Session = Depends(get_db),
 ) -> dict:
-    entry = get_cache().acquire(db, sess)
-    with entry.lock:
+    def switch(entry):
         # Resolved against what Snowflake just said, and refused before
         # anything is applied -- a rejected choice must leave the
         # connection exactly as it was.
@@ -62,7 +63,9 @@ def set_context(
             body.warehouse, context.available_warehouses(entry.conn), "warehouse"
         )
         context.apply_context(entry.conn, None, warehouse)
-        applied = context.current_context(entry.conn)
+        return role, warehouse, context.current_context(entry.conn)
+
+    role, warehouse, applied = get_cache().run(db, sess, switch)
 
     # Remember what actually took effect, so a half-applied switch is
     # not replayed as if it had succeeded at the next login.

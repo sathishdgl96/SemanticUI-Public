@@ -24,6 +24,7 @@ import ResultsTable from "../query/ResultsTable";
 import SqlPreview from "../query/SqlPreview";
 import ExploreFilters from "./ExploreFilters";
 import ExploreVisual from "./ExploreVisual";
+import { applyOrder, orderByFor, pruneOrderBy, sortStateFor, type OrderBy } from "./ordering";
 import SavedExploresPanel from "./SavedExploresPanel";
 import Section from "./Section";
 import VizPicker from "./VizPicker";
@@ -68,6 +69,10 @@ export default function ExplorerPage() {
   // than inside the query because they survive a re-run and are part of what
   // gets saved.
   const [filters, setFilters] = useState<Filter[]>([]);
+  // How the rows are ordered: set by a click on a column header in the
+  // Data tab, drawn by the chart as well as the table, sent with the
+  // query as its ORDER BY and saved with the explore. See ordering.ts.
+  const [orderBy, setOrderBy] = useState<OrderBy[]>([]);
   // The visual the user picked, or null while they are happy with the one
   // that fits. Kept separate from the effective type so that outgrowing a
   // pie and then removing the extra measure returns to the pie.
@@ -160,6 +165,14 @@ export default function ExplorerPage() {
   // report opens showing the chart the explore was already showing.
   const visualType = effectiveType(chosenType, wells);
   const visual = exploreVisual(visualType, wells);
+  const selectedRefs = (() => {
+    const { dimensions, metrics } = wellsToQuery(wells);
+    return [...dimensions, ...metrics];
+  })();
+  // The rows both the chart and the table draw, in the chosen order. A
+  // sort that reached Snowflake as ORDER BY comes back already in it;
+  // one just clicked is applied here, so the picture changes at once.
+  const shown = run.data ? applyOrder(run.data, orderBy) : undefined;
   const unused = unusedFields(visualType, wells);
   const totalFields = wells.axis.length + wells.legend.length + wells.values.length;
   // `canRender` as well as "something is selected": handing the server a
@@ -186,6 +199,13 @@ export default function ExplorerPage() {
               // The filters travel with it. A report that opened showing more
               // rows than the explore did would be a different answer.
               filters: filters.filter(isActive),
+              // The order travels with the visual: a report tile carries
+              // its sort as an option, and a tile that came back shuffled
+              // would not be the chart that was pinned.
+              options: {
+                ...visual.options,
+                ...(orderBy[0] ? { sort: orderBy[0] } : {}),
+              },
             },
           ],
           filters: [],
@@ -213,8 +233,9 @@ export default function ExplorerPage() {
     setSelectedView({ ...view, comment: view.comment ?? null });
     setWells(emptyWells());
     // Filters name fields of the OLD view; carrying them across would send
-    // references the new view has never heard of.
+    // references the new view has never heard of. So would a sort.
     setFilters([]);
+    setOrderBy([]);
     setChosenType(null);
     setOpenExplore(null);
     setExploreName("");
@@ -255,6 +276,9 @@ export default function ExplorerPage() {
       // Unfinished filters are dropped here, exactly as they are for a
       // report tile: an empty IN list is a 422, not a filter.
       filters: filters.filter(isActive),
+      // Ordered by Snowflake, so a capped result is the first N rows of
+      // the order rather than a sort of whichever N came back.
+      orderBy: pruneOrderBy(orderBy, [...dimensions, ...metrics]),
       limit: rowLimit,
     });
   }
@@ -275,7 +299,7 @@ export default function ExplorerPage() {
       dimensions,
       metrics,
       filters,
-      orderBy: [],
+      orderBy: pruneOrderBy(orderBy, [...dimensions, ...metrics]),
       limit: rowLimit,
     };
   }
@@ -360,6 +384,7 @@ export default function ExplorerPage() {
     for (const ref of metrics) next = addToWell(next, "values", ref, "metric");
     setWells(next);
     setFilters(saved ?? []);
+    setOrderBy(explore.definition.orderBy ?? []);
     setRowLimit(limit ?? DEFAULT_ROW_LIMIT);
     setChosenType(null);
     setOpenExplore(explore);
@@ -576,8 +601,8 @@ export default function ExplorerPage() {
                       every selected field.`}
                     </p>
                   )}
-                  {run.data ? (
-                    <ExploreVisual visual={visual} result={run.data} />
+                  {shown ? (
+                    <ExploreVisual visual={visual} result={shown} />
                   ) : (
                     <p className="tile-hint">Pick fields and press Run.</p>
                   )}
@@ -607,10 +632,16 @@ export default function ExplorerPage() {
                     </label>
                   }
                 >
-                  {run.data ? (
+                  {shown ? (
                     <>
-                      <ResultsTable result={run.data} />
-                      <SqlPreview sql={run.data.sql} />
+                      <ResultsTable
+                        result={shown}
+                        sort={sortStateFor(shown.columns, orderBy)}
+                        onSortChange={(next) =>
+                          setOrderBy(orderByFor(shown.columns, next, selectedRefs))
+                        }
+                      />
+                      <SqlPreview sql={shown.sql} />
                     </>
                   ) : (
                     <p className="tile-hint">No results yet.</p>
