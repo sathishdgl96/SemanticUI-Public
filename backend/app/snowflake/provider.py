@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
+from snowflake.connector.errors import Error as SnowflakeError
 from sqlalchemy.orm import Session
 
 from app.auth import oauth as oauth_mod
@@ -24,6 +25,7 @@ from app.db.models import DbSession
 from app.errors import AuthExpiredError
 from app.semantic.discovery import describe_semantic_view
 from app.snowflake import connect as sf_connect
+from app.snowflake.gateway import map_snowflake_error
 
 _REFRESH_SKEW = timedelta(seconds=30)
 
@@ -170,14 +172,6 @@ class ConnectionCache:
             _close_quietly(c)
         return result
 
-    @staticmethod
-    def _login_name(db: Session, sess: DbSession) -> str | None:
-        """The Snowflake user this session signed in as."""
-        from app.db.models import User
-
-        user = db.get(User, sess.user_id)
-        return user.snowflake_user if user else None
-
     def _build_oauth(
         self, db: Session, sess: DbSession, *, force_refresh: bool = False
     ) -> Any:
@@ -208,14 +202,31 @@ class ConnectionCache:
             db.commit()
         # A rebuild must present the same identity and ask for the same
         # role the original did, or it fails where the original passed.
-        conn = sf_connect.connect_oauth(
-            token,
-            user=self._login_name(db, sess),
-            role=oauth_mod.role_from_token(token),
-            # The account this session chose, or the rebuild lands on
-            # the configured default -- a different account entirely.
-            account=sess.snowflake_account_choice,
-        )
+        #
+        # The identity is the one the TOKEN carries -- the claim sign-in
+        # presented, which Snowflake maps to a LOGIN_NAME -- and never
+        # the user NAME that CURRENT_USER() reported afterwards. For
+        # anyone arriving through an identity provider the two differ
+        # (an email against a short name), and Snowflake refuses a
+        # connection whose `user` disagrees with its token: 390309, "the
+        # user you were trying to authenticate as differs from the user
+        # tied to the access token". A rebuild used to send the name and
+        # fail exactly that way once the first token had expired.
+        settings = get_settings()
+        try:
+            conn = sf_connect.connect_oauth(
+                token,
+                user=oauth_mod.identity_from_token(token, claim=settings.oauth_user_claim),
+                role=oauth_mod.role_from_token(token),
+                # The account this session chose, or the rebuild lands on
+                # the configured default -- a different account entirely.
+                account=sess.snowflake_account_choice,
+            )
+        except SnowflakeError as exc:
+            # Mapped like a query's failure would be, so a refused rebuild
+            # is a sign-in prompt or a named error -- not a bare
+            # DatabaseError and a 500.
+            raise map_snowflake_error(exc) from exc
         # ...and run as the role and warehouse the user chose, not the
         # token's defaults. Imported here: session.context imports the
         # gateway, and this module is imported by nearly everything.

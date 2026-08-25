@@ -137,20 +137,30 @@ class TestCallbackUsesTheTokenIdentity:
 
 
 class TestRebuildKeepsTheUser:
-    def test_a_rebuilt_connection_still_names_its_user(self, db, monkeypatch):
-        # The provider rebuilds OAuth connections from the stored refresh
-        # token; it must present the same login name or the rebuild hits
-        # the identical 390100.
+    # The provider rebuilds OAuth connections from the stored refresh token.
+    # It must present exactly the identity sign-in presented -- the claim
+    # the TOKEN carries -- or the rebuild fails where sign-in passed: with
+    # no name at all, 390100; with the Snowflake user NAME that
+    # CURRENT_USER() reported (an "ALICE" for an "alice@corp.com" token),
+    # 390309, "the user you were trying to authenticate as differs from
+    # the user tied to the access token".
+
+    def _session(self, db, token):
         from datetime import datetime, timedelta, timezone
 
         from app.auth.sessions import create_session
-        from app.snowflake.provider import ConnectionCache
 
-        sess = create_session(
-            db, account="ACME", user="alice@corp.com", mode="oauth",
-            access_token="at-1", refresh_token="rt-1",
+        # Stored as sign-in stores it: the NAME probe_identity reported,
+        # which is not the login name the token carries.
+        return create_session(
+            db, account="ACME", user="ALICE", mode="oauth",
+            access_token=token, refresh_token="rt-1",
             access_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         )
+
+    def _rebuild(self, db, sess, monkeypatch):
+        from app.snowflake.provider import ConnectionCache
+
         seen = {}
 
         def fake_connect(tok, user=None, role=None, account=None):
@@ -158,6 +168,17 @@ class TestRebuildKeepsTheUser:
             return FakeConnection()
 
         monkeypatch.setattr(sf_connect, "connect_oauth", fake_connect)
-        cache = ConnectionCache(idle_ttl=900, max_size=10)
-        cache.acquire(db, sess)
-        assert seen["user"] == "alice@corp.com"
+        ConnectionCache(idle_ttl=900, max_size=10).acquire(db, sess)
+        return seen["user"]
+
+    def test_a_rebuilt_connection_names_the_user_its_token_names(self, db, monkeypatch):
+        sess = self._session(db, jwt_with({"upn": "alice@corp.com"}))
+        assert self._rebuild(db, sess, monkeypatch) == "alice@corp.com"
+
+    def test_an_opaque_token_is_presented_alone_as_it_was_at_sign_in(self, db, monkeypatch):
+        # Snowflake's own OAuth server issues tokens that are not JWTs.
+        # Sign-in sends no name with one (identity_from_token has nothing
+        # to read), and a rebuild does the same -- not the stored NAME,
+        # which is the one thing sign-in never sent.
+        sess = self._session(db, "opaque-at-1")
+        assert self._rebuild(db, sess, monkeypatch) is None

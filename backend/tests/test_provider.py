@@ -422,3 +422,64 @@ def test_rebuilt_connection_runs_as_the_remembered_role(db, monkeypatch):
     make_cache().acquire(db, sess)
     assert 'USE ROLE "ANALYST"' in conn.cursor().executed
     assert 'USE WAREHOUSE "WH_SMALL"' in conn.cursor().executed
+
+
+def _jwt_with(payload: dict) -> str:
+    import base64
+    import json
+
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJub25lIn0.{body}."
+
+
+def test_rebuild_presents_the_tokens_login_name_not_the_stored_user_name(db, monkeypatch):
+    # Signed in through an identity provider, the token names the person
+    # by their login name (an email); CURRENT_USER() then reports the
+    # Snowflake user NAME (a short handle). A rebuild that sent the NAME
+    # alongside a token for the email was refused with 390309 -- "the user
+    # you were trying to authenticate as differs from the user tied to the
+    # access token" -- the first time the original token expired.
+    token = _jwt_with({"upn": "sathish@corp.example", "sub": "x"})
+    sess = create_session(
+        db, account="ACME", user="SNAGARAJ", mode="oauth",
+        access_token="at-old", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+
+    class StubOAuth:
+        def refresh(self, refresh_token):
+            return TokenResponse(token, "rt-2", 600)
+
+    monkeypatch.setattr(oauth_mod, "get_oauth_client", lambda: StubOAuth())
+    presented = []
+
+    def fake_connect(token_, user=None, role=None, account=None):
+        presented.append(user)
+        return FakeConnection()
+
+    monkeypatch.setattr(sf_connect, "connect_oauth", fake_connect)
+    make_cache().acquire(db, sess)
+    assert presented == ["sathish@corp.example"]
+
+
+def test_a_rebuild_snowflake_refuses_is_an_api_error_not_a_crash(db, monkeypatch):
+    from snowflake.connector.errors import DatabaseError
+
+    sess = create_session(
+        db, account="ACME", user="ALICE", mode="oauth",
+        access_token="at-1", refresh_token="rt-1",
+        access_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+
+    def refuse(token, user=None, role=None, account=None):
+        raise DatabaseError(
+            msg="The user you were trying to authenticate as differs from the user "
+            "tied to the access token.",
+            errno=390309,
+            sqlstate="08001",
+        )
+
+    monkeypatch.setattr(sf_connect, "connect_oauth", refuse)
+    # A connection-was-not-established refusal is a sign-in, not a 500.
+    with pytest.raises(AuthExpiredError):
+        make_cache().acquire(db, sess)
