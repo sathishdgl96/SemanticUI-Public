@@ -23,6 +23,28 @@ describe("buildChartOption", () => {
     expect(line.series[0].lineStyle.width).toBe(2);
   });
 
+  it("draws every category label, slanted, so a month of days names each day", () => {
+    // The chart library's default drops any label that would touch its
+    // neighbour. In the explorer there is no Format pane to turn that off,
+    // so all-and-slanted is the default here.
+    const option = buildChartOption("bar", categories, [
+      { name: "A", data: [1, 2], colorIndex: 0 },
+    ]);
+    expect(option.xAxis.axisLabel.interval).toBe(0);
+    expect(option.xAxis.axisLabel.rotate).toBe(45);
+  });
+
+  it("gives up more of the plot to longer category names", () => {
+    const series = [{ name: "A", data: [1, 2], colorIndex: 0 }];
+    const short = buildChartOption("bar", ["Q1", "Q2"], series);
+    const long = buildChartOption("bar", ["NORTH AMERICA EAST", "EMEA"], series);
+    expect(long.grid.bottom).toBeGreaterThan(short.grid.bottom);
+    // ...but never the whole chart: past a cap the label is truncated instead.
+    const absurd = buildChartOption("bar", ["X".repeat(200)], series);
+    expect(absurd.grid.bottom).toBeLessThanOrEqual(long.grid.bottom + 96);
+    expect(absurd.xAxis.axisLabel.overflow).toBe("truncate");
+  });
+
   it("legend only for 2+ series", () => {
     const one = buildChartOption("bar", categories, [
       { name: "A", data: [1, 2], colorIndex: 0 },

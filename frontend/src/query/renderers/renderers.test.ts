@@ -67,7 +67,30 @@ describe("buildVisualOption", () => {
     expect(option.series[0].type).toBe("pie");
     expect(option.series[0].data.map((d) => d.name)).toEqual(["EAST", "WEST"]);
     expect(option.series[0].data[1].itemStyle.color).toBe(SERIES_COLORS[1]);
-    expect(option.series[0].radius).toEqual(["0%", "70%"]);
+    expect(option.series[0].radius).toEqual(["0%", "55%"]);
+  });
+
+  it("leaves the pie room for its labels and keeps the legend to one row", () => {
+    // The labels sit OUTSIDE the slices on leader lines, so a pie drawn to
+    // 70% of the tile pushed them past its edge and into the legend; and a
+    // plain legend of twenty regions wrapped into four rows drawn straight
+    // over the bottom of the dial. Both were "labels on top of the chart".
+    const option = buildVisualOption(
+      visual({ type: "pie", wells: { legend: ["C.REGION"], values: ["A.REVENUE"] } }),
+      categorical,
+    )! as PieOptionLike;
+    const [pie] = option.series;
+    expect(option.legend.type).toBe("scroll");
+    expect(pie.radius).toEqual(["0%", "55%"]);
+    const label = pie.label as Record<string, unknown>;
+    expect(label.position).toBe("outside");
+    // A label that would land on another is dropped, not drawn over it, and
+    // a sliver too thin to point at gets none.
+    expect((pie.labelLayout as Record<string, unknown>).hideOverlap).toBe(true);
+    expect(pie.minShowLabelAngle as number).toBeGreaterThan(0);
+    // A long name is cut with an ellipsis rather than running off the tile.
+    expect(label.overflow).toBe("truncate");
+    expect(label.width as number).toBeGreaterThan(0);
   });
 
   it("makes a donut when asked", () => {
@@ -79,7 +102,7 @@ describe("buildVisualOption", () => {
       }),
       categorical,
     )! as PieOptionLike;
-    expect(option.series[0].radius).toEqual(["45%", "70%"]);
+    expect(option.series[0].radius).toEqual(["35%", "55%"]);
   });
 
   it("builds a scatter with both metrics on value axes", () => {

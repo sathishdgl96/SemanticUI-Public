@@ -37,13 +37,42 @@ export function pieOption(visual: Visual, result: QueryResponse): PieOptionLike 
     // tooltip near an edge would otherwise be drawn half outside and read as
     // truncated data ("ustomer#0001" instead of "Customer#0001").
     tooltip: { trigger: "item", confine: true },
-    legend: { show: true, bottom: 0, textStyle: { color: CHART_INK.secondary } },
+    legend: {
+      show: true,
+      bottom: 0,
+      // One row with arrows, never a wrap: a plain legend of twenty regions
+      // stacked into four rows and painted them over the bottom of the dial.
+      type: "scroll",
+      textStyle: { color: CHART_INK.secondary },
+    },
     series: [{
       type: "pie",
-      radius: visual.options.donut ? ["45%", "70%"] : ["0%", "70%"],
+      // 55%, not 70%: the labels sit OUTSIDE the slices on leader lines,
+      // so the dial has to stop short of the box to leave them somewhere
+      // to be. At 70% they ran off the tile and into the legend.
+      radius: visual.options.donut ? ["35%", "55%"] : ["0%", "55%"],
       center: ["50%", "45%"],
       data,
-      label: { color: CHART_INK.secondary },
+      // A sliver under three degrees cannot be pointed at legibly; its
+      // label is the one that piles onto its neighbours'.
+      minShowLabelAngle: 3,
+      label: {
+        color: CHART_INK.secondary,
+        position: "outside",
+        // Anchored to the end of its own leader line rather than to the
+        // tile's edge, so a wide tile does not stretch every line to the
+        // margins.
+        alignTo: "labelLine",
+        // Kept inside the box; without it a label near the edge is drawn
+        // half outside and the tile clips it.
+        bleedMargin: 8,
+        // A long name is cut with an ellipsis; the tooltip has the whole of it.
+        width: 96,
+        overflow: "truncate",
+      },
+      labelLine: { length: 8, length2: 10 },
+      // A label that would land on another is dropped, not drawn over it.
+      labelLayout: { hideOverlap: true },
     }],
   };
 }

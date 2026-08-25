@@ -209,7 +209,9 @@ export function formatNumber(value: number, numberFormat: string): string {
  *  colliding, so they are all drawn but never slanted. */
 export function categoryLabelLayout(
   categories: string[],
-  format: FormatOptions | undefined,
+  // Only the two fields it reads, so the explorer -- which has no Format
+  // pane and so no FormatOptions -- can ask for the same layout.
+  format: Pick<FormatOptions, "categoryLabels" | "axisFontSize"> | undefined,
   horizontal = false,
 ): { showAll: boolean; rotate: number; reserve: number; width?: number } {
   const mode = format?.categoryLabels ?? "auto";

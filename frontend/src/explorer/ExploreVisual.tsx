@@ -20,6 +20,15 @@ interface Props {
   result: QueryResponse;
 }
 
+/** What an explore's chart looks like unless the visual says otherwise.
+ *
+ *  Every category label, slanted: the chart library's default drops any
+ *  label that would touch its neighbour, and the explorer has no Format
+ *  pane to turn that off, so a bar per day named one day in five with no
+ *  way to see the rest. A report tile keeps the library's default and
+ *  offers the choice in its Format pane, because there the author decides. */
+const EXPLORER_DEFAULT_OPTIONS: Record<string, unknown> = { categoryLabels: "all" };
+
 function kpiText(result: QueryResponse): string {
   const value = Number(result.rows[0]?.[0] ?? 0);
   // Locale pinned, for the reason given in VisualTile: the runtime default
@@ -28,7 +37,14 @@ function kpiText(result: QueryResponse): string {
 }
 
 export default function ExploreVisual({ visual, result }: Props) {
-  const option = useMemo(() => buildVisualOption(visual, result), [visual, result]);
+  const option = useMemo(
+    () =>
+      buildVisualOption(
+        { ...visual, options: { ...EXPLORER_DEFAULT_OPTIONS, ...visual.options } },
+        result,
+      ),
+    [visual, result],
+  );
   const title = visualTitle(visual);
 
   if (visual.type === "table") return <ResultsTable result={result} />;
